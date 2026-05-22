@@ -10,12 +10,13 @@ from .fixtures import (
 )
 from .hazen_williams import hazen_williams_head_loss
 from .large_fixtures import make_grid_network
-from .incidence import incidence_matrix, node_flow_balance
+from .incidence import cached_incidence_matrix, incidence_matrix, node_flow_balance
 from .network import Network
 from .network_io import load_network_from_json
 from .pump_affinity import pump_head_gain
 from .residuals import mass_residual, pipe_energy_residual, pump_energy_residual
 from .solver import (
+    assemble_jacobian_analytic,
     assemble_residuals,
     assemble_residuals_batched,
     initial_guess,
@@ -24,9 +25,11 @@ from .solver import (
 )
 
 __all__ = [
+    "assemble_jacobian_analytic",
     "assemble_residuals",
     "assemble_residuals_batched",
     "assert_finite_gradients",
+    "cached_incidence_matrix",
     "classify_failure",
     "FeasibilityResult",
     "check_feasibility",

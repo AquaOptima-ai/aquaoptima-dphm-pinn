@@ -29,9 +29,12 @@ import torch
 
 from .hazen_williams import hazen_williams_head_loss
 from .pump_affinity import pump_head_gain
-from .incidence import incidence_matrix
+from .incidence import cached_incidence_matrix, incidence_matrix
 from .network import Network
 from .diagnostics import SolveFailureReason, SolveResult, classify_failure
+
+
+JACOBIAN_MODES = ("autograd", "analytic")
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +72,7 @@ def assemble_residuals(
             f"flows must have shape [{network.num_edges}], got {tuple(flows.shape)}"
         )
 
-    A = incidence_matrix(network.edge_index, network.num_nodes).to(flows.dtype)
+    A = cached_incidence_matrix(network, flows.dtype)
     mass = A @ flows - network.demands.to(flows.dtype)
     mass_free = mass[~network.fixed_head_mask]
 
@@ -150,7 +153,7 @@ def assemble_residuals_batched(
         )
 
     dtype = flows.dtype
-    A = incidence_matrix(network.edge_index, network.num_nodes).to(dtype)
+    A = cached_incidence_matrix(network, dtype)
     # mass[b, n] = sum_e A[n, e] * flows[b, e] - demands[n]
     mass = flows @ A.T - network.demands.to(dtype).unsqueeze(0)  # [B, N]
     mass_free = mass[:, ~network.fixed_head_mask]  # [B, num_free]
@@ -242,6 +245,153 @@ def _unpack(
 
 
 # ---------------------------------------------------------------------------
+# analytic Jacobian
+# ---------------------------------------------------------------------------
+
+
+def _hazen_williams_dQ(
+    flows: torch.Tensor,
+    L: torch.Tensor,
+    D: torch.Tensor,
+    C: torch.Tensor,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Derivative ``d h_f / dQ`` of the signed Hazen-Williams head loss.
+
+    Mirrors :func:`hazen_williams_head_loss` term-for-term so the
+    analytic Jacobian matches the autograd Jacobian within float64
+    rounding. ``h_f(Q) = sign(Q) * k * (|Q| + eps)**1.852`` with
+    ``k = 10.67 * L / (C**1.852 * D**4.87)`` is differentiated as
+
+        d h_f / dQ = sign(Q)**2 * 1.852 * k * (|Q| + eps)**0.852
+
+    so that the value at ``Q = 0`` matches the autograd subgradient
+    convention (zero) rather than the one-sided limit.
+    """
+    abs_Q = torch.abs(flows)
+    k = 10.67 * L / (C ** 1.852 * D ** 4.87)
+    sign_sq = torch.sign(flows) ** 2
+    return sign_sq * 1.852 * k * (abs_Q + eps) ** 0.852
+
+
+def _pump_dQ(
+    flows: torch.Tensor, pump_speeds: torch.Tensor, pump_coeffs: torch.Tensor
+) -> torch.Tensor:
+    """Derivative ``d H_pump / dQ`` of the quadratic pump gain.
+
+    With ``H(Q, s) = a0 s^2 + a1 s Q + a2 Q^2`` the partial in Q is
+    ``a1 s + 2 a2 Q``.
+    """
+    a1 = pump_coeffs[..., 1]
+    a2 = pump_coeffs[..., 2]
+    return a1 * pump_speeds + 2.0 * a2 * flows
+
+
+def assemble_jacobian_analytic(
+    network: Network, heads: torch.Tensor, flows: torch.Tensor
+) -> torch.Tensor:
+    """Analytic Jacobian of :func:`assemble_residuals` at ``(heads, flows)``.
+
+    Row / column ordering matches the Newton solver's packed state
+    ``x = [free_heads, flows]``:
+
+    Rows
+        ``0:num_free``                — mass-balance residuals for free nodes
+        ``num_free:num_free + E``      — per-edge energy residuals
+
+    Columns
+        ``0:num_free``                — free-node heads
+        ``num_free:num_free + E``      — per-edge flows
+
+    Block structure::
+
+        J = [ 0                  A_free,:                    ]
+            [ H_e (signed)       diag(-dh_f/dQ | -dH_pump/dQ) ]
+
+    where:
+
+    * ``A_free,:`` is the dense incidence matrix restricted to free-node rows.
+    * ``H_e`` carries ``+1`` on the upstream-free-head column and ``-1`` on
+      the downstream-free-head column for pipe edges, with signs flipped
+      for pump edges (because the pump energy convention is
+      ``h_d - h_u - gain``). Fixed-head endpoints contribute no column.
+    * The flow-derivative diagonal uses :func:`_hazen_williams_dQ` on
+      pipe rows and :func:`_pump_dQ` on pump rows; the minus sign comes
+      from the residual conventions ``h_u - h_d - h_f`` and
+      ``h_d - h_u - gain``.
+
+    The returned dense tensor has shape
+    ``[num_free + E, num_free + E]`` and matches the dtype of ``flows``.
+    """
+    if heads.shape != (network.num_nodes,):
+        raise ValueError(
+            f"heads must have shape [{network.num_nodes}], got {tuple(heads.shape)}"
+        )
+    if flows.shape != (network.num_edges,):
+        raise ValueError(
+            f"flows must have shape [{network.num_edges}], got {tuple(flows.shape)}"
+        )
+
+    dtype = flows.dtype
+    num_free = network.num_free_nodes
+    E = network.num_edges
+    N = num_free + E
+
+    A = cached_incidence_matrix(network, dtype)
+    free_mask = ~network.fixed_head_mask
+    A_free = A[free_mask]  # [num_free, E]
+
+    # Node-id -> column index in free_heads block, or -1 if fixed.
+    node_to_free_col = torch.full((network.num_nodes,), -1, dtype=torch.long)
+    node_to_free_col[network.free_node_indices] = torch.arange(
+        num_free, dtype=torch.long
+    )
+
+    J = torch.zeros((N, N), dtype=dtype)
+
+    # mass / flow block
+    J[:num_free, num_free:] = A_free
+
+    # energy / flow block — diagonal
+    pipe_dQ = _hazen_williams_dQ(
+        flows,
+        network.lengths.to(dtype),
+        network.diameters.to(dtype),
+        network.c_factors.to(dtype),
+    )
+    pump_dQ = _pump_dQ(
+        flows, network.pump_speeds.to(dtype), network.pump_coeffs.to(dtype)
+    )
+    edge_dQ = torch.where(network.pipe_mask, pipe_dQ, pump_dQ)  # [E]
+
+    diag_idx = torch.arange(E, dtype=torch.long) + num_free
+    J[diag_idx, diag_idx] = -edge_dQ
+
+    # energy / free-head block — sparse pattern, one or two non-zeros per row.
+    src = network.edge_index[0]
+    dst = network.edge_index[1]
+    src_col = node_to_free_col[src]
+    dst_col = node_to_free_col[dst]
+
+    # Pipe edges: r_e = h_u - h_d - h_f  =>  +1 wrt h_u, -1 wrt h_d.
+    # Pump edges: r_e = h_d - h_u - gain =>  -1 wrt h_u, +1 wrt h_d.
+    sign_u = torch.where(network.pipe_mask, torch.ones(E, dtype=dtype), -torch.ones(E, dtype=dtype))
+    sign_d = -sign_u
+
+    energy_row_offset = num_free
+    for e in range(E):
+        row = energy_row_offset + e
+        s_col = int(src_col[e].item())
+        d_col = int(dst_col[e].item())
+        if s_col >= 0:
+            J[row, s_col] = sign_u[e]
+        if d_col >= 0:
+            J[row, d_col] = sign_d[e]
+
+    return J
+
+
+# ---------------------------------------------------------------------------
 # Newton solver
 # ---------------------------------------------------------------------------
 
@@ -253,17 +403,32 @@ def newton_solve(
     tol: float = 1e-6,
     damping: float = 1.0,
     dtype: torch.dtype = torch.float64,
+    jacobian_mode: str = "autograd",
 ) -> SolveResult:
     """Damped Newton iteration on the packed state ``x = [free_heads, flows]``.
 
-    Uses dense :func:`torch.autograd.functional.jacobian` evaluations and a
-    direct linear solve — adequate for the synthetic Sprint 2 fixtures but
-    not intended for production-sized networks.
+    Two Jacobian assemblers are supported:
+
+    * ``jacobian_mode="autograd"`` (default, preserved from Sprint 1-2)
+      — :func:`torch.autograd.functional.jacobian` over the residual.
+      Adequate for the tiny synthetic fixtures but quadratic in cost
+      on larger grids.
+    * ``jacobian_mode="analytic"`` — :func:`assemble_jacobian_analytic`,
+      a closed-form Jacobian from the Hazen-Williams and pump-gain
+      derivatives. Same shape and (within float64 rounding) same value
+      as the autograd version; the analytic version is materially
+      faster on the Sprint 8 grid fixtures and is the Sprint 9
+      performance gate.
 
     The solver never lies about convergence: if the final residual norm
     exceeds ``tol``, ``SolveResult.converged`` is ``False`` and ``reason``
     carries the matching :class:`SolveFailureReason` value.
     """
+    if jacobian_mode not in JACOBIAN_MODES:
+        raise ValueError(
+            f"jacobian_mode must be one of {JACOBIAN_MODES}, got {jacobian_mode!r}"
+        )
+
     heads0, flows0 = initial_guess(network, dtype=dtype)
     x = _pack(network, heads0, flows0).detach()
 
@@ -291,7 +456,11 @@ def newton_solve(
             break
 
         try:
-            J = torch.autograd.functional.jacobian(f, x, create_graph=False)
+            if jacobian_mode == "analytic":
+                heads_x, flows_x = _unpack(network, x)
+                J = assemble_jacobian_analytic(network, heads_x, flows_x)
+            else:
+                J = torch.autograd.functional.jacobian(f, x, create_graph=False)
         except RuntimeError:
             singular = True
             break
