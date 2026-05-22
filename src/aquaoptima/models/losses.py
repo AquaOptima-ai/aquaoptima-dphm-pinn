@@ -28,7 +28,7 @@ from typing import Optional
 
 import torch
 
-from aquaoptima.dphm import Network, assemble_residuals
+from aquaoptima.dphm import Network, assemble_residuals, assemble_residuals_batched
 
 
 def masked_supervised_loss(
@@ -77,27 +77,24 @@ def physics_residual_loss(
 
     Batched inputs ``[B, N]`` / ``[B, E]`` produce the sum of per-batch
     squared residual norms — equivalent to looping the unbatched call
-    over the batch axis and adding.
+    over the batch axis and adding. Sprint 7 evaluates this in a
+    single vectorized assembly via
+    :func:`aquaoptima.dphm.solver.assemble_residuals_batched` rather
+    than a Python loop.
     """
     if predicted_heads.dim() == 1 and predicted_flows.dim() == 1:
         residual = assemble_residuals(network, predicted_heads, predicted_flows)
         return (residual ** 2).sum()
     if predicted_heads.dim() == 2 and predicted_flows.dim() == 2:
-        B = predicted_heads.shape[0]
-        if predicted_flows.shape[0] != B:
+        if predicted_heads.shape[0] != predicted_flows.shape[0]:
             raise ValueError(
                 "predicted_heads and predicted_flows batch dims must match; "
-                f"got {B} vs {predicted_flows.shape[0]}"
+                f"got {predicted_heads.shape[0]} vs {predicted_flows.shape[0]}"
             )
-        total: Optional[torch.Tensor] = None
-        for i in range(B):
-            residual = assemble_residuals(
-                network, predicted_heads[i], predicted_flows[i]
-            )
-            term = (residual ** 2).sum()
-            total = term if total is None else total + term
-        assert total is not None
-        return total
+        residual = assemble_residuals_batched(
+            network, predicted_heads, predicted_flows
+        )  # [B, R]
+        return (residual ** 2).sum()
     raise ValueError(
         "physics_residual_loss requires matching rank-1 or rank-2 inputs, "
         f"got heads={tuple(predicted_heads.shape)} "

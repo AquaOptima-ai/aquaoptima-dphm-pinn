@@ -97,6 +97,90 @@ def assemble_residuals(
     return torch.cat([mass_free, edge_residual])
 
 
+def assemble_residuals_batched(
+    network: Network, heads: torch.Tensor, flows: torch.Tensor
+) -> torch.Tensor:
+    """Vectorized residual assembly across a batch axis.
+
+    Parameters
+    ----------
+    network
+        Fixed topology and per-edge / per-node parameters. The topology
+        (incidence matrix, edge endpoints, masks, demands, fixed-head
+        mask) is shared across the batch; only ``heads`` and ``flows``
+        carry batch-varying state.
+    heads
+        Per-node head, shape ``[B, num_nodes]``. Fixed-head entries
+        must already carry their boundary values for every batch row.
+    flows
+        Per-edge volumetric flow rate, shape ``[B, num_edges]``.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``[B, num_free_nodes + num_edges]``. For ``B=1`` this is
+        equal (within machine precision) to
+        ``assemble_residuals(...).unsqueeze(0)`` on the same row.
+
+    Notes
+    -----
+    Implementation uses a single dense incidence multiply (``flows @
+    A.T`` broadcast over ``B``) for the mass-balance block and a
+    single :func:`torch.where` to merge pipe- vs pump-edge energy
+    residuals. There is no Python loop over the batch axis.
+    """
+    if heads.dim() != 2 or flows.dim() != 2:
+        raise ValueError(
+            "assemble_residuals_batched requires rank-2 inputs "
+            f"[B, num_nodes] and [B, num_edges]; got heads={tuple(heads.shape)}, "
+            f"flows={tuple(flows.shape)}"
+        )
+    if heads.shape[0] != flows.shape[0]:
+        raise ValueError(
+            "batch dimensions must match; got "
+            f"heads.shape[0]={heads.shape[0]} vs flows.shape[0]={flows.shape[0]}"
+        )
+    if heads.shape[1] != network.num_nodes:
+        raise ValueError(
+            f"heads must have shape [B, {network.num_nodes}], got {tuple(heads.shape)}"
+        )
+    if flows.shape[1] != network.num_edges:
+        raise ValueError(
+            f"flows must have shape [B, {network.num_edges}], got {tuple(flows.shape)}"
+        )
+
+    dtype = flows.dtype
+    A = incidence_matrix(network.edge_index, network.num_nodes).to(dtype)
+    # mass[b, n] = sum_e A[n, e] * flows[b, e] - demands[n]
+    mass = flows @ A.T - network.demands.to(dtype).unsqueeze(0)  # [B, N]
+    mass_free = mass[:, ~network.fixed_head_mask]  # [B, num_free]
+
+    src = network.edge_index[0]
+    dst = network.edge_index[1]
+    h_u = heads.index_select(1, src)  # [B, E]
+    h_d = heads.index_select(1, dst)  # [B, E]
+
+    pipe_hf = hazen_williams_head_loss(
+        flows,
+        network.lengths.to(dtype),
+        network.diameters.to(dtype),
+        network.c_factors.to(dtype),
+    )  # broadcasts [E] over [B, E] -> [B, E]
+    gain = pump_head_gain(
+        flows,
+        network.pump_speeds.to(dtype),
+        network.pump_coeffs.to(dtype),
+    )  # broadcasts similarly -> [B, E]
+
+    pipe_residual = h_u - h_d - pipe_hf
+    pump_residual = h_d - h_u - gain
+    edge_residual = torch.where(
+        network.pipe_mask.unsqueeze(0), pipe_residual, pump_residual
+    )  # [B, E]
+
+    return torch.cat([mass_free, edge_residual], dim=1)
+
+
 def residual_norm(
     network: Network, heads: torch.Tensor, flows: torch.Tensor
 ) -> torch.Tensor:

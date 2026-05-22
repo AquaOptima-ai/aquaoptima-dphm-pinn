@@ -24,6 +24,7 @@ compare runs without re-running training to recompute aggregates.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 import torch
@@ -199,6 +200,7 @@ def run_ablation(
         batch_size=batch_size,
     )
 
+    t0 = time.perf_counter()
     metrics = train_loop(
         model=model,
         dataset=dataset,
@@ -207,6 +209,9 @@ def run_ablation(
         optimizer=optimizer,
         config=config,
     )
+    elapsed = time.perf_counter() - t0
+    metrics.elapsed_seconds = float(elapsed)
+    metrics.batch_size = int(batch_size)
 
     return {
         "mode": mode,

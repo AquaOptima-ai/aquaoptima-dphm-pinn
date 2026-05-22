@@ -15,6 +15,7 @@ from .pump_affinity import pump_head_gain
 from .residuals import mass_residual, pipe_energy_residual, pump_energy_residual
 from .solver import (
     assemble_residuals,
+    assemble_residuals_batched,
     initial_guess,
     newton_solve,
     residual_norm,
@@ -22,6 +23,7 @@ from .solver import (
 
 __all__ = [
     "assemble_residuals",
+    "assemble_residuals_batched",
     "assert_finite_gradients",
     "classify_failure",
     "FeasibilityResult",
