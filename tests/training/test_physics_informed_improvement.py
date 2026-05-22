@@ -58,8 +58,9 @@ def _run_pair(fixture: str) -> tuple[dict, dict]:
 
 def test_data_and_fixture_constants_are_exposed() -> None:
     # Hard-coded contract: harness consumers can introspect the
-    # supported fixtures and data kinds.
-    assert set(FIXTURES) == {"branch", "single_loop", "pump"}
+    # supported fixtures and data kinds. Sprint 8 added the larger
+    # ``grid`` fixture alongside the original Sprint 1-2 toy networks.
+    assert set(FIXTURES) == {"branch", "single_loop", "pump", "grid"}
     assert set(DATA_KINDS) == {"physics_consistent", "shape_only"}
 
 

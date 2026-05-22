@@ -9,8 +9,10 @@ from .fixtures import (
     make_single_loop_network,
 )
 from .hazen_williams import hazen_williams_head_loss
+from .large_fixtures import make_grid_network
 from .incidence import incidence_matrix, node_flow_balance
 from .network import Network
+from .network_io import load_network_from_json
 from .pump_affinity import pump_head_gain
 from .residuals import mass_residual, pipe_energy_residual, pump_energy_residual
 from .solver import (
@@ -31,7 +33,9 @@ __all__ = [
     "hazen_williams_head_loss",
     "incidence_matrix",
     "initial_guess",
+    "load_network_from_json",
     "make_branch_network",
+    "make_grid_network",
     "make_pump_network",
     "make_single_loop_network",
     "mass_residual",
