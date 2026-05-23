@@ -48,6 +48,34 @@ anchor is resolved after junction-demand normalisation. See
 ``docs/examples/epanet_reference_loop_gpm_demand_multiplier.inp``
 fixture.
 
+Sprint 19 adds fallback support for the optional EPANET
+``[OPTIONS] Specific Gravity`` directive. The directive declares a
+single strictly-positive scalar describing the ratio of fluid density
+to water (e.g. ``2.0`` for a brine roughly twice as dense as water).
+The helper :func:`resolve_specific_gravity` returns the validated
+value (defaulting to ``1.0`` when absent). The specific gravity is
+propagated to the two places where fluid density appears in the
+fallback importer:
+
+* PRV ``[OPTIONS] Pressure`` conversion for true pressure units
+  (``PSI``, ``KPA``, ``BAR``) — the metres of *fluid* head needed to
+  produce the declared pressure is ``head_m = p * pressure_to_head_m
+  / sg``. Head-length pressure aliases (``METERS``, ``M``, ``FEET``,
+  ``FT``) are already length units and are NOT scaled.
+* POWER pump surrogate — the effective density used by
+  ``H_nom = P / (rho_eff * g * Q_nom)`` is ``rho_water * sg``. The
+  helper :func:`fit_power_pump_surrogate` exposes a keyword-only
+  ``specific_gravity`` argument so the fallback parser can apply it
+  inline.
+
+The directive does NOT scale junction elevations, head-curve pump
+coefficients, TCV settings / minor loss, demand multiplier, or any
+geometric dimension. The WNTR adapter is left structurally unchanged
+because WNTR's handling of ``Specific Gravity`` across releases is
+ambiguous; the fallback parser is authoritative for Sprint 19 SG
+behaviour. See :func:`resolve_specific_gravity` and
+``docs/epanet-inp-import.md`` for the explicit assumptions.
+
 Sprint 12 extends the fallback parser to additionally translate
 EPANET ``HEAD``-curve pumps into dPHM pump-affinity quadratic
 coefficients. The translation fits the EPANET curve points to the
@@ -455,6 +483,78 @@ def resolve_demand_multiplier(opts: dict[str, str]) -> float:
     return value
 
 
+# --- specific gravity handling (Sprint 19) ---------------------------------
+
+
+# Canonical key used by the options parser to store the EPANET
+# ``[OPTIONS] Specific Gravity`` directive. Like ``Demand Multiplier``,
+# this is a two-word option key, so the fallback options parser stores
+# it under a single canonical token.
+_SPECIFIC_GRAVITY_KEY = "SPECIFIC GRAVITY"
+
+# EPANET's documented default for ``[OPTIONS] Specific Gravity`` when
+# the directive is absent. ``1.0`` corresponds to pure water at the
+# standard density used elsewhere in this module.
+_DEFAULT_SPECIFIC_GRAVITY = 1.0
+
+# True pressure-unit tokens whose PRV setting depends on the fluid
+# density (and therefore on the specific gravity). Head-length aliases
+# (``METERS``, ``M``, ``FEET``, ``FT``) are length units already and
+# are NOT scaled by specific gravity.
+_TRUE_PRESSURE_UNITS = frozenset({"PSI", "KPA", "BAR"})
+
+
+def resolve_specific_gravity(opts: dict[str, str]) -> float:
+    """Return the validated ``[OPTIONS] Specific Gravity`` scalar.
+
+    The EPANET ``[OPTIONS] Specific Gravity`` directive declares a
+    single strictly-positive scalar describing the ratio of fluid
+    density to that of water. When the directive is absent, the
+    EPANET default of ``1.0`` applies (pure water).
+
+    Parameters
+    ----------
+    opts
+        Normalised options map produced by the fallback parser's
+        ``_parse_options``. The map stores the directive under the
+        canonical key ``"SPECIFIC GRAVITY"`` (case-folded,
+        whitespace-normalised) when present.
+
+    Returns
+    -------
+    float
+        The resolved specific gravity. ``1.0`` when the directive is
+        absent.
+
+    Raises
+    ------
+    ValueError
+        If the directive's value is non-numeric, non-finite (NaN or
+        Inf), zero, or strictly negative. Specific gravity must be
+        strictly positive — zero would imply zero-density fluid and
+        would singularise the pressure-to-head and POWER-pump
+        conversions that depend on it.
+    """
+    raw = opts.get(_SPECIFIC_GRAVITY_KEY)
+    if raw is None or raw == "":
+        return _DEFAULT_SPECIFIC_GRAVITY
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"[OPTIONS] Specific Gravity value {raw!r} is not numeric"
+        ) from exc
+    if not math.isfinite(value):
+        raise ValueError(
+            f"[OPTIONS] Specific Gravity must be finite, got {value}"
+        )
+    if value <= 0.0:
+        raise ValueError(
+            f"[OPTIONS] Specific Gravity must be strictly positive, got {value}"
+        )
+    return value
+
+
 # Sections we silently skip — they carry no information the
 # steady-state Hazen-Williams core depends on. ``CURVES`` is *not*
 # in this list because Sprint 12 consumes HEAD-type curves when a
@@ -549,11 +649,12 @@ def _parse_options(rows: list[list[str]]) -> dict[str, str]:
     """Return a normalised ``{KEY: VALUE}`` map from [OPTIONS] rows.
 
     Most EPANET options are stored as single-token keys (e.g. ``Units``,
-    ``Headloss``, ``Pressure``). The ``Demand Multiplier`` directive
-    (Sprint 18) is the only shipped EPANET option whose canonical key
-    spans two whitespace-separated tokens. We detect that key
-    specifically and store its value under the canonical
-    ``"DEMAND MULTIPLIER"`` token, preserving the single-token storage
+    ``Headloss``, ``Pressure``). Two shipped EPANET options have
+    canonical keys spanning two whitespace-separated tokens:
+    ``Demand Multiplier`` (Sprint 18) and ``Specific Gravity``
+    (Sprint 19). We detect each of those specifically and store its
+    value under a single canonical key (``"DEMAND MULTIPLIER"`` /
+    ``"SPECIFIC GRAVITY"``), preserving the single-token storage
     convention for every other directive.
     """
     opts: dict[str, str] = {}
@@ -571,6 +672,17 @@ def _parse_options(rows: list[list[str]]) -> dict[str, str]:
         ):
             value = row[2] if len(row) >= 3 else ""
             opts[_DEMAND_MULTIPLIER_KEY] = value
+            continue
+        # Multi-word ``Specific Gravity`` key (Sprint 19). Same shape
+        # as Demand Multiplier — two leading tokens then a numeric
+        # value.
+        if (
+            len(row) >= 2
+            and row[0].upper() == "SPECIFIC"
+            and row[1].upper() == "GRAVITY"
+        ):
+            value = row[2] if len(row) >= 3 else ""
+            opts[_SPECIFIC_GRAVITY_KEY] = value
             continue
         key = row[0].upper()
         val = row[1].upper() if len(row) >= 2 else ""
@@ -790,20 +902,24 @@ def fit_power_pump_surrogate(
     nominal_flow_m3s: float,
     *,
     shutoff_multiplier: float = 1.5,
+    specific_gravity: float = 1.0,
 ) -> tuple[list[float], dict[str, object]]:
     """Construct a conservative quadratic surrogate for a POWER pump.
 
     EPANET ``POWER`` pumps declare a constant shaft power
-    ``P = rho * g * Q * H``, which gives ``H = P / (rho * g * Q)`` —
-    hyperbolic in ``Q`` and singular at ``Q -> 0``. That shape is
-    incompatible with the dPHM core's quadratic pump characteristic
+    ``P = rho_eff * g * Q * H`` (where ``rho_eff = rho_water * sg`` is
+    the working fluid's density), which gives
+    ``H = P / (rho_eff * g * Q)`` — hyperbolic in ``Q`` and singular
+    at ``Q -> 0``. That shape is incompatible with the dPHM core's
+    quadratic pump characteristic
     ``H(Q, s) = a0 * s^2 + a1 * s * Q + a2 * Q^2``.
 
     The Sprint 14 surrogate is therefore deliberately **conservative
     and bounded**, not a faithful constant-power conversion:
 
-    1. Compute the operating head at the nominal flow anchor:
-       ``H_nom = P_watts / (rho * g * Q_nom)``.
+    1. Compute the operating head at the nominal flow anchor using
+       the effective fluid density:
+       ``H_nom = P_watts / (rho_water * sg * g * Q_nom)``.
     2. Choose a shut-off head ``a0 = shutoff_multiplier * H_nom``
        (default ``1.5 * H_nom``: shut-off head 50% above the
        operating head).
@@ -838,6 +954,13 @@ def fit_power_pump_surrogate(
     shutoff_multiplier
         Ratio ``a0 / H_nom``. Must be strictly greater than 1 so
         ``a2 < 0`` (the resulting curve droops). Default ``1.5``.
+    specific_gravity
+        Sprint 19: ratio of fluid density to water. Must be strictly
+        positive and finite. Defaults to ``1.0`` (pure water), which
+        preserves Sprint 14 behaviour. For a fluid twice as dense as
+        water (``sg = 2.0``), ``H_nom`` halves and the surrogate's
+        ``a0`` / ``a2`` magnitudes halve correspondingly; for a fluid
+        half as dense (``sg = 0.5``) they double.
 
     Returns
     -------
@@ -846,16 +969,17 @@ def fit_power_pump_surrogate(
         dict carrying ``approximation = "constant_power_surrogate"``
         plus ``power_kw``, ``nominal_flow_m3s``,
         ``head_at_nominal_m``, ``shutoff_head_m``,
-        ``shutoff_multiplier``, ``a0``, ``a1``, ``a2``. No ``rmse``
-        is reported because the surrogate is not a fit to multiple
-        points.
+        ``shutoff_multiplier``, ``specific_gravity``, ``a0``,
+        ``a1``, ``a2``. No ``rmse`` is reported because the surrogate
+        is not a fit to multiple points.
 
     Raises
     ------
     ValueError
         If ``power_kw`` or ``nominal_flow_m3s`` is non-positive or
-        non-finite, or if ``shutoff_multiplier`` is not strictly
-        greater than 1 (which would produce a non-drooping curve).
+        non-finite, if ``shutoff_multiplier`` is not strictly greater
+        than 1 (which would produce a non-drooping curve), or if
+        ``specific_gravity`` is non-positive or non-finite.
     """
     if not math.isfinite(power_kw) or power_kw <= 0.0:
         raise ValueError(
@@ -871,10 +995,16 @@ def fit_power_pump_surrogate(
             "shutoff_multiplier must be > 1 so the surrogate droops, got "
             f"{shutoff_multiplier}"
         )
+    if not math.isfinite(specific_gravity) or specific_gravity <= 0.0:
+        raise ValueError(
+            "specific_gravity must be strictly positive and finite, got "
+            f"{specific_gravity}"
+        )
 
     power_watts = power_kw * _POWER_PUMP_KW_TO_W
+    rho_eff = _POWER_PUMP_RHO * specific_gravity
     head_at_nominal = power_watts / (
-        _POWER_PUMP_RHO * _POWER_PUMP_G * nominal_flow_m3s
+        rho_eff * _POWER_PUMP_G * nominal_flow_m3s
     )
     a0 = shutoff_multiplier * head_at_nominal
     a1 = 0.0
@@ -887,6 +1017,7 @@ def fit_power_pump_surrogate(
         "head_at_nominal_m": float(head_at_nominal),
         "shutoff_head_m": float(a0),
         "shutoff_multiplier": float(shutoff_multiplier),
+        "specific_gravity": float(specific_gravity),
         "a0": float(a0),
         "a1": float(a1),
         "a2": float(a2),
@@ -1346,16 +1477,30 @@ def _fallback_parse(
     # normalisation.
     demand_multiplier = resolve_demand_multiplier(opts)
 
+    # Sprint 19: [OPTIONS] Specific Gravity scales the fluid density used
+    # by (1) the PRV setting conversion when an explicit pressure unit
+    # is one of ``PSI``, ``KPA``, ``BAR`` — true pressure units — and
+    # (2) the POWER pump surrogate's effective density. Head-length
+    # pressure aliases (``METERS``, ``M``, ``FEET``, ``FT``) are length
+    # units and are not scaled. Default is ``1.0`` (water).
+    specific_gravity = resolve_specific_gravity(opts)
+
     # Sprint 17: [OPTIONS] Pressure overrides the PRV pressure-setting
     # conversion. When absent, the parser falls back to the flow-unit
     # family's pressure_setting_to_m (Sprint 16 contract). When present,
     # the explicit pressure unit converts PRV settings to metres of
     # water head regardless of the active flow-unit family.
+    # Sprint 19: for true pressure units (``PSI``, ``KPA``, ``BAR``) the
+    # conversion to metres of *fluid* head additionally divides by the
+    # specific gravity. For head-length aliases (``METERS``, ``M``,
+    # ``FEET``, ``FT``) the conversion is a pure length conversion and
+    # is unaffected by specific gravity.
     pressure_directive = opts.get("PRESSURE", "")
     if pressure_directive:
-        prv_setting_to_m = resolve_pressure_unit(
-            pressure_directive
-        ).pressure_to_head_m
+        pressure_unit = resolve_pressure_unit(pressure_directive)
+        prv_setting_to_m = pressure_unit.pressure_to_head_m
+        if pressure_unit.name in _TRUE_PRESSURE_UNITS:
+            prv_setting_to_m = prv_setting_to_m / specific_gravity
     else:
         prv_setting_to_m = unit_system.pressure_setting_to_m
 
@@ -1599,7 +1744,14 @@ def _fallback_parse(
                 downstream_demand=downstream_demand,
                 total_positive_demand=total_positive_demand,
             )
-            coeffs, _diag = fit_power_pump_surrogate(power_kw_raw, q_nom)
+            # Sprint 19: scale the surrogate's effective density by
+            # ``[OPTIONS] Specific Gravity``. ``H_nom = P / (rho_water
+            # * sg * g * Q_nom)``; for the same P and Q, sg=2.0 halves
+            # H_nom (and therefore a0, a2 magnitudes) and sg=0.5
+            # doubles them.
+            coeffs, _diag = fit_power_pump_surrogate(
+                power_kw_raw, q_nom, specific_gravity=specific_gravity
+            )
         else:
             raise ValueError(
                 f"pump {pump_id!r} uses unsupported keyword {row[3]!r}; the "
@@ -2508,6 +2660,7 @@ __all__ = [
     "load_network_from_inp",
     "resolve_demand_multiplier",
     "resolve_pressure_unit",
+    "resolve_specific_gravity",
     "resolve_unit_system",
     "translate_valve_to_surrogate",
 ]

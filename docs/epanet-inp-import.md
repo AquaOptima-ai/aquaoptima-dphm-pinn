@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–18)
+# EPANET `.inp` Topology Import (Sprint 11–19)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -16,7 +16,10 @@ Sprint 17 adds explicit `[OPTIONS] Pressure` parsing so PRV settings
 can be declared in psi / kPa / bar / metres / feet independently of
 the flow-unit family (see "Pressure units" below). Sprint 18 adds
 fallback support for the `[OPTIONS] Demand Multiplier` directive
-(see "Demand multiplier" below).
+(see "Demand multiplier" below). Sprint 19 adds fallback support for
+the `[OPTIONS] Specific Gravity` directive and propagates the fluid
+density ratio to PRV pressure-unit conversions (for `PSI`/`KPA`/`BAR`)
+and to the POWER pump surrogate (see "Specific gravity" below).
 The public entry point is one function:
 
 ```python
@@ -80,7 +83,7 @@ needed to load steady-state reference fixtures.
 | `[RESERVOIRS]`   | id, head. Pattern column is ignored.                                                                     |
 | `[TANKS]`        | id, elevation, init-level → mapped to a fixed-head boundary at `elev + init_level`. Curves ignored.       |
 | `[PIPES]`        | id, node1, node2, length, diameter, roughness, optional minor-loss (ignored), optional status (`OPEN`).  |
-| `[OPTIONS]`      | `Units` (flow-unit family), `Headloss` (must be `H-W`), `Pressure` (Sprint 17: optional pressure-display unit for PRV settings), and `Demand Multiplier` (Sprint 18: optional non-negative scalar that scales every junction's baseline demand at load time). |
+| `[OPTIONS]`      | `Units` (flow-unit family), `Headloss` (must be `H-W`), `Pressure` (Sprint 17: optional pressure-display unit for PRV settings), `Demand Multiplier` (Sprint 18: optional non-negative scalar that scales every junction's baseline demand at load time), and `Specific Gravity` (Sprint 19: optional strictly-positive density ratio that scales PRV pressure conversions for `PSI`/`KPA`/`BAR` and the POWER pump surrogate's effective density). |
 | `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate via least-squares curve fit. Sprint 14: `POWER value` pump rows translate via the constant-power surrogate. |
 | `[VALVES]`       | Sprint 15: `PRV` and `TCV` valve rows translate via the conservative pressure-boundary / resistance surrogates. See "Valves" below.   |
 | `[CURVES]`       | Sprint 12: pump HEAD curves are parsed into `(Q, H)` points. The X column is converted to m³/s using the file's flow-unit factor. Unused curves are tolerated. |
@@ -793,6 +796,108 @@ Existing WNTR fixtures (Sprints 11–17) do not declare a
 `Demand Multiplier`, so WNTR defaults the option to `1.0` and the
 adapter is a no-op for them — pre-Sprint-18 parity is preserved.
 
+## Specific gravity (Sprint 19)
+
+EPANET's `[OPTIONS]` section accepts an optional `Specific Gravity`
+directive — a single strictly-positive scalar describing the ratio
+of fluid density to that of water. The directive's option key is a
+two-word form (mirroring `Demand Multiplier`); the fallback parser
+collapses extra whitespace and accepts any case-insensitive spelling
+(`Specific Gravity 0.85`, `SPECIFIC  GRAVITY 0.85`,
+`specific gravity 0.85`).
+
+The public resolver is `resolve_specific_gravity(opts)`:
+
+```python
+from aquaoptima.dphm.inp_io import resolve_specific_gravity
+
+resolve_specific_gravity({})                             # 1.0 (default, water)
+resolve_specific_gravity({"SPECIFIC GRAVITY": "2.0"})    # 2.0 (e.g. brine)
+resolve_specific_gravity({"SPECIFIC GRAVITY": "0"})      # ValueError
+resolve_specific_gravity({"SPECIFIC GRAVITY": "-1"})     # ValueError
+```
+
+### What specific gravity does scale
+
+The fallback parser propagates the directive to the two places where
+fluid density appears in the current importer / surrogates:
+
+1. **PRV `[OPTIONS] Pressure` conversion for true pressure units.**
+   When `[OPTIONS] Pressure` is one of `PSI`, `KPA`, or `BAR`, the
+   PRV setting converts to metres of *fluid* head by:
+
+   ```
+   head_m = setting * pressure_to_head_m / specific_gravity
+   ```
+
+   For a denser-than-water fluid (`sg = 2.0`), the same pressure
+   produces half as many metres of fluid head; for a lighter fluid
+   (`sg = 0.5`), twice as many.
+
+2. **POWER pump surrogate effective density.** The Sprint 14 surrogate
+   evaluates `H_nom = P / (rho_eff * g * Q_nom)` with
+   `rho_eff = rho_water * sg`. For the same `P` and `Q_nom`, doubling
+   `sg` halves `H_nom` (and the surrogate's `a0`/`a2` magnitudes);
+   halving `sg` doubles them. The helper exposes a keyword-only
+   `specific_gravity=` argument with default `1.0` so Sprint 14
+   numerics are preserved when the directive is absent.
+
+### What specific gravity does NOT scale
+
+The directive must NOT touch any of the following, by design:
+
+- Junction elevations and reservoir / tank fixed-head boundaries.
+  Reservoirs and tanks are *length* boundaries (metres or feet of
+  surface elevation); SG is dimensionless density and cannot scale
+  geometric height.
+- PRV settings under head-length pressure units (`METERS`, `M`,
+  `FEET`, `FT`). Those aliases already declare metres / feet of head
+  directly, so the conversion is a pure length conversion.
+- HEAD-curve pump coefficients (`[CURVES]`). EPANET HEAD curves are
+  head-vs-flow tables — already metres of head — so SG is a no-op.
+- TCV settings (the dimensionless minor-loss coefficient `K`) and the
+  `MinorLoss` column.
+- Pipe / pump / valve dimensions (length, diameter, c_factor).
+- Junction demands (Demand Multiplier remains the orthogonal axis
+  on demand scaling and is unaffected by SG).
+
+### Validation
+
+The resolver and the fallback parser fail loudly on:
+
+- Zero specific gravity → `ValueError` ("must be strictly positive").
+  Zero density would singularise the pressure-to-head and POWER-pump
+  conversions.
+- Negative specific gravity → `ValueError` ("must be strictly
+  positive").
+- Non-finite specific gravity (NaN or Inf) → `ValueError` ("must be
+  finite").
+- Non-numeric values → `ValueError` ("is not numeric").
+
+### WNTR adapter behaviour
+
+WNTR's handling of `[OPTIONS] Specific Gravity` has shifted across
+releases (the directive may be stored under
+`wn.options.hydraulic.specific_gravity` in some versions, ignored in
+others, or applied internally during simulation). Sprint 19
+**leaves the WNTR adapter structurally unchanged** to avoid
+double-conversion or hidden discrepancies: the fallback parser is
+authoritative for Sprint 19 SG behaviour, and the documented
+WNTR-fallback parity tests cover only fixtures without an
+`[OPTIONS] Specific Gravity` directive (where the default `1.0`
+trivially matches across back-ends). Future sprints may add explicit
+WNTR-side SG handling once the WNTR API is pinned to a stable
+release surface.
+
+### Tests
+
+- `tests/dphm/test_inp_specific_gravity.py` — Sprint 19 specific
+  gravity resolver (defaults, validation surface, case / whitespace
+  tolerance), fallback parser PRV PSI/KPA/BAR scaling, head-length
+  alias invariants, POWER pump surrogate SG scaling (helper +
+  parser), HEAD-curve / TCV / reservoir / tank / pipe-geometry /
+  demand-multiplier invariants, and existing-fixture preservation.
+
 ## Mass balancing
 
 EPANET INP files often declare junction demands without a matching
@@ -930,5 +1035,9 @@ Deferred to a future sprint:
   honours the steady-state `[OPTIONS] Demand Multiplier` scalar only;
   the dPHM core remains steady-state and pattern-aware demands are
   out of scope.
+- Explicit WNTR-side `[OPTIONS] Specific Gravity` handling. Sprint 19
+  ships SG support in the fallback parser only — WNTR's handling of
+  the directive has drifted across releases and is left untouched.
+  A future sprint may pin WNTR to a stable surface and add parity.
 
 See `docs/sprint-roadmap.md` for the current ordering.

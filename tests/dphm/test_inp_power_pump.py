@@ -100,7 +100,13 @@ def test_surrogate_droops_with_default_multiplier() -> None:
 
 
 def test_surrogate_diagnostics_shape() -> None:
-    """The diagnostics dict carries the documented keys."""
+    """The diagnostics dict carries the documented keys.
+
+    Sprint 19 added ``specific_gravity`` to the diagnostics dict so
+    the propagated fluid-density ratio is auditable; the default
+    value is ``1.0`` (pure water), which preserves Sprint 14
+    numerics on every other key.
+    """
     _, diag = fit_power_pump_surrogate(5.0, 0.01)
     expected_keys = {
         "approximation",
@@ -109,6 +115,7 @@ def test_surrogate_diagnostics_shape() -> None:
         "head_at_nominal_m",
         "shutoff_head_m",
         "shutoff_multiplier",
+        "specific_gravity",
         "a0",
         "a1",
         "a2",
@@ -117,6 +124,7 @@ def test_surrogate_diagnostics_shape() -> None:
     assert diag["approximation"] == "constant_power_surrogate"
     assert diag["power_kw"] == pytest.approx(5.0)
     assert diag["nominal_flow_m3s"] == pytest.approx(0.01)
+    assert diag["specific_gravity"] == pytest.approx(1.0)
     # No 'rmse' — the surrogate is not a fit.
     assert "rmse" not in diag
 
