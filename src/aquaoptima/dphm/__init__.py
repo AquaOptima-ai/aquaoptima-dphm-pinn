@@ -1,5 +1,26 @@
 """Differentiable Pressurised Hydraulic Model (dPHM) primitives."""
 
+from .advisory_contract import (
+    ADVISORY_AXES,
+    ADVISORY_AXIS_EDGE_FLOW,
+    ADVISORY_AXIS_EDGE_VELOCITY,
+    ADVISORY_AXIS_NODE_PRESSURE,
+    ADVISORY_AXIS_PUMP_SPEED,
+    ADVISORY_AXIS_RESERVOIR_HEAD,
+    ADVISORY_AXIS_STATUS,
+    ADVISORY_AXIS_TANK_LEVEL,
+    ADVISORY_AXIS_VALVE_POSITION,
+    ADVISORY_STATUSES,
+    ADVISORY_STATUS_ACCEPTED,
+    ADVISORY_STATUS_REJECTED,
+    AdvisoryContract,
+    AdvisoryContractDiagnostics,
+    AdvisoryDecision,
+    AdvisoryProposal,
+    AdvisoryRule,
+    build_advisory_contract,
+    evaluate_advisory_proposals,
+)
 from .autograd_checks import assert_finite_gradients
 from .diagnostics import SolveFailureReason, SolveResult, classify_failure
 from .dpl_calibration import (
@@ -106,12 +127,31 @@ from .telemetry_tag_map import (
 )
 
 __all__ = [
+    "ADVISORY_AXES",
+    "ADVISORY_AXIS_EDGE_FLOW",
+    "ADVISORY_AXIS_EDGE_VELOCITY",
+    "ADVISORY_AXIS_NODE_PRESSURE",
+    "ADVISORY_AXIS_PUMP_SPEED",
+    "ADVISORY_AXIS_RESERVOIR_HEAD",
+    "ADVISORY_AXIS_STATUS",
+    "ADVISORY_AXIS_TANK_LEVEL",
+    "ADVISORY_AXIS_VALVE_POSITION",
+    "ADVISORY_STATUSES",
+    "ADVISORY_STATUS_ACCEPTED",
+    "ADVISORY_STATUS_REJECTED",
+    "AdvisoryContract",
+    "AdvisoryContractDiagnostics",
+    "AdvisoryDecision",
+    "AdvisoryProposal",
+    "AdvisoryRule",
     "assemble_jacobian_analytic",
     "assemble_residuals",
     "assemble_residuals_batched",
     "assert_finite_gradients",
+    "build_advisory_contract",
     "cached_incidence_matrix",
     "classify_failure",
+    "evaluate_advisory_proposals",
     "DPL_AXES",
     "DPL_NUMERIC_AXES",
     "DPL_STATUS_AXES",
