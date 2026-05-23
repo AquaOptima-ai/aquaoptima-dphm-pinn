@@ -82,6 +82,20 @@ would close a link, change a pump speed, or modify a fixed-head
 boundary are dropped, not enforced. See
 ``docs/epanet-inp-import.md``.
 
+Sprint 24 extends the Sprint 23 :class:`EpanetImportDiagnostics`
+container with an ``ignored_sections`` field that records which
+members of :data:`IGNORED_SECTIONS` were actually present in the
+imported ``.inp`` file. Each presence produces one read-only
+:class:`EpanetIgnoredSectionDiagnostic` (``section``, ``row_count``,
+``message``) in source order. ``[STATUS]`` is excluded by
+construction because Sprint 22 already removed it from
+:data:`IGNORED_SECTIONS`; accepted ``OPEN`` rows continue to surface
+through ``status_rows`` only. Sprint 24 does NOT activate any of the
+ignored sections — they remain dropped on the floor at parse time;
+the diagnostics are visibility only. The WNTR back-end has its own
+ignored-section handling and is documented as fallback-authoritative;
+``ignored_sections`` is left empty when ``parser="wntr"``.
+
 Sprint 22 narrows the Sprint 21 contract for ``[STATUS]``. Through
 Sprint 21 the section was a global no-op; from Sprint 22 onwards the
 fallback parser actively validates ``[STATUS]`` rows so EPANET-exported
@@ -749,23 +763,71 @@ class EpanetStatusDiagnostic:
     message: str = _STATUS_OPEN_NOOP_MESSAGE
 
 
+# Sprint 24: human-readable message attached to every
+# ``EpanetIgnoredSectionDiagnostic`` record. Pinned to a single
+# module-level string so the surface stays stable and so two diagnostic
+# records do not surface spurious string variation.
+_IGNORED_SECTION_NOOP_MESSAGE: str = (
+    "Section present but ignored by the steady-state dPHM importer."
+)
+
+
+@dataclass(frozen=True)
+class EpanetIgnoredSectionDiagnostic:
+    """Read-only record of one ignored EPANET section present in a file.
+
+    Sprint 24 surfaces which sections in :data:`IGNORED_SECTIONS` were
+    actually declared in an imported ``.inp`` file so analysts can tell
+    when a fixture carried unsupported semantics (``[CONTROLS]``,
+    ``[RULES]``, ``[PATTERNS]``, ``[ENERGY]``, …) that the dPHM
+    steady-state importer deliberately did not apply. The records are
+    deliberately read-only and hydraulically inert — they do not change
+    any field on the loaded :class:`Network`. The Sprint 21
+    ignored-section no-op contract is unchanged: every section in
+    :data:`IGNORED_SECTIONS` is still dropped on the floor; Sprint 24
+    only makes the *presence* of those sections visible.
+
+    Attributes
+    ----------
+    section
+        The canonical (upper-case) EPANET section name, e.g.
+        ``"CONTROLS"`` or ``"RULES"``. Matches the spelling in
+        :data:`IGNORED_SECTIONS`.
+    row_count
+        Number of non-blank, comment-stripped rows the parser saw
+        inside the section body. ``0`` for a bare header with no
+        body. The parser does not validate the body — the count is
+        purely informational.
+    message
+        Human-readable explanation of the ignored-section / no-op
+        contract. Pinned to a single module-level string so the
+        surface stays stable.
+    """
+
+    section: str
+    row_count: int
+    message: str = _IGNORED_SECTION_NOOP_MESSAGE
+
+
 @dataclass(frozen=True)
 class EpanetImportDiagnostics:
     """Read-only container for EPANET ``.inp`` import diagnostics.
 
-    Sprint 23 only populates ``status_rows`` (one record per accepted
-    ``[STATUS] OPEN`` row). Future sprints may grow additional fields
-    on this container as new diagnostics are surfaced — adding a new
-    optional field with a default value is backwards-compatible for
-    keyword-only callers.
+    Sprint 23 populated ``status_rows`` (one record per accepted
+    ``[STATUS] OPEN`` row). Sprint 24 adds ``ignored_sections`` (one
+    record per :data:`IGNORED_SECTIONS` entry that was actually present
+    in the file, in source order). Future sprints may grow additional
+    fields — adding a new optional field with a default value is
+    backwards-compatible for keyword-only callers.
 
-    The container is ``frozen=True`` and ``status_rows`` is a
+    The container is ``frozen=True`` and every tuple field is a
     :class:`tuple` rather than a list so the diagnostics surface is
     structurally read-only. Attempting to reassign a field raises
     :class:`dataclasses.FrozenInstanceError`.
     """
 
     status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()
 
 
 # Status tokens the Sprint 22 ``[STATUS]`` validator accepts as no-ops.
@@ -895,6 +957,53 @@ def _validate_status_rows(
             "(case-insensitive)"
         )
     return tuple(diagnostics)
+
+
+def _collect_ignored_section_diagnostics(
+    sections: dict[str, list[list[str]]],
+) -> tuple[EpanetIgnoredSectionDiagnostic, ...]:
+    """Surface which :data:`IGNORED_SECTIONS` were present in the file.
+
+    Sprint 24 — read-only visibility surface for ignored sections.
+
+    Walks the per-section tokenised rows produced by
+    :func:`_split_sections` and emits one
+    :class:`EpanetIgnoredSectionDiagnostic` for every section header
+    that is both:
+
+    * declared in the source file, **and**
+    * a member of :data:`IGNORED_SECTIONS`.
+
+    Records are emitted in the order the corresponding section headers
+    first appear in the source file — :func:`_split_sections` is built
+    on a regular :class:`dict`, which preserves insertion order on
+    Python 3.7+. A bare header with an empty body still produces a
+    diagnostic with ``row_count = 0`` because the file declared the
+    section. Sections that appear multiple times in the file are
+    collapsed into a single diagnostic whose ``row_count`` reflects the
+    total number of rows ``_split_sections`` accumulated.
+
+    ``[STATUS]`` is **not** surfaced here even when present: Sprint 22
+    removed it from :data:`IGNORED_SECTIONS` and accepted ``OPEN`` rows
+    flow through the Sprint 23 ``status_rows`` channel instead. Active
+    hydraulic sections (``[JUNCTIONS]``, ``[PIPES]``, ``[OPTIONS]``,
+    ``[CURVES]``, …) are excluded by construction because they are not
+    in :data:`IGNORED_SECTIONS`.
+
+    The helper is read-only: it never mutates the ``sections`` mapping
+    and never affects parsing outcomes.
+    """
+    records: list[EpanetIgnoredSectionDiagnostic] = []
+    for name, rows in sections.items():
+        if name not in IGNORED_SECTIONS:
+            continue
+        records.append(
+            EpanetIgnoredSectionDiagnostic(
+                section=name,
+                row_count=len(rows),
+            )
+        )
+    return tuple(records)
 
 
 # Sections the fallback parser tolerates as silent no-ops because they
@@ -2311,6 +2420,12 @@ def _fallback_parse(
         sections.get("STATUS", []), seen_edge_ids
     )
 
+    # Sprint 24: surface which ignored sections were actually present in
+    # the source file. Read-only / no-op — the Sprint 21 ignored-section
+    # invariance contract is preserved by construction because the
+    # fallback parser never consumes any section in IGNORED_SECTIONS.
+    ignored_section_diagnostics = _collect_ignored_section_diagnostics(sections)
+
     # Re-balance demand so the network is mass-consistent at parse time:
     # any drift (e.g. demands declared on junctions but no matching supply
     # row) is absorbed by the fixed-head boundaries. The mass term for
@@ -2342,7 +2457,10 @@ def _fallback_parse(
         fixed_head_mask=torch.tensor(fixed_mask, dtype=torch.bool),
         fixed_head_values=torch.tensor(fixed_vals, dtype=torch.get_default_dtype()),
     )
-    diagnostics = EpanetImportDiagnostics(status_rows=status_diagnostics)
+    diagnostics = EpanetImportDiagnostics(
+        status_rows=status_diagnostics,
+        ignored_sections=ignored_section_diagnostics,
+    )
     return network, diagnostics
 
 
@@ -3126,19 +3244,26 @@ def load_inp_diagnostics(
     Sprint 23 surfaces accepted ``[STATUS] OPEN`` rows as a read-only
     diagnostics container so analysts can see what status declarations
     were present in an imported file without changing any hydraulic
-    field on the loaded :class:`Network`.
+    field on the loaded :class:`Network`. Sprint 24 extends the same
+    container with an ``ignored_sections`` field carrying one record
+    per :data:`IGNORED_SECTIONS` member that was actually declared in
+    the file (``CONTROLS``, ``RULES``, ``PATTERNS``, ``ENERGY``, …).
 
     The returned :class:`EpanetImportDiagnostics` is structurally
-    immutable: the container is a frozen :class:`dataclasses.dataclass`
-    and ``status_rows`` is a :class:`tuple` of frozen
-    :class:`EpanetStatusDiagnostic` records.
+    immutable: the container is a frozen :class:`dataclasses.dataclass`,
+    ``status_rows`` is a :class:`tuple` of frozen
+    :class:`EpanetStatusDiagnostic` records, and ``ignored_sections``
+    is a :class:`tuple` of frozen
+    :class:`EpanetIgnoredSectionDiagnostic` records.
 
-    The fallback parser is authoritative for Sprint 23 diagnostics —
-    the optional WNTR back-end has its own ``[STATUS]`` parser and
-    the dPHM WNTR adapter does not re-emit ``[STATUS]`` records.
-    Calling this function with ``parser="wntr"`` returns an empty
+    The fallback parser is authoritative for both diagnostic
+    channels — the optional WNTR back-end has its own ``[STATUS]``
+    parser and its own per-section handling, and the dPHM WNTR adapter
+    does not re-emit either diagnostic channel. Calling this function
+    with ``parser="wntr"`` returns an empty
     :class:`EpanetImportDiagnostics` even on files that declare
-    ``[STATUS] OPEN`` rows. See ``docs/epanet-inp-import.md``.
+    ``[STATUS] OPEN`` rows or ignored sections. See
+    ``docs/epanet-inp-import.md``.
 
     Parameters mirror :func:`load_network_from_inp`. The same
     :class:`ValueError` / :class:`ImportError` failure surface
@@ -3156,6 +3281,7 @@ def load_inp_diagnostics(
 
 
 __all__ = [
+    "EpanetIgnoredSectionDiagnostic",
     "EpanetImportDiagnostics",
     "EpanetPressureUnit",
     "EpanetStatusDiagnostic",

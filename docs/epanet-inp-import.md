@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–23)
+# EPANET `.inp` Topology Import (Sprint 11–24)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -45,6 +45,16 @@ accessed via the new `load_inp_diagnostics(path)` accessor or via
 are hydraulically inert — the returned `Network` is unchanged — and
 the Sprint 22 rejection behaviour for status-changing rows is
 preserved (see "Read-only [STATUS] diagnostics (Sprint 23)" below).
+Sprint 24 extends the same `EpanetImportDiagnostics` container with
+an `ignored_sections` field carrying one read-only
+`EpanetIgnoredSectionDiagnostic` per `IGNORED_SECTIONS` member that
+was actually declared in the imported file (e.g. `[CONTROLS]`,
+`[RULES]`, `[PATTERNS]`, `[ENERGY]`). Sprint 24 only adds visibility
+— every ignored section remains dropped on the floor at parse time,
+the Sprint 21 invariance contract still holds, and `[STATUS]` is
+never surfaced through `ignored_sections` because Sprint 22 already
+removed it from `IGNORED_SECTIONS` (see "Read-only ignored-section
+diagnostics (Sprint 24)" below).
 The public entry point is one function:
 
 ```python
@@ -1422,6 +1432,164 @@ network-equality contract on top of the Sprint 22 invariance tests.
   (`pytest.importorskip("wntr")`) confirms the API does not raise
   and returns the read-only container shape — it does **not**
   require diagnostic parity with the fallback back-end.
+
+## Read-only ignored-section diagnostics (Sprint 24)
+
+Sprint 21 documented the parser's ignored-section contract via the
+public `IGNORED_SECTIONS` frozenset. Sprint 23 added a diagnostics
+surface for accepted `[STATUS] OPEN` rows. Sprint 24 closes the last
+visibility gap on the diagnostics surface: **which `IGNORED_SECTIONS`
+were actually present in the imported file**. Sprint 24 only adds
+visibility — every ignored section is still dropped on the floor at
+parse time, the Sprint 21 byte-for-byte invariance contract still
+holds, and no new hydraulic semantics are activated.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetIgnoredSectionDiagnostic,
+    EpanetImportDiagnostics,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+from aquaoptima.dphm.inp_io import IGNORED_SECTIONS
+
+# Option A — explicit, read-only diagnostics accessor.
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+for rec in diagnostics.ignored_sections:
+    print(rec.section, rec.row_count, rec.message)
+
+# Option B — fetch the Network and the diagnostics together.
+network, diagnostics = load_network_from_inp(
+    path, parser="fallback", return_diagnostics=True,
+)
+ignored = {rec.section for rec in diagnostics.ignored_sections}
+print(sorted(ignored & IGNORED_SECTIONS))
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–23 caller works unchanged.
+
+### Shape
+
+```python
+@dataclass(frozen=True)
+class EpanetIgnoredSectionDiagnostic:
+    section: str                   # canonical upper-case section name
+    row_count: int                 # non-blank, comment-stripped rows
+    message: str = "Section present but ignored by the steady-state dPHM importer."
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()
+```
+
+Both dataclasses are `frozen=True`. `ignored_sections` is a `tuple`
+(not a list) so the diagnostics surface is structurally read-only:
+attempting to reassign a field raises
+`dataclasses.FrozenInstanceError`.
+
+### What gets recorded
+
+The fallback parser emits **one
+`EpanetIgnoredSectionDiagnostic` per `IGNORED_SECTIONS` member that
+is actually declared in the file**, in source order:
+
+- the `section` is the upper-case section name as it appears in
+  `IGNORED_SECTIONS` (`"CONTROLS"`, `"RULES"`, `"PATTERNS"`,
+  `"ENERGY"`, …);
+- the `row_count` is the number of non-blank, comment-stripped rows
+  the parser saw inside the section body; **a bare header with no
+  body still counts as present** (`row_count = 0`) because the file
+  declared the section;
+- repeated headers (e.g. two `[CONTROLS]` blocks in one file)
+  collapse to a single record because `_split_sections` already
+  accumulates rows into a single bucket — `row_count` reflects the
+  total;
+- the order in `ignored_sections` matches the order each header is
+  first declared in the source file.
+
+`[STATUS]` is **not** in `IGNORED_SECTIONS` from Sprint 22 onwards
+and is therefore **never** surfaced through `ignored_sections`.
+Accepted `[STATUS] OPEN` rows continue to surface through
+`status_rows` (Sprint 23).
+
+Active hydraulic sections (`[JUNCTIONS]`, `[RESERVOIRS]`, `[TANKS]`,
+`[PIPES]`, `[PUMPS]`, `[VALVES]`, `[OPTIONS]`, `[CURVES]`) are also
+excluded by construction because they are not in `IGNORED_SECTIONS`.
+
+### Hydraulic inertness
+
+The diagnostics path **does not** mutate the loaded `Network`. Adding
+any combination of ignored sections to a fixture leaves every field
+(`edge_index`, `pipe_mask`, `pump_mask`, `demands`,
+`fixed_head_values`, `lengths`, `diameters`, `c_factors`,
+`pump_coeffs`, `pump_speeds`) byte-for-byte identical to the
+Sprint 21 baseline. `tests/dphm/test_inp_ignored_section_diagnostics.py`
+pins this invariance on top of the Sprint 21 contract.
+
+### What Sprint 24 does NOT do
+
+- It does **not** activate `[CONTROLS]` / `[RULES]` / `[PATTERNS]` /
+  `[ENERGY]` semantics. The Sprint 21 limitation stands — these
+  sections are still dropped on the floor at parse time.
+- It does **not** add new hydraulic physics. No Darcy-Weisbach, no
+  time-varying demand, no closed-link / pump-speed modelling, no
+  energy-cost modelling.
+- It does **not** surface `[STATUS]` as an ignored-section
+  diagnostic. Sprint 22 actively validates `[STATUS]`; accepted
+  rows go through `status_rows`, rejected rows still raise.
+- It does **not** attach diagnostic state to `Network`. The
+  `Network` dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit ignored-section
+  diagnostics. The fallback parser is authoritative for Sprint 24
+  diagnostics. When `parser="wntr"` is requested, the WNTR back-end
+  relies on WNTR's own per-section handling (WNTR validates several
+  of these sections internally) and the dPHM WNTR adapter returns an
+  **empty** `ignored_sections` tuple. The asymmetry mirrors Sprint
+  23 — fallback authoritative; WNTR documented rather than papered
+  over.
+
+### Tests
+
+`tests/dphm/test_inp_ignored_section_diagnostics.py` — Sprint 24:
+
+- public-surface checks: `EpanetIgnoredSectionDiagnostic` is a frozen
+  dataclass; `EpanetImportDiagnostics.ignored_sections` defaults to
+  `()` and is tuple-backed and frozen;
+- empty diagnostics for fixtures with no ignored sections declared;
+- per-section presence records for `CONTROLS`, `RULES`, `PATTERNS`,
+  `ENERGY`, `EMITTERS`, `QUALITY`, `SOURCES`, `REACTIONS`, `MIXING`,
+  `TIMES`, `REPORT`;
+- empty `[CONTROLS]` header (no body) still produces a record with
+  `row_count = 0`;
+- multiple ignored sections recorded together; source-order
+  preservation;
+- repeated `[CONTROLS]` headers collapse to one record with the
+  combined row count;
+- `[STATUS]` never appears in `ignored_sections`, even when both
+  `[STATUS] OPEN` and `[CONTROLS]` are present in the same file;
+- hydraulically-active sections never appear in `ignored_sections`;
+- every emitted record's `section` is a member of
+  `IGNORED_SECTIONS`;
+- `Network` byte-for-byte invariance against the Sprint 21 baseline
+  with `[CONTROLS]` / `[RULES]` / `[PATTERNS]` / `[ENERGY]` added;
+- `return_diagnostics=True` returns the same `Network` as the
+  default `load_network_from_inp(path)` call;
+- backward compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- `[CONTROLS]` remains a dropped no-op — Newton-solve heads / flows
+  match the baseline to 1e-9 / 1e-12 with controls present;
+- Sprint 22 rejection paths still raise when ignored sections are
+  also present in the file;
+- optional WNTR back-end smoke check (`pytest.importorskip("wntr")`)
+  — the WNTR back-end returns an `EpanetImportDiagnostics` without
+  raising; diagnostic parity with the fallback parser is **not**
+  required.
 
 ## Mass balancing
 
