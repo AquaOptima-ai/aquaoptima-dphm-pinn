@@ -3084,6 +3084,179 @@ between the two back-ends is **not** a Sprint 31 goal.
   returns `()` for every canonical section on a WNTR-parseable
   fixture.
 
+## Per-edge surrogate diagnostics (Sprint 32)
+
+Sprint 15 introduced `translate_valve_to_surrogate`, which approximates
+EPANET `[VALVES]` PRV and TCV rows as pipe-like dPHM edges (PRV pins
+the downstream node as a fixed-head boundary; TCV becomes a Hazen-
+Williams pipe sized to match a minor-loss head loss at one anchor
+flow). Sprints 23–31 grew `EpanetImportDiagnostics` into a multi-
+channel container plus ergonomics helpers, but never surfaced *which
+dPHM edges* came from a surrogate translation. Sprint 32 closes that
+gap with a per-edge surrogate diagnostics channel.
+
+The new surface is read-only and hydraulically inert. The loaded
+`Network` is byte-for-byte identical to the same fixture loaded under
+the Sprint 15 contract, and the parser's per-edge translation
+(`translate_valve_to_surrogate`, `fit_tcv_resistance_surrogate`) is
+unchanged.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EDGE_SURROGATE_KIND_PRV_FIXED_HEAD,
+    EDGE_SURROGATE_KIND_TCV_MINOR_LOSS,
+    EDGE_SURROGATE_SEVERITY_LIMITATION,
+    EpanetEdgeSurrogateDiagnostic,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# One-shot: diagnostics only.
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+records = diagnostics.edge_surrogates  # tuple[EpanetEdgeSurrogateDiagnostic, ...]
+
+# Paired with the loaded Network.
+net, diagnostics = load_network_from_inp(
+    path, parser="fallback", return_diagnostics=True
+)
+
+# Accessors (every call returns a fresh tuple / dict; container never mutates).
+diagnostics.surrogate_edges()              # tuple of every record
+diagnostics.surrogate_count_by_kind()      # {kind: count}
+diagnostics.surrogates_for_link("V1")      # tuple of records with link_id == "V1"
+diagnostics.surrogate_for_edge(2)          # tuple of records with edge_index == 2
+```
+
+### `EpanetEdgeSurrogateDiagnostic` fields
+
+| Field            | Meaning                                                                     |
+|------------------|-----------------------------------------------------------------------------|
+| `edge_index`     | Zero-based index into the loaded `Network`'s edge arrays.                  |
+| `link_id`        | Original EPANET link id, preserved case-sensitively.                       |
+| `link_type`      | Canonical source link type. Sprint 32: always `"VALVE"`.                   |
+| `surrogate_kind` | Stable code: `"PRV_FIXED_HEAD_SURROGATE"` or `"TCV_MINOR_LOSS_SURROGATE"`.  |
+| `severity`       | Stable severity token. Sprint 32: always `"LIMITATION"`.                   |
+| `message`        | Human-readable explanation, pinned per `surrogate_kind`.                   |
+| `limitations`    | Tuple of short human-readable limitations the report should surface.       |
+
+The record is `frozen=True`; reassigning a field raises
+`dataclasses.FrozenInstanceError`. The `limitations` tuple is the
+immutable storage form (callers that want a list can call `list(...)`
+on the tuple).
+
+### Source elements that produce surrogate diagnostics
+
+Sprint 32 covers the two valve forms the Sprint 15 translator already
+handled conservatively:
+
+- `[VALVES]` PRV rows — one record per appended dPHM edge with
+  `surrogate_kind = "PRV_FIXED_HEAD_SURROGATE"`. The downstream node
+  is also pinned as a fixed-head boundary (unchanged Sprint 15
+  behaviour); the diagnostic carries the matching `LIMITATION`
+  severity.
+- `[VALVES]` TCV rows — one record per appended dPHM edge with
+  `surrogate_kind = "TCV_MINOR_LOSS_SURROGATE"`.
+
+Active control valve forms (`FCV`, `PSV`, `PBV`, `GPV`) still raise
+`ValueError` at the translator boundary — they never reach the
+diagnostics surface. `[PUMPS]` POWER surrogates are not surfaced as
+edge surrogates today; future sprints may add them under the same
+channel.
+
+`[PIPES]` rows that load directly as dPHM pipe edges (no surrogate
+involved) never produce records.
+
+### Fallback vs WNTR asymmetry
+
+The fallback parser is authoritative for Sprint 32. The optional
+WNTR back-end ships its own valve translation and we do not re-emit
+surrogate diagnostics from it; under `parser="wntr"`:
+
+```python
+diagnostics.edge_surrogates                  # ()
+diagnostics.surrogate_edges()                # ()
+diagnostics.surrogate_count_by_kind()        # {}
+diagnostics.surrogates_for_link(...)         # ()
+diagnostics.surrogate_for_edge(...)          # ()
+```
+
+This mirrors the Sprint 23–31 WNTR asymmetry: full diagnostic parity
+between back-ends is **not** a Sprint 32 goal. A future sprint may
+pin WNTR to a stable surface and add parity.
+
+### Safety boundary — diagnostics only, no new EPANET semantics
+
+Sprint 32 ships **only** the diagnostics surface. Specifically, this
+sprint does not:
+
+- change `translate_valve_to_surrogate` or
+  `fit_tcv_resistance_surrogate` behaviour (PRV pressure-boundary
+  surrogate and TCV pipe-resistance surrogate are unchanged);
+- alter the loaded `Network` (node count, edge count, demands, fixed
+  heads, pipe / pump masks, geometry, pump coefficients are all
+  identical to a Sprint 15–31 load of the same fixture);
+- activate FCV / PSV / PBV / GPV — the translator still raises;
+- enable active PLC / PAC / SCADA write paths or
+  `[CONTROLS]` / `[RULES]` evaluation (Sprint 25 / 27 contract is
+  unchanged);
+- expand pump or valve physics beyond the Sprint 15 translator;
+- emit WNTR-side surrogate diagnostics.
+
+### Shadow-mode relevance
+
+`edge_surrogates`, combined with the Sprint 30 `summary()` and
+Sprint 31 `rows_for_section(name)` accessors, is enough to render an
+import-quality report on any imported `.inp` file:
+
+- which dPHM edges are exact (pipes / pumps with no surrogate)
+  vs approximated (any entry in `edge_surrogates`);
+- which approximations carry which `severity` and `limitations`
+  text;
+- counts per `surrogate_kind` for top-line dashboards;
+- per-link drill-down via `surrogates_for_link(link_id)`;
+- per-edge drill-down via `surrogate_for_edge(edge_index)` (useful
+  when the UI is iterating over `net.edge_index` and wants to
+  annotate the offending edges in place).
+
+Such reports stay read-only and do not change any forward-model
+behaviour, so they are safe to wire into a shadow-mode UI alongside
+the existing diagnostics channels.
+
+### Tests
+
+`tests/dphm/test_inp_edge_surrogates.py` proves the contract:
+
+- public surface: `EpanetEdgeSurrogateDiagnostic` is frozen,
+  `limitations` is a tuple, the default is `()`;
+- empty container: every accessor returns `()` / `{}`;
+- accessors on a hand-built container: per-kind counts, per-link
+  filter (case-sensitive, unknown returns `()`), per-edge filter
+  (unknown / negative / non-int-like / `bool` / `NaN` returns
+  `()`);
+- fallback parser population: TCV-only fixture emits one record at
+  the correct edge index with the TCV kind; PRV fixture emits one
+  record with the PRV kind; a fixture with both produces two
+  records at consecutive edge indices with the matching kinds;
+- a fixture with no `[VALVES]` block emits no surrogate
+  diagnostics;
+- hydraulic inertness: a `Network` loaded with the new
+  `return_diagnostics=True` flag is identical to one loaded with
+  the default flag on every field;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` produce
+  identical `edge_surrogates` and identical accessor results;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`; Sprint 23 / 25 / 30 / 31
+  helpers still work alongside the new field;
+- read-only contract: invoking every accessor with every kind of
+  input (valid, unknown, invalid) leaves `edge_surrogates`'s
+  tuple identity unchanged;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`): `edge_surrogates` is empty and
+  every accessor returns `()` / `{}`.
+
 ## Mass balancing
 
 EPANET INP files often declare junction demands without a matching

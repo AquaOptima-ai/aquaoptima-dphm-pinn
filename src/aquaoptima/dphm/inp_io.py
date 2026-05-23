@@ -362,6 +362,7 @@ family's head conversion).
 from __future__ import annotations
 
 import math
+import operator
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -1235,6 +1236,127 @@ _CANONICAL_ROW_COUNT_SECTION_ORDER: tuple[str, ...] = (
 )
 
 
+# Sprint 32: stable machine-friendly surrogate-kind codes for the
+# :class:`EpanetEdgeSurrogateDiagnostic` records the fallback parser
+# emits when an EPANET link is translated into a dPHM edge via a
+# conservative approximation. The codes are part of the public
+# diagnostics surface — downstream UI / API / shadow-mode reports
+# should compare against these constants rather than re-deriving them
+# from valve-type tokens. Kept as module-level names so adding new
+# surrogate kinds (pump / pipe surrogates in future sprints) does not
+# break ``str`` equality on the existing codes.
+EDGE_SURROGATE_KIND_PRV_FIXED_HEAD: str = "PRV_FIXED_HEAD_SURROGATE"
+EDGE_SURROGATE_KIND_TCV_MINOR_LOSS: str = "TCV_MINOR_LOSS_SURROGATE"
+
+# Sprint 32: stable severity tokens. Sprint 32 emits ``"LIMITATION"``
+# for every record because both PRV and TCV surrogates drop active
+# control semantics the dPHM steady-state core cannot represent and
+# match the EPANET valve only approximately. ``"INFO"`` / ``"WARNING"``
+# are reserved for future surrogates whose approximations are less
+# load-bearing.
+EDGE_SURROGATE_SEVERITY_INFO: str = "INFO"
+EDGE_SURROGATE_SEVERITY_WARNING: str = "WARNING"
+EDGE_SURROGATE_SEVERITY_LIMITATION: str = "LIMITATION"
+
+
+# Sprint 32: pinned, module-level messages and limitations so the
+# emitted record text is stable and diff-safe across calls. Two
+# diagnostic records for the same surrogate kind always carry the exact
+# same ``message`` and ``limitations`` tuple.
+_EDGE_SURROGATE_PRV_MESSAGE: str = (
+    "PRV imported as a pressure-boundary surrogate: the downstream "
+    "node is pinned to a fixed-head boundary at elev + setting and "
+    "the valve edge is a short, permissive pipe-like resistance."
+)
+_EDGE_SURROGATE_TCV_MESSAGE: str = (
+    "TCV imported as a Hazen-Williams pipe surrogate whose effective "
+    "length reproduces the minor-loss head loss at one anchor flow."
+)
+_EDGE_SURROGATE_PRV_LIMITATIONS: tuple[str, ...] = (
+    "PRV does not enforce active flow / pressure regulation.",
+    "Mass balance on the now-fixed downstream node is dropped from "
+    "the residual.",
+)
+_EDGE_SURROGATE_TCV_LIMITATIONS: tuple[str, ...] = (
+    "TCV is not modelled as an active control element.",
+    "Hazen-Williams head loss matches K*V^2/(2g) only at the anchor "
+    "flow; |Q|^1.852 vs K*Q^2 diverges off-design.",
+)
+
+
+@dataclass(frozen=True)
+class EpanetEdgeSurrogateDiagnostic:
+    """Read-only record of one dPHM edge produced by a surrogate.
+
+    Sprint 32 surfaces every EPANET link the fallback parser translates
+    into a dPHM edge via a conservative surrogate approximation, so
+    downstream UI / API / shadow-mode import-quality reports can flag
+    the approximated edges and surface their limitations without
+    re-deriving them from solver outputs.
+
+    The record is structurally read-only and **hydraulically inert** —
+    building or surfacing a diagnostic never changes the loaded
+    :class:`Network` and never activates any deferred EPANET semantics.
+    Surrogate edges are exactly the same pipe-like edges Sprint 15's
+    :func:`translate_valve_to_surrogate` has produced since Sprint 15;
+    Sprint 32 only adds metadata about *which* dPHM edges came from a
+    surrogate and *why*.
+
+    Attributes
+    ----------
+    edge_index
+        Zero-based index into the loaded :class:`Network`'s edge
+        arrays (``edge_index``, ``pipe_mask``, ``lengths``,
+        ``diameters``, ``c_factors``, …). Stable across calls because
+        the fallback parser appends every edge in a deterministic
+        ``[pipes..., pumps..., valves...]`` order within each section.
+    link_id
+        Original EPANET link identifier, preserved exactly as it
+        appeared in the source ``.inp`` file. EPANET link ids are
+        case-sensitive in the dPHM fallback parser, and this field
+        preserves that case-sensitivity for downstream lookups.
+    link_type
+        Canonical source link type. Sprint 32: always ``"VALVE"`` —
+        the ``[VALVES]`` translator is the only Sprint 32 surrogate
+        populator. Future sprints may add ``"PUMP"`` (for the POWER
+        surrogate) or ``"PIPE"`` (for any future pipe surrogate).
+    surrogate_kind
+        Stable machine-friendly code identifying the surrogate
+        approximation that produced the edge. Compare against the
+        module-level constants:
+
+        * :data:`EDGE_SURROGATE_KIND_PRV_FIXED_HEAD` (``"PRV_FIXED_HEAD_SURROGATE"``)
+          — PRV pressure-boundary surrogate.
+        * :data:`EDGE_SURROGATE_KIND_TCV_MINOR_LOSS` (``"TCV_MINOR_LOSS_SURROGATE"``)
+          — TCV minor-loss / pipe-resistance surrogate.
+    severity
+        Stable severity token. Sprint 32 emits
+        :data:`EDGE_SURROGATE_SEVERITY_LIMITATION` (``"LIMITATION"``)
+        for every record because both PRV and TCV surrogates drop
+        active control semantics the dPHM steady-state core cannot
+        represent. ``"INFO"`` / ``"WARNING"`` are reserved for future
+        surrogates with less load-bearing approximations.
+    message
+        Human-readable explanation of what the surrogate is. Pinned to
+        a module-level string per ``surrogate_kind`` so two diagnostic
+        records for the same kind never surface spurious string
+        variation.
+    limitations
+        Tuple of short human-readable limitations callers may surface
+        verbatim to operators / analysts. Empty tuple when the
+        surrogate has no documented limitation; Sprint 32 emits a
+        non-empty tuple for every record.
+    """
+
+    edge_index: int
+    link_id: str
+    link_type: str
+    surrogate_kind: str
+    severity: str
+    message: str
+    limitations: tuple[str, ...] = ()
+
+
 # Sprint 31: section names that resolve to a row diagnostics channel.
 # Frozen so the lookup table is auditable in one place and so reassigning
 # is impossible. The mapping is to the channel attribute name on
@@ -1280,6 +1402,15 @@ class EpanetImportDiagnostics:
     retrieval accessor that returns the row diagnostics for a named
     EPANET section without callers needing to know which internal
     channel owns it.
+    Sprint 32 adds ``edge_surrogates`` — one
+    :class:`EpanetEdgeSurrogateDiagnostic` record per dPHM edge the
+    fallback parser produced via a conservative surrogate translation
+    (``[VALVES]`` PRV / TCV today; future sprints may add pump / pipe
+    surrogates). Four read-only helpers — :meth:`surrogate_edges`,
+    :meth:`surrogate_count_by_kind`, :meth:`surrogates_for_link`, and
+    :meth:`surrogate_for_edge` — provide per-edge / per-link / per-kind
+    lookup without exposing the underlying tuple. The Sprint 32 channel
+    is hydraulically inert and is empty for ``parser="wntr"``.
     Future sprints may grow additional fields — adding a new optional
     field with a default value is backwards-compatible for keyword-only
     callers.
@@ -1298,6 +1429,7 @@ class EpanetImportDiagnostics:
     pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()
     emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()
     water_quality_rows: tuple[EpanetWaterQualityDiagnostic, ...] = ()
+    edge_surrogates: tuple[EpanetEdgeSurrogateDiagnostic, ...] = ()
 
     def row_count_by_section(self) -> dict[str, int]:
         """Aggregate per-section row counts across every row channel.
@@ -1475,6 +1607,111 @@ class EpanetImportDiagnostics:
             return tuple(self.status_rows)
         rows = getattr(self, channel)
         return tuple(rec for rec in rows if rec.section == canonical)
+
+    def surrogate_edges(self) -> tuple[EpanetEdgeSurrogateDiagnostic, ...]:
+        """Return the edge surrogate diagnostics as a fresh tuple.
+
+        Sprint 32 read-only accessor. Returns a freshly-allocated
+        :class:`tuple` containing every
+        :class:`EpanetEdgeSurrogateDiagnostic` the parser emitted, in
+        source / edge-append order. Reading the tuple — including
+        copying it to a list and mutating the copy — never affects the
+        diagnostics container. The accessor itself never mutates the
+        container and is safe to call from UI / API / report code.
+
+        Equivalent to ``tuple(diagnostics.edge_surrogates)``; the
+        method exists so the surrogate channel matches the
+        :meth:`rows_for_section` ergonomics and so future sprints can
+        change the underlying storage without touching callers.
+        """
+        return tuple(self.edge_surrogates)
+
+    def surrogate_count_by_kind(self) -> dict[str, int]:
+        """Return a per-surrogate-kind count as a fresh ``dict``.
+
+        Sprint 32 read-only accessor. Walks ``edge_surrogates`` and
+        accumulates per-kind counts keyed by ``surrogate_kind``.
+        Insertion order is the first-occurrence order in the
+        underlying tuple, which is itself parse-time / edge-append
+        order. Every call returns a freshly-allocated ``dict``; the
+        caller may mutate it without affecting the diagnostics
+        container or subsequent calls. The helper never mutates the
+        container.
+
+        Empty diagnostics return ``{}`` — never a sparse all-zero
+        mapping over every possible kind, so the count of surrogates
+        present in a file is exactly ``sum(counts.values())``.
+        """
+        counts: dict[str, int] = {}
+        for rec in self.edge_surrogates:
+            counts[rec.surrogate_kind] = counts.get(rec.surrogate_kind, 0) + 1
+        return counts
+
+    def surrogates_for_link(
+        self, link_id: str
+    ) -> tuple[EpanetEdgeSurrogateDiagnostic, ...]:
+        """Return every surrogate diagnostic for an EPANET link id.
+
+        Sprint 32 read-only accessor. Filters ``edge_surrogates`` by
+        ``record.link_id == link_id`` and returns the matching records
+        as a freshly-allocated tuple in source / edge-append order.
+
+        Lookup is **case-sensitive** to match the fallback parser's
+        case-sensitive treatment of EPANET link ids. Non-string input
+        (including ``None``) returns ``()`` rather than raising, so
+        the accessor is safe to call with arbitrary UI input. Unknown
+        link ids — including misspelled or wrong-case ids — return
+        ``()`` as well.
+
+        Edge surrogates today are emitted one-per-edge, so the typical
+        return tuple has at most one element. The signature stays a
+        tuple to keep the surface uniform with the other accessors
+        and to leave room for hypothetical future surrogates that
+        could emit multiple records per source link.
+        """
+        if not isinstance(link_id, str):
+            return ()
+        return tuple(
+            rec for rec in self.edge_surrogates if rec.link_id == link_id
+        )
+
+    def surrogate_for_edge(
+        self, edge_index: int
+    ) -> tuple[EpanetEdgeSurrogateDiagnostic, ...]:
+        """Return every surrogate diagnostic for a dPHM edge index.
+
+        Sprint 32 read-only accessor. Filters ``edge_surrogates`` by
+        ``record.edge_index == edge_index`` and returns the matching
+        records as a freshly-allocated tuple in source / edge-append
+        order.
+
+        ``edge_index`` accepts any int-like value that
+        ``operator.index`` resolves (i.e. real Python ``int``, NumPy
+        integer scalars, anything implementing ``__index__``).
+        ``bool`` is explicitly rejected — ``True``/``False`` are valid
+        ints in Python but are not meaningful edge indices. Any
+        non-int-like or non-finite input (strings, floats, ``None``,
+        ``NaN``) returns ``()`` rather than raising, so the accessor
+        is safe to call with arbitrary UI / API input. Unknown edge
+        indices — including negative values and indices outside the
+        loaded :class:`Network`'s edge range — return ``()``.
+
+        Edge surrogates today are emitted one-per-edge, so the typical
+        return tuple has at most one element. The signature stays a
+        tuple to keep the surface uniform with
+        :meth:`surrogates_for_link` and to leave room for hypothetical
+        future surrogates that could emit multiple records per dPHM
+        edge.
+        """
+        if isinstance(edge_index, bool):
+            return ()
+        try:
+            canonical = operator.index(edge_index)
+        except TypeError:
+            return ()
+        return tuple(
+            rec for rec in self.edge_surrogates if rec.edge_index == canonical
+        )
 
 
 @dataclass(frozen=True)
@@ -3336,6 +3573,13 @@ def _fallback_parse(
     # section. PRV rows additionally pin their downstream node as a
     # fixed-head boundary, evaluated using the snapshot of total positive
     # demand BEFORE any PRV-driven fixed-head reassignment.
+    # Sprint 32: collect one EpanetEdgeSurrogateDiagnostic per appended
+    # valve edge so downstream UI / API / shadow-mode reports can flag
+    # the approximated edges. The diagnostics list is built in lockstep
+    # with the edge buffers — the per-row edge index is captured as
+    # ``len(src_idx)`` BEFORE the surrogate edge is appended, so it
+    # matches the eventual position in the loaded Network's edge arrays.
+    edge_surrogate_records: list[EpanetEdgeSurrogateDiagnostic] = []
     valve_rows = sections.get("VALVES", [])
     if valve_rows:
         # Snapshot total positive demand BEFORE PRV-driven fixed-head
@@ -3443,6 +3687,33 @@ def _fallback_parse(
                 )
 
             pipe_params = description["pipe_params"]
+            # Sprint 32: capture the edge index BEFORE the edge is
+            # appended so it matches the eventual position in the
+            # loaded Network's edge arrays. Both Sprint 15 surrogate
+            # forms (PRV and TCV) produce exactly one dPHM edge per
+            # source [VALVES] row, so one diagnostic record is emitted
+            # per appended edge.
+            surrogate_edge_idx = len(src_idx)
+            resolved_valve_type = str(description["valve_type"]).upper()
+            if resolved_valve_type == "PRV":
+                surrogate_kind = EDGE_SURROGATE_KIND_PRV_FIXED_HEAD
+                surrogate_message = _EDGE_SURROGATE_PRV_MESSAGE
+                surrogate_limitations = _EDGE_SURROGATE_PRV_LIMITATIONS
+            else:
+                surrogate_kind = EDGE_SURROGATE_KIND_TCV_MINOR_LOSS
+                surrogate_message = _EDGE_SURROGATE_TCV_MESSAGE
+                surrogate_limitations = _EDGE_SURROGATE_TCV_LIMITATIONS
+            edge_surrogate_records.append(
+                EpanetEdgeSurrogateDiagnostic(
+                    edge_index=surrogate_edge_idx,
+                    link_id=valve_id,
+                    link_type="VALVE",
+                    surrogate_kind=surrogate_kind,
+                    severity=EDGE_SURROGATE_SEVERITY_LIMITATION,
+                    message=surrogate_message,
+                    limitations=surrogate_limitations,
+                )
+            )
             src_idx.append(id_to_index[node1])
             dst_idx.append(id_to_index[node2])
             pipe_mask.append(True)
@@ -3576,6 +3847,7 @@ def _fallback_parse(
         pattern_energy_rows=pattern_energy_row_diagnostics,
         emitter_demand_rows=emitter_demand_row_diagnostics,
         water_quality_rows=water_quality_row_diagnostics,
+        edge_surrogates=tuple(edge_surrogate_records),
     )
     return network, diagnostics
 
@@ -4410,8 +4682,14 @@ def load_inp_diagnostics(
 
 
 __all__ = [
+    "EDGE_SURROGATE_KIND_PRV_FIXED_HEAD",
+    "EDGE_SURROGATE_KIND_TCV_MINOR_LOSS",
+    "EDGE_SURROGATE_SEVERITY_INFO",
+    "EDGE_SURROGATE_SEVERITY_LIMITATION",
+    "EDGE_SURROGATE_SEVERITY_WARNING",
     "EpanetControlKind",
     "EpanetControlRuleDiagnostic",
+    "EpanetEdgeSurrogateDiagnostic",
     "EpanetEmitterDemandDiagnostic",
     "EpanetIgnoredSectionDiagnostic",
     "EpanetImportDiagnostics",
