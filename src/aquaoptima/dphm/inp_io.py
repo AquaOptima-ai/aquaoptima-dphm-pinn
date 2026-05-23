@@ -61,6 +61,27 @@ The helper :func:`resolve_viscosity` returns the validated value
 See :func:`resolve_viscosity` and ``docs/epanet-inp-import.md`` for
 the explicit boundary.
 
+Sprint 21 makes the fallback parser's ignored-section contract
+explicit. The frozenset :data:`IGNORED_SECTIONS` is now a public
+surface enumerating every EPANET section the parser deliberately
+treats as a silent no-op (``[TIMES]``, ``[REPORT]``, ``[CONTROLS]``,
+``[RULES]``, ``[EMITTERS]``, ``[QUALITY]``, ``[SOURCES]``,
+``[REACTIONS]``, ``[MIXING]``, plus the inert layout sections
+``[TITLE]``, ``[END]``, ``[PATTERNS]``, ``[COORDINATES]``,
+``[VERTICES]``, ``[LABELS]``, ``[BACKDROP]``, ``[TAGS]``,
+``[ENERGY]``, ``[STATUS]``, ``[DEMANDS]``). Adding any of these
+sections to a fixture — anywhere in the file, with any
+representative body, including malformed-looking rows — must leave
+the loaded :class:`Network` byte-for-byte unchanged. The constant is
+documentation-as-code: the parser does not branch on membership,
+it simply never consumes any section other than the hydraulically-
+meaningful ones. ``[CURVES]`` is **not** in the set because Sprint
+12's HEAD-curve pump translation reads it. ``[CONTROLS]`` and
+``[RULES]`` are documented as a *known limitation* — rows that
+would close a link, change a pump speed, or modify a fixed-head
+boundary are dropped, not enforced. See
+``docs/epanet-inp-import.md``.
+
 Sprint 19 adds fallback support for the optional EPANET
 ``[OPTIONS] Specific Gravity`` directive. The directive declares a
 single strictly-positive scalar describing the ratio of fluid density
@@ -640,12 +661,42 @@ def resolve_viscosity(opts: dict[str, str]) -> float:
     return value
 
 
-# Sections we silently skip — they carry no information the
-# steady-state Hazen-Williams core depends on. ``CURVES`` is *not*
-# in this list because Sprint 12 consumes HEAD-type curves when a
-# ``[PUMPS]`` row references one; unused curves are still tolerated
-# (the parser just never reads them).
-_IGNORED_SECTIONS = frozenset(
+# Sections the fallback parser tolerates as silent no-ops because they
+# carry no information the steady-state Hazen-Williams core depends on.
+# Promoted to a public surface in Sprint 21 so external code (and the
+# test suite) can introspect the explicit no-op contract.
+#
+# Mechanically, this set is *documentation as code*: the parser does not
+# branch on membership. ``_fallback_parse`` only ever consumes the
+# hydraulically-meaningful sections (``[OPTIONS]``, ``[JUNCTIONS]``,
+# ``[RESERVOIRS]``, ``[TANKS]``, ``[PIPES]``, ``[PUMPS]``, ``[VALVES]``,
+# ``[CURVES]``); every other section header is tokenised by
+# :func:`_split_sections` and then simply never read. Sprint 21 ships
+# explicit tests that this no-op behaviour holds — adding any section
+# in :data:`IGNORED_SECTIONS` (or any other unknown section) to a
+# fixture must leave the loaded :class:`Network` unchanged.
+#
+# ``CURVES`` is deliberately **NOT** in this set: Sprint 12 consumes
+# HEAD-type curves when a ``[PUMPS]`` row references one, so the
+# section is active. Unused curves are tolerated (the parser simply
+# never reads them) but the section is not a global no-op.
+#
+# Sprint 21 known limitations that this set encodes:
+#
+# * ``[CONTROLS]`` / ``[RULES]`` rows that would close a link, change a
+#   pump speed, or modify a fixed-head boundary are ignored. The dPHM
+#   steady-state core does not model active controls or rule-based
+#   logic; importing those rows would silently mis-represent the
+#   network. They are deferred — see ``docs/epanet-inp-import.md``.
+# * ``[QUALITY]``, ``[SOURCES]``, ``[REACTIONS]``, ``[MIXING]``,
+#   ``[EMITTERS]`` are water-quality / pressure-driven-demand
+#   extensions outside the current steady-state hydraulic scope. They
+#   are ignored at parse time and will be added in dedicated future
+#   sprints if and when the core grows the corresponding physics.
+# * ``[TIMES]``, ``[REPORT]`` carry simulation / output settings that
+#   only matter for an EPANET-runtime simulation; the dPHM importer
+#   never spawns one.
+IGNORED_SECTIONS: frozenset[str] = frozenset(
     {
         "TITLE",
         "END",
@@ -669,6 +720,13 @@ _IGNORED_SECTIONS = frozenset(
         "MIXING",
     }
 )
+
+
+# Backwards-compatible private alias. The constant has always been a
+# private name within this module; keeping the alias prevents any
+# hypothetical downstream that imported the underscored name from
+# breaking. New code should prefer :data:`IGNORED_SECTIONS`.
+_IGNORED_SECTIONS = IGNORED_SECTIONS
 
 
 # --- low-level tokenisation -------------------------------------------------
@@ -2749,6 +2807,7 @@ def load_network_from_inp(
 __all__ = [
     "EpanetPressureUnit",
     "EpanetUnitSystem",
+    "IGNORED_SECTIONS",
     "SUPPORTED_FLOW_UNITS",
     "SUPPORTED_PRESSURE_UNITS",
     "fit_power_pump_surrogate",

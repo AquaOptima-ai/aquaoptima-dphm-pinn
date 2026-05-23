@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–20)
+# EPANET `.inp` Topology Import (Sprint 11–21)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -25,6 +25,14 @@ directive as a parser-only compatibility feature; the dPHM core uses
 Hazen-Williams head loss, which has no viscosity term, so the
 directive is parsed and validated but never propagated to any
 hydraulic field (see "Viscosity" below).
+Sprint 21 makes the fallback parser's ignored-section contract
+*explicit*: the public `IGNORED_SECTIONS` frozenset enumerates every
+EPANET section the parser deliberately treats as a silent no-op
+(`[TIMES]`, `[REPORT]`, `[CONTROLS]`, `[RULES]`, `[EMITTERS]`,
+`[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]`, plus the inert
+layout sections), and ships explicit tests pinning the invariance
+that adding any of those sections to a fixture leaves the loaded
+`Network` byte-for-byte unchanged (see "Ignored sections" below).
 The public entry point is one function:
 
 ```python
@@ -1024,6 +1032,110 @@ Darcy-Weisbach branch to the dPHM core.
   effective resistance, Newton-solve heads / flows), orthogonality
   with Demand Multiplier and Specific Gravity, and existing-fixture
   preservation.
+
+## Ignored sections (Sprint 21)
+
+Sprint 21 makes the fallback parser's *no-op* behaviour for every
+out-of-scope EPANET section explicit, tested, and documented.
+
+The constant `aquaoptima.dphm.inp_io.IGNORED_SECTIONS` is the public
+surface for this contract — a `frozenset[str]` enumerating every
+section header the parser tolerates and then deliberately drops:
+
+| Section        | Reason it is ignored                                                                                                 |
+|----------------|---------------------------------------------------------------------------------------------------------------------|
+| `[TIMES]`      | Simulation timestep / duration. Only meaningful to an EPANET runtime; the dPHM importer never spawns one.            |
+| `[REPORT]`     | EPANET report-file directives. Output formatting, no hydraulic content.                                              |
+| `[CONTROLS]`   | Simple link-status / pump-speed controls. Active controls are not modelled by the steady-state dPHM core.            |
+| `[RULES]`      | Rule-based controls. Same limitation as `[CONTROLS]` — deferred.                                                     |
+| `[EMITTERS]`   | Pressure-driven leakage. Not modelled in the steady-state Hazen-Williams branch.                                     |
+| `[QUALITY]`    | Initial water-quality concentrations. Outside the current hydraulic scope.                                            |
+| `[SOURCES]`    | Quality source declarations. Outside the current hydraulic scope.                                                     |
+| `[REACTIONS]`  | Bulk / wall reaction-rate coefficients. Outside the current hydraulic scope.                                          |
+| `[MIXING]`     | Tank mixing model. The dPHM core does not integrate tank volumes; mixing is moot.                                     |
+| `[TITLE]`      | Free-form network description.                                                                                       |
+| `[END]`        | EPANET file terminator.                                                                                              |
+| `[PATTERNS]`   | Time-varying demand patterns. The dPHM core is steady-state; the Sprint 18 `Demand Multiplier` is the only honoured scalar. |
+| `[COORDINATES]`| Node positions for plotting.                                                                                         |
+| `[VERTICES]`   | Mid-pipe vertex positions for plotting.                                                                              |
+| `[LABELS]`     | Free-text labels for the network plot.                                                                               |
+| `[BACKDROP]`   | Background image / drawing dimensions for the EPANET GUI.                                                            |
+| `[TAGS]`       | Free-form node / link annotations.                                                                                   |
+| `[ENERGY]`     | Energy-cost / efficiency definitions. Active controls would consume these; deferred with `[CONTROLS]` / `[RULES]`.   |
+| `[STATUS]`     | Initial open / closed status overrides. Steady-state core models OPEN pipes only.                                    |
+| `[DEMANDS]`    | Per-junction supplemental demand list. The Sprint 11 importer reads junction demand from the `[JUNCTIONS]` column.   |
+
+### Contract
+
+Adding any section in `IGNORED_SECTIONS` to a fixture must leave the
+loaded `Network` byte-for-byte unchanged:
+
+- node count, edge count, fixed-head count, `edge_index`;
+- `demands`, `fixed_head_values`, `fixed_head_mask`;
+- `pipe_mask`, `pump_mask`, `lengths`, `diameters`, `c_factors`;
+- `pump_coeffs`, `pump_speeds`.
+
+This holds regardless of where the section appears (before, after, or
+interleaved with the hydraulic sections), how many such sections are
+stacked into one file, and how malformed-looking the per-section rows
+are. The parser does not validate the body of any ignored section —
+it tokenises every row through `_split_sections` and never reads the
+result.
+
+`[CURVES]` is **not** in this set: Sprint 12's HEAD-curve pump
+translation consumes it. Sprint 21 ships an explicit regression test
+that adding every target ignored section to a HEAD-pump fixture
+still produces identical pump coefficients, so the active /
+ignored distinction cannot drift silently.
+
+### Documented limitations
+
+`[CONTROLS]` and `[RULES]` are ignored, **not** enforced. A control
+rule that would close a pipe, change a pump speed, or modify a
+fixed-head boundary is dropped on the floor at parse time. Importing
+EPANET fixtures whose hydraulics depend on active control logic will
+therefore *not* reproduce EPANET's solved state under the dPHM
+steady-state core. A future sprint that adds control-state logic
+will be the place this changes.
+
+`[EMITTERS]`, `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, and `[MIXING]`
+are similarly dropped. None of these contribute to the
+Hazen-Williams steady-state residual; the relevant physics
+(pressure-driven demand for emitters, advection-reaction transport
+for the quality family) is out of scope for the current core.
+
+### WNTR adapter behaviour
+
+Sprint 21 documents but does not enforce WNTR-side handling of the
+target ignored sections. WNTR has its own parsers for several of
+them (e.g. `[MIXING]` is validated against the network's tank set,
+`[CONTROLS]` is validated against link / node references). The
+Sprint 21 contract is about *our* fallback parser's no-op behaviour;
+the optional WNTR back-end is exercised in
+`tests/dphm/test_inp_ignored_sections.py::test_wntr_smoke_ignored_sections_do_not_break_back_end`
+only for the subset of ignored sections WNTR is happy to round-trip
+(`[TIMES]`, `[REPORT]`, `[QUALITY]` against an existing node).
+
+### Tests
+
+- `tests/dphm/test_inp_ignored_sections.py` — Sprint 21:
+  - public-surface checks (every target section in
+    `IGNORED_SECTIONS`, every hydraulically-active section NOT in
+    `IGNORED_SECTIONS`, `[CURVES]` not globally ignored,
+    `IGNORED_SECTIONS` is a `frozenset`);
+  - per-section invariance (loaded `Network` byte-for-byte identical
+    between baseline and baseline + ignored section);
+  - all-target-sections-at-once invariance;
+  - position robustness (ignored section before hydraulic sections,
+    after hydraulic sections, interleaved between them, repeated
+    headers);
+  - malformed-row tolerance for every target section;
+  - documented `[CONTROLS]` / `[RULES]` limitation (link-close rules
+    dropped, network and Newton-solve state unchanged);
+  - `[CURVES]` still active under ignored-section noise (HEAD pump
+    and PRV / TCV surrogate invariants);
+  - optional WNTR back-end smoke check on the subset WNTR
+    round-trips cleanly.
 
 ## Mass balancing
 
