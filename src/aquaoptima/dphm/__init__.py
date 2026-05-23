@@ -90,6 +90,12 @@ from .shadow_replay import (
     build_shadow_replay_dataset,
     load_shadow_replay_csv,
 )
+from .shadow_runtime import (
+    ShadowRuntimeDiagnostics,
+    ShadowRuntimeReport,
+    ShadowRuntimeStepReport,
+    run_shadow_runtime,
+)
 from .telemetry_tag_map import (
     CanonicalTelemetryTag,
     TELEMETRY_AXES,
@@ -205,10 +211,14 @@ __all__ = [
     "ShadowReplayDataset",
     "ShadowReplayDiagnostics",
     "ShadowReplayFrame",
+    "ShadowRuntimeDiagnostics",
+    "ShadowRuntimeReport",
+    "ShadowRuntimeStepReport",
     "SolveFailureReason",
     "SolveResult",
     "build_shadow_replay_dataset",
     "load_shadow_replay_csv",
+    "run_shadow_runtime",
     "CanonicalTelemetryTag",
     "TELEMETRY_AXES",
     "TELEMETRY_AXIS_EDGE_FLOW",
