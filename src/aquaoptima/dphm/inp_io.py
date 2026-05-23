@@ -362,10 +362,10 @@ family's head conversion).
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Union
+from typing import Mapping, Union
 
 import torch
 
@@ -1213,6 +1213,28 @@ class EpanetWaterQualityDiagnostic:
     message: str = _WATER_QUALITY_ROW_NOOP_MESSAGE
 
 
+# Sprint 30: canonical EPANET section ordering used by the read-only
+# ``row_count_by_section`` / ``summary`` helpers. The first 11 entries
+# are the sections every Sprint 23–29 channel can emit; any
+# unknown/future section name is appended in alphabetical order so the
+# helper stays deterministic across Python versions and dict insertion
+# orders. Defined once at module scope so the surface is auditable in
+# one place.
+_CANONICAL_ROW_COUNT_SECTION_ORDER: tuple[str, ...] = (
+    "STATUS",
+    "CONTROLS",
+    "RULES",
+    "PATTERNS",
+    "ENERGY",
+    "EMITTERS",
+    "DEMANDS",
+    "QUALITY",
+    "SOURCES",
+    "REACTIONS",
+    "MIXING",
+)
+
+
 @dataclass(frozen=True)
 class EpanetImportDiagnostics:
     """Read-only container for EPANET ``.inp`` import diagnostics.
@@ -1227,16 +1249,22 @@ class EpanetImportDiagnostics:
     ``[PATTERNS]`` or ``[ENERGY]`` section, in source order). Sprint 28
     added ``emitter_demand_rows`` (one record per tokenised row inside
     an ``[EMITTERS]`` or ``[DEMANDS]`` section, in source order).
-    Sprint 29 adds ``water_quality_rows`` (one record per tokenised row
+    Sprint 29 added ``water_quality_rows`` (one record per tokenised row
     inside a ``[QUALITY]``, ``[SOURCES]``, ``[REACTIONS]``, or
-    ``[MIXING]`` section, in source order). Future sprints may grow
-    additional fields — adding a new optional field with a default
-    value is backwards-compatible for keyword-only callers.
+    ``[MIXING]`` section, in source order). Sprint 30 adds three
+    read-only ergonomics helpers on top of those channels —
+    :meth:`row_count_by_section`, :meth:`ignored_section_names`, and
+    :meth:`summary` — without introducing any new EPANET semantics.
+    Future sprints may grow additional fields — adding a new optional
+    field with a default value is backwards-compatible for keyword-only
+    callers.
 
     The container is ``frozen=True`` and every tuple field is a
     :class:`tuple` rather than a list so the diagnostics surface is
     structurally read-only. Attempting to reassign a field raises
-    :class:`dataclasses.FrozenInstanceError`.
+    :class:`dataclasses.FrozenInstanceError`. The Sprint 30 helpers are
+    pure read-only methods: every call returns a freshly-allocated
+    object and never mutates the container or any contained record.
     """
 
     status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
@@ -1245,6 +1273,155 @@ class EpanetImportDiagnostics:
     pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()
     emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()
     water_quality_rows: tuple[EpanetWaterQualityDiagnostic, ...] = ()
+
+    def row_count_by_section(self) -> dict[str, int]:
+        """Aggregate per-section row counts across every row channel.
+
+        Sprint 30 read-only ergonomics helper. Returns a freshly-
+        allocated ``dict[str, int]`` mapping canonical EPANET section
+        names to the number of *row* diagnostics emitted from each
+        section. The counts are derived from these channels only:
+
+        * ``status_rows`` → ``"STATUS"``
+        * ``control_rule_rows`` → ``"CONTROLS"`` / ``"RULES"``
+        * ``pattern_energy_rows`` → ``"PATTERNS"`` / ``"ENERGY"``
+        * ``emitter_demand_rows`` → ``"EMITTERS"`` / ``"DEMANDS"``
+        * ``water_quality_rows`` → ``"QUALITY"`` / ``"SOURCES"`` /
+          ``"REACTIONS"`` / ``"MIXING"``
+
+        ``ignored_sections`` is **not** folded in: ignored-section
+        *presence* is exposed separately through
+        :meth:`ignored_section_names`. Folding both surfaces together
+        would double-count any section that emits both a presence
+        record and per-row records (e.g. ``[CONTROLS]``).
+
+        The dict preserves a canonical ordering — ``STATUS``,
+        ``CONTROLS``, ``RULES``, ``PATTERNS``, ``ENERGY``, ``EMITTERS``,
+        ``DEMANDS``, ``QUALITY``, ``SOURCES``, ``REACTIONS``,
+        ``MIXING`` — with any unknown / future section name appended
+        in alphabetical order. Sections with zero rows are omitted.
+
+        Every call returns a fresh dict; the caller may mutate it
+        without affecting the diagnostics container or subsequent
+        calls. The helper itself never mutates the container.
+        """
+        raw: dict[str, int] = {}
+        for rec in self.status_rows:
+            raw["STATUS"] = raw.get("STATUS", 0) + 1
+        for rec in self.control_rule_rows:
+            raw[rec.section] = raw.get(rec.section, 0) + 1
+        for rec in self.pattern_energy_rows:
+            raw[rec.section] = raw.get(rec.section, 0) + 1
+        for rec in self.emitter_demand_rows:
+            raw[rec.section] = raw.get(rec.section, 0) + 1
+        for rec in self.water_quality_rows:
+            raw[rec.section] = raw.get(rec.section, 0) + 1
+        ordered: dict[str, int] = {}
+        for name in _CANONICAL_ROW_COUNT_SECTION_ORDER:
+            if name in raw:
+                ordered[name] = raw[name]
+        unknown = sorted(
+            n for n in raw if n not in _CANONICAL_ROW_COUNT_SECTION_ORDER
+        )
+        for name in unknown:
+            ordered[name] = raw[name]
+        return ordered
+
+    def ignored_section_names(self) -> tuple[str, ...]:
+        """Return the canonical names of every ignored section present.
+
+        Sprint 30 read-only ergonomics helper. Walks
+        ``ignored_sections`` in source order and returns a tuple of the
+        canonical (upper-case) section names. Source-file order is
+        preserved exactly as Sprint 24 populated the field.
+
+        This is the presence companion to :meth:`row_count_by_section`:
+        the latter answers "how many *rows* did each section emit?",
+        this one answers "which ignored sections were declared at all?"
+        The two surfaces are deliberately separate so a single file
+        with both ``[CONTROLS]`` row diagnostics and a ``[CONTROLS]``
+        ignored-section record never double-counts.
+        """
+        return tuple(rec.section for rec in self.ignored_sections)
+
+    def summary(self) -> "EpanetImportDiagnosticsSummary":
+        """Return an immutable per-channel summary of the diagnostics.
+
+        Sprint 30 read-only ergonomics helper. Returns a frozen
+        :class:`EpanetImportDiagnosticsSummary` carrying per-channel
+        row counts, the total diagnostic-row count, the ignored-section
+        count, and a fresh row-count-by-section mapping.
+
+        Every call allocates a fresh mapping and a fresh summary
+        instance; the mapping is not shared between calls and the
+        helper never mutates the container. The dataclass itself is
+        ``frozen=True`` so the field references cannot be reassigned;
+        the nested ``dict`` is freshly built per call so mutation of
+        the returned dict by one caller cannot leak into another's
+        summary.
+        """
+        counts = self.row_count_by_section()
+        return EpanetImportDiagnosticsSummary(
+            row_count_by_section=counts,
+            total_diagnostic_rows=sum(counts.values()),
+            ignored_section_count=len(self.ignored_sections),
+            status_row_count=len(self.status_rows),
+            control_rule_row_count=len(self.control_rule_rows),
+            pattern_energy_row_count=len(self.pattern_energy_rows),
+            emitter_demand_row_count=len(self.emitter_demand_rows),
+            water_quality_row_count=len(self.water_quality_rows),
+        )
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnosticsSummary:
+    """Frozen per-channel aggregate view of an :class:`EpanetImportDiagnostics`.
+
+    Sprint 30 introduces this as the typed return shape of
+    :meth:`EpanetImportDiagnostics.summary`. It is intentionally a thin,
+    read-only projection — it adds no new EPANET semantics, never
+    activates any deferred behaviour, and never mutates the source
+    diagnostics container.
+
+    Attributes
+    ----------
+    row_count_by_section
+        Canonical EPANET-section-ordered mapping from section name to
+        row count, derived from the row diagnostic channels only
+        (``status_rows``, ``control_rule_rows``, ``pattern_energy_rows``,
+        ``emitter_demand_rows``, ``water_quality_rows``). Each
+        :meth:`EpanetImportDiagnostics.summary` call constructs a fresh
+        ``dict``, so mutation of the dict by one caller cannot leak
+        into another's summary. Sections with zero rows are omitted.
+        ``ignored_sections`` is **not** folded in — see
+        ``ignored_section_count`` for presence.
+    total_diagnostic_rows
+        Sum of every value in ``row_count_by_section`` — i.e. the
+        total number of row diagnostics across every row channel.
+    ignored_section_count
+        Number of :class:`EpanetIgnoredSectionDiagnostic` records in
+        the source container. The names themselves are available via
+        :meth:`EpanetImportDiagnostics.ignored_section_names`.
+    status_row_count
+        ``len(diagnostics.status_rows)``.
+    control_rule_row_count
+        ``len(diagnostics.control_rule_rows)``.
+    pattern_energy_row_count
+        ``len(diagnostics.pattern_energy_rows)``.
+    emitter_demand_row_count
+        ``len(diagnostics.emitter_demand_rows)``.
+    water_quality_row_count
+        ``len(diagnostics.water_quality_rows)``.
+    """
+
+    row_count_by_section: Mapping[str, int] = field(default_factory=dict)
+    total_diagnostic_rows: int = 0
+    ignored_section_count: int = 0
+    status_row_count: int = 0
+    control_rule_row_count: int = 0
+    pattern_energy_row_count: int = 0
+    emitter_demand_row_count: int = 0
+    water_quality_row_count: int = 0
 
 
 # Status tokens the Sprint 22 ``[STATUS]`` validator accepts as no-ops.
@@ -4134,6 +4311,7 @@ __all__ = [
     "EpanetEmitterDemandDiagnostic",
     "EpanetIgnoredSectionDiagnostic",
     "EpanetImportDiagnostics",
+    "EpanetImportDiagnosticsSummary",
     "EpanetPatternEnergyDiagnostic",
     "EpanetPressureUnit",
     "EpanetStatusDiagnostic",

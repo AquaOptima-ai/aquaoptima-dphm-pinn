@@ -2730,6 +2730,185 @@ diagnostics.
   unknown IDs raise on the WNTR side and are exercised against the
   fallback parser instead.
 
+## Read-only diagnostics summary / row counts (Sprint 30)
+
+Sprints 23–29 grew `EpanetImportDiagnostics` into a multi-channel
+container with six row-style fields (`status_rows`,
+`control_rule_rows`, `pattern_energy_rows`, `emitter_demand_rows`,
+`water_quality_rows`) plus an ignored-section presence field
+(`ignored_sections`). UI / API / report consumers that just need
+"how many diagnostic rows did this file emit, grouped by EPANET
+section?" had to walk every tuple themselves and dedupe by hand.
+
+Sprint 30 closes that ergonomics gap by adding three read-only
+helper methods on `EpanetImportDiagnostics`. The helpers add **no
+new EPANET semantics**, do not activate any deferred section, do
+not mutate the diagnostics object or any contained tuple, and do
+not change the loaded `Network` in any way. They are pure aggregate
+views over the existing channels.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportDiagnostics,
+    EpanetImportDiagnosticsSummary,
+    load_inp_diagnostics,
+)
+
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+
+# Fresh dict per call. Keys appear in canonical EPANET section order.
+counts = diagnostics.row_count_by_section()
+# e.g. {"STATUS": 2, "CONTROLS": 3, "PATTERNS": 1, "QUALITY": 1}
+
+# Tuple of ignored-section names in source-file order.
+names = diagnostics.ignored_section_names()
+# e.g. ("TITLE", "PATTERNS", "CONTROLS", "END")
+
+# Frozen dataclass aggregate view.
+summary = diagnostics.summary()
+summary.total_diagnostic_rows
+summary.status_row_count
+summary.control_rule_row_count
+summary.pattern_energy_row_count
+summary.emitter_demand_row_count
+summary.water_quality_row_count
+summary.ignored_section_count
+summary.row_count_by_section  # same shape as the dict above
+```
+
+### Row counts vs ignored-section presence
+
+The two surfaces are deliberately separate so a file with both
+ignored-section presence records and per-row records for the same
+section (the common case for `[CONTROLS]`, `[PATTERNS]`, etc.) is
+never double-counted:
+
+- `row_count_by_section()` counts **row diagnostics only**:
+  `status_rows`, `control_rule_rows`, `pattern_energy_rows`,
+  `emitter_demand_rows`, `water_quality_rows`. The dict key is the
+  canonical upper-case section name (`"STATUS"`, `"CONTROLS"`,
+  `"RULES"`, `"PATTERNS"`, `"ENERGY"`, `"EMITTERS"`, `"DEMANDS"`,
+  `"QUALITY"`, `"SOURCES"`, `"REACTIONS"`, `"MIXING"`). Sections
+  with zero rows are omitted from the dict.
+- `ignored_section_names()` returns the names from
+  `ignored_sections` only — i.e. the section-level presence
+  channel from Sprint 24. This captures sections like `[TITLE]`,
+  `[REPORT]`, `[COORDINATES]`, `[TAGS]` that never emit per-row
+  diagnostics, as well as the section-level presence of sections
+  that *do* also emit row diagnostics (which is why mixing the two
+  surfaces would double-count).
+- `summary().ignored_section_count` is `len(ignored_sections)`;
+  the names themselves come from `ignored_section_names()`.
+
+### Canonical ordering
+
+The dict returned by `row_count_by_section()` and the dict embedded
+in `summary().row_count_by_section` always emit keys in this
+canonical order (sections with zero rows omitted):
+
+```
+STATUS, CONTROLS, RULES, PATTERNS, ENERGY, EMITTERS, DEMANDS,
+QUALITY, SOURCES, REACTIONS, MIXING
+```
+
+Any unknown / future section name (e.g. one a later sprint may
+introduce, or one a custom test fixture constructs directly) is
+appended after the canonical block in alphabetical order. The
+ordering is deterministic across Python versions and across
+insertion-order accidents in the row tuples.
+
+### Freshness and immutability
+
+- Every `row_count_by_section()` call allocates a fresh
+  `dict[str, int]`; mutating the returned dict has no effect on
+  the diagnostics container or on subsequent calls.
+- Every `summary()` call allocates a fresh
+  `EpanetImportDiagnosticsSummary`. The dataclass is
+  `frozen=True`, so field references cannot be reassigned. The
+  nested `row_count_by_section` dict is freshly built per call so
+  mutation by one caller cannot leak into another's summary.
+- `ignored_section_names()` returns a `tuple`, which is
+  immutable by construction.
+- None of the helpers ever mutate the source
+  `EpanetImportDiagnostics` instance or any record it holds.
+
+### Hydraulic inertness / no new semantics
+
+Sprint 30 ships **only** the ergonomics helpers. Specifically, this
+sprint adds:
+
+- no new EPANET section diagnostics channels (every channel is
+  re-used from Sprints 23–29);
+- no water-quality simulation, no source / reaction / mixing
+  semantics, no pattern-driven time-varying demands, no energy-cost
+  evaluation, no emitter / demand-category modelling, no control /
+  rule interpretation, no closed-link or check-valve modelling, no
+  pump speed / status changes;
+- no new hydraulic physics, no Darcy-Weisbach implementation, no
+  WNTR-side semantic activation.
+
+The loaded `Network` is byte-for-byte identical to one loaded from
+the same fixture *without* calling any of the Sprint 30 helpers.
+The fallback parser remains authoritative for every diagnostic
+channel, and the Sprint 22/23 `[STATUS]` rejection contract (raise
+on `CLOSED`, `CV`, numeric pump-status, unknown link id, arbitrary
+token) is preserved with no partial diagnostics leaking out.
+
+### WNTR back-end behaviour / asymmetry
+
+The optional WNTR back-end remains diagnostically empty — the WNTR
+adapter does not re-emit any of the per-row or ignored-section
+diagnostic channels. The Sprint 30 helpers therefore return:
+
+- `row_count_by_section()` → empty `dict`
+- `ignored_section_names()` → empty `tuple`
+- `summary()` → all integer fields zero, embedded
+  `row_count_by_section` empty.
+
+This is the same asymmetry that Sprints 23–29 documented: WNTR has
+its own parser and its own per-section handling, and the dPHM WNTR
+adapter does not surface diagnostic metadata. Diagnostic parity
+between the two back-ends is **not** a Sprint 30 goal.
+
+### Tests
+
+`tests/dphm/test_inp_diagnostics_summary.py` proves the contract:
+
+- public surface: `row_count_by_section`, `ignored_section_names`,
+  and `summary` are callable methods on `EpanetImportDiagnostics`,
+  and `EpanetImportDiagnosticsSummary` is a frozen dataclass;
+- empty container: every helper returns the empty / zero value;
+- single-channel counts: dedicated tests for `STATUS`,
+  `CONTROLS` / `RULES`, `PATTERNS` / `ENERGY`,
+  `EMITTERS` / `DEMANDS`, and `QUALITY` / `SOURCES` /
+  `REACTIONS` / `MIXING`;
+- canonical ordering: keys appear in the documented canonical order
+  regardless of construction order; unknown / future section names
+  sort alphabetically after the canonical block;
+- freshness: two calls return distinct dict instances; mutating
+  the returned dict does not affect subsequent calls or the
+  container;
+- no double-counting: a fixture with both `ignored_sections=
+  [CONTROLS]` and `control_rule_rows` for `CONTROLS` counts the
+  rows once in `row_count_by_section` and the presence once in
+  `ignored_section_names`;
+- read-only contract: invoking every helper does not mutate the
+  source tuples (identity preserved);
+- parser integration: a fixture exercising every Sprint 23–29
+  channel produces the expected per-section counts, the summary
+  matches the per-channel `len`s, and the total equals the sum;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` produce
+  identical summary / count helpers;
+- backwards compatibility: default
+  `load_network_from_inp(path)` still returns only a `Network`;
+- Sprint 22 rejection path: `[STATUS] CLOSED` still raises;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`): every Sprint 30 helper returns
+  the empty / zero value on a WNTR-parseable fixture.
+
 ## Mass balancing
 
 EPANET INP files often declare junction demands without a matching
