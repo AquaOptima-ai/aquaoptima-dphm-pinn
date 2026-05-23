@@ -143,6 +143,28 @@ evaluation — an EPANET ``DEMANDS`` row with multiple optional columns
 (``junction_id``, ``base_demand``, ``pattern_id``, ``category``)
 surfaces as one record with the file's exact token order preserved.
 
+Sprint 29 extends the same container with a ``water_quality_rows``
+field that records the tokenised rows declared inside the four
+water-quality-family ignored sections: ``[QUALITY]``, ``[SOURCES]``,
+``[REACTIONS]``, and ``[MIXING]``. Each row produces one read-only
+:class:`EpanetWaterQualityDiagnostic` (``section``, ``row_index``,
+``tokens``, ``text``, ``message``) in source order. With Sprint 29,
+the four per-row channels collectively cover every content-bearing
+member of :data:`IGNORED_SECTIONS`: ``control_rule_rows`` for
+``[CONTROLS]`` / ``[RULES]``, ``pattern_energy_rows`` for
+``[PATTERNS]`` / ``[ENERGY]``, ``emitter_demand_rows`` for
+``[EMITTERS]`` / ``[DEMANDS]``, and ``water_quality_rows`` for
+``[QUALITY]`` / ``[SOURCES]`` / ``[REACTIONS]`` / ``[MIXING]``.
+Sprint 29 does NOT activate any water-quality simulation, source
+injection, reaction / decay, or tank-mixing semantics — the rows
+remain dropped on the floor at parse time, the loaded
+:class:`Network` is byte-for-byte identical to one loaded from a
+fixture with no water-quality block, and the Sprint 22 ``[STATUS]``
+rejection behaviour is preserved. The WNTR back-end is documented
+as fallback-authoritative; ``water_quality_rows`` is left empty
+when ``parser="wntr"``. Records are *tokenised parser rows*, not
+semantic EPANET water-quality evaluation.
+
 Sprint 22 narrows the Sprint 21 contract for ``[STATUS]``. Through
 Sprint 21 the section was a global no-op; from Sprint 22 onwards the
 fallback parser actively validates ``[STATUS]`` rows so EPANET-exported
@@ -999,6 +1021,17 @@ _EMITTER_DEMAND_ROW_NOOP_MESSAGE: str = (
 )
 
 
+# Sprint 29: human-readable message attached to every
+# ``EpanetWaterQualityDiagnostic`` record. Pinned to a single module-level
+# string so the surface stays stable and so two diagnostic records do not
+# surface spurious string variation. Identical wording to the Sprint 25 /
+# Sprint 26 / Sprint 28 row-level messages so the analyst-facing visibility
+# surface reads uniformly across channels.
+_WATER_QUALITY_ROW_NOOP_MESSAGE: str = (
+    "Row present but ignored by the steady-state dPHM importer."
+)
+
+
 @dataclass(frozen=True)
 class EpanetPatternEnergyDiagnostic:
     """Read-only record of one ``[PATTERNS]`` or ``[ENERGY]`` parser row.
@@ -1117,6 +1150,70 @@ class EpanetEmitterDemandDiagnostic:
 
 
 @dataclass(frozen=True)
+class EpanetWaterQualityDiagnostic:
+    """Read-only record of one ``[QUALITY]`` / ``[SOURCES]`` / ``[REACTIONS]`` / ``[MIXING]`` parser row.
+
+    Sprint 29 narrows the Sprint 24 ignored-section visibility surface
+    for the four remaining water-quality-family ignored sections —
+    ``[QUALITY]``, ``[SOURCES]``, ``[REACTIONS]``, and ``[MIXING]`` —
+    by emitting one record per *tokenised parser row* inside those
+    sections. Analysts can see the exact unsupported water-quality
+    initialisation, source, reaction, and tank-mixing rows declared in
+    an imported ``.inp`` file without changing any hydraulic field on
+    the loaded :class:`Network`.
+
+    Records are deliberately read-only and hydraulically inert. The
+    Sprint 21 ignored-section no-op contract is unchanged: every
+    ``[QUALITY]`` / ``[SOURCES]`` / ``[REACTIONS]`` / ``[MIXING]`` row
+    is still dropped on the floor at parse time. Sprint 29 only makes
+    the *content* of those rows visible. Active water-quality
+    simulation, source injection semantics, reaction / decay modelling,
+    and tank-mixing modelling remain deferred.
+
+    Important: a record represents a single parser row as produced by
+    :func:`_split_sections`, **not** a semantic EPANET water-quality
+    evaluation. EPANET ``QUALITY`` rows declare an initial-quality
+    value per node; ``SOURCES`` rows declare a source type / strength
+    per node; ``REACTIONS`` rows declare bulk and wall reaction
+    coefficients (or global directives like ``ORDER BULK``, ``GLOBAL
+    BULK``, ``LIMITING POTENTIAL``); ``MIXING`` rows declare a tank
+    mixing model (``MIXED``, ``2COMP``, ``FIFO``, ``LIFO``) with an
+    optional fraction. This module does not interpret any of that
+    structure and surfaces one record per tokenised parser row.
+
+    Attributes
+    ----------
+    section
+        The canonical (upper-case) section name, always one of
+        ``"QUALITY"``, ``"SOURCES"``, ``"REACTIONS"``, or ``"MIXING"``.
+    row_index
+        Zero-based row index within the section bucket
+        :func:`_split_sections` produced. Resets per section; preserves
+        source-file row order within each section.
+    tokens
+        The exact tokens :func:`_split_sections` extracted for the row,
+        as a tuple of strings. Token order matches the source row.
+        Comments (``; ...``) are stripped before tokenisation by the
+        underlying tokeniser; blank rows are dropped (and therefore not
+        surfaced).
+    text
+        Reconstructed single-space-joined row text, derived from
+        ``tokens``. Comments are not preserved (the underlying
+        tokeniser strips them before any record can be emitted).
+    message
+        Human-readable explanation of the ignored / no-op contract.
+        Pinned to a single module-level string so the surface stays
+        stable.
+    """
+
+    section: str
+    row_index: int
+    tokens: tuple[str, ...]
+    text: str
+    message: str = _WATER_QUALITY_ROW_NOOP_MESSAGE
+
+
+@dataclass(frozen=True)
 class EpanetImportDiagnostics:
     """Read-only container for EPANET ``.inp`` import diagnostics.
 
@@ -1128,11 +1225,13 @@ class EpanetImportDiagnostics:
     ``[RULES]`` section, in source order). Sprint 26 added
     ``pattern_energy_rows`` (one record per tokenised row inside a
     ``[PATTERNS]`` or ``[ENERGY]`` section, in source order). Sprint 28
-    adds ``emitter_demand_rows`` (one record per tokenised row inside an
-    ``[EMITTERS]`` or ``[DEMANDS]`` section, in source order). Future
-    sprints may grow additional fields — adding a new optional field
-    with a default value is backwards-compatible for keyword-only
-    callers.
+    added ``emitter_demand_rows`` (one record per tokenised row inside
+    an ``[EMITTERS]`` or ``[DEMANDS]`` section, in source order).
+    Sprint 29 adds ``water_quality_rows`` (one record per tokenised row
+    inside a ``[QUALITY]``, ``[SOURCES]``, ``[REACTIONS]``, or
+    ``[MIXING]`` section, in source order). Future sprints may grow
+    additional fields — adding a new optional field with a default
+    value is backwards-compatible for keyword-only callers.
 
     The container is ``frozen=True`` and every tuple field is a
     :class:`tuple` rather than a list so the diagnostics surface is
@@ -1145,6 +1244,7 @@ class EpanetImportDiagnostics:
     control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()
     pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()
     emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()
+    water_quality_rows: tuple[EpanetWaterQualityDiagnostic, ...] = ()
 
 
 # Status tokens the Sprint 22 ``[STATUS]`` validator accepts as no-ops.
@@ -1592,6 +1692,79 @@ def _collect_emitter_demand_row_diagnostics(
             tokens = tuple(row)
             records.append(
                 EpanetEmitterDemandDiagnostic(
+                    section=name,
+                    row_index=idx,
+                    tokens=tokens,
+                    text=" ".join(tokens),
+                )
+            )
+    return tuple(records)
+
+
+# Sprint 29: the four ignored sections that surface per-row through
+# :class:`EpanetWaterQualityDiagnostic`. All other members of
+# :data:`IGNORED_SECTIONS` (``[TIMES]``, ``[REPORT]``, …) still surface
+# only at the section level through
+# :class:`EpanetIgnoredSectionDiagnostic`. ``[CONTROLS]`` / ``[RULES]``
+# remain in their dedicated Sprint 25 channel; ``[PATTERNS]`` /
+# ``[ENERGY]`` remain in their dedicated Sprint 26 channel;
+# ``[EMITTERS]`` / ``[DEMANDS]`` remain in their dedicated Sprint 28
+# channel.
+_WATER_QUALITY_SECTIONS: tuple[str, ...] = (
+    "QUALITY",
+    "SOURCES",
+    "REACTIONS",
+    "MIXING",
+)
+
+
+def _collect_water_quality_row_diagnostics(
+    sections: dict[str, list[list[str]]],
+) -> tuple[EpanetWaterQualityDiagnostic, ...]:
+    """Surface every tokenised row inside the water-quality-family sections.
+
+    Sprint 29 — read-only visibility surface for the contents of the
+    four water-quality-family ignored sections: ``[QUALITY]``,
+    ``[SOURCES]``, ``[REACTIONS]``, and ``[MIXING]``.
+
+    Walks the per-section tokenised rows produced by
+    :func:`_split_sections` and emits one
+    :class:`EpanetWaterQualityDiagnostic` for every row inside a
+    ``[QUALITY]`` / ``[SOURCES]`` / ``[REACTIONS]`` / ``[MIXING]``
+    section. Records appear in source-file order: section ordering
+    follows :func:`_split_sections`' dict iteration order (which
+    preserves first-appearance source order), and within each section
+    ``row_index`` is the 0-based index into the section's accumulated
+    row list.
+
+    The helper deliberately excludes every other ignored section
+    (``[CONTROLS]``, ``[RULES]``, ``[PATTERNS]``, ``[ENERGY]``,
+    ``[EMITTERS]``, ``[DEMANDS]``, ``[TIMES]``, ``[REPORT]``, and the
+    inert layout sections). Those remain visible only through
+    :class:`EpanetIgnoredSectionDiagnostic`; ``[CONTROLS]`` / ``[RULES]``
+    remain visible per-row through :class:`EpanetControlRuleDiagnostic`;
+    ``[PATTERNS]`` / ``[ENERGY]`` remain visible per-row through
+    :class:`EpanetPatternEnergyDiagnostic`; ``[EMITTERS]`` /
+    ``[DEMANDS]`` remain visible per-row through
+    :class:`EpanetEmitterDemandDiagnostic`.
+
+    ``[STATUS]`` is also excluded — Sprint 22 removed it from
+    :data:`IGNORED_SECTIONS` entirely, and accepted ``OPEN`` rows flow
+    through the Sprint 23 ``status_rows`` channel instead.
+
+    The helper is read-only: it never mutates the ``sections`` mapping
+    and never affects parsing outcomes. Blank rows and inline ``;``
+    comments are not surfaced because :func:`_split_sections` already
+    strips them before any row enters the per-section bucket.
+    """
+    records: list[EpanetWaterQualityDiagnostic] = []
+    for name, rows in sections.items():
+        if name not in _WATER_QUALITY_SECTIONS:
+            continue
+        for idx, row in enumerate(rows):
+            tokens = tuple(row)
+            records.append(
+                EpanetWaterQualityDiagnostic(
                     section=name,
                     row_index=idx,
                     tokens=tokens,
@@ -3071,6 +3244,19 @@ def _fallback_parse(
         sections
     )
 
+    # Sprint 29: surface every tokenised row inside the four water-quality-
+    # family ignored sections [QUALITY], [SOURCES], [REACTIONS], [MIXING]
+    # so analysts can inspect the unsupported initial-quality, source,
+    # reaction, and tank-mixing rows the parser dropped on the floor.
+    # Read-only / no-op — the records carry the parsed tokens and text
+    # only; the parser still consumes nothing from those sections, and
+    # the loaded Network's hydraulic fields remain unchanged. The
+    # remaining ignored sections continue to surface only at the section
+    # level via ``ignored_section_diagnostics``.
+    water_quality_row_diagnostics = _collect_water_quality_row_diagnostics(
+        sections
+    )
+
     # Re-balance demand so the network is mass-consistent at parse time:
     # any drift (e.g. demands declared on junctions but no matching supply
     # row) is absorbed by the fixed-head boundaries. The mass term for
@@ -3108,6 +3294,7 @@ def _fallback_parse(
         control_rule_rows=control_rule_row_diagnostics,
         pattern_energy_rows=pattern_energy_row_diagnostics,
         emitter_demand_rows=emitter_demand_row_diagnostics,
+        water_quality_rows=water_quality_row_diagnostics,
     )
     return network, diagnostics
 
@@ -3738,16 +3925,18 @@ def _wntr_parse(
         fixed_head_mask=torch.tensor(fixed_mask, dtype=torch.bool),
         fixed_head_values=torch.tensor(fixed_vals, dtype=torch.get_default_dtype()),
     )
-    # Sprint 23/24/25/26/28: the WNTR back-end is documented as
+    # Sprint 23/24/25/26/28/29: the WNTR back-end is documented as
     # fallback-authoritative for every diagnostics channel. WNTR has its
     # own ``[STATUS]`` parser, its own per-section handling, its own
     # ``[CONTROLS]`` / ``[RULES]`` interpretation, its own
-    # ``[PATTERNS]`` / ``[ENERGY]`` handling, and its own
-    # ``[EMITTERS]`` / ``[DEMANDS]`` handling; the dPHM WNTR adapter
-    # does not re-emit any of those as diagnostics. The container is
-    # returned empty so the public API surface is uniform across
-    # back-ends and so callers can branch on parser explicitly if they
-    # need WNTR-side records (none are surfaced today).
+    # ``[PATTERNS]`` / ``[ENERGY]`` handling, its own
+    # ``[EMITTERS]`` / ``[DEMANDS]`` handling, and its own water-quality
+    # ``[QUALITY]`` / ``[SOURCES]`` / ``[REACTIONS]`` / ``[MIXING]``
+    # handling; the dPHM WNTR adapter does not re-emit any of those as
+    # diagnostics. The container is returned empty so the public API
+    # surface is uniform across back-ends and so callers can branch on
+    # parser explicitly if they need WNTR-side records (none are
+    # surfaced today).
     diagnostics = EpanetImportDiagnostics()
     return network, diagnostics
 
@@ -3901,9 +4090,11 @@ def load_inp_diagnostics(
     the file. Sprint 25 added a ``control_rule_rows`` channel for
     per-row ``[CONTROLS]`` / ``[RULES]`` visibility; Sprint 26 added a
     ``pattern_energy_rows`` channel for per-row ``[PATTERNS]`` /
-    ``[ENERGY]`` visibility; Sprint 28 adds an
+    ``[ENERGY]`` visibility; Sprint 28 added an
     ``emitter_demand_rows`` channel for per-row ``[EMITTERS]`` /
-    ``[DEMANDS]`` visibility.
+    ``[DEMANDS]`` visibility; Sprint 29 adds a ``water_quality_rows``
+    channel for per-row ``[QUALITY]`` / ``[SOURCES]`` /
+    ``[REACTIONS]`` / ``[MIXING]`` visibility.
 
     The returned :class:`EpanetImportDiagnostics` is structurally
     immutable: the container is a frozen :class:`dataclasses.dataclass`,
@@ -3917,8 +4108,9 @@ def load_inp_diagnostics(
     function with ``parser="wntr"`` returns an empty
     :class:`EpanetImportDiagnostics` even on files that declare
     ``[STATUS] OPEN`` rows, ignored sections, ``[CONTROLS]`` /
-    ``[RULES]`` rows, ``[PATTERNS]`` / ``[ENERGY]`` rows, or
-    ``[EMITTERS]`` / ``[DEMANDS]`` rows. See
+    ``[RULES]`` rows, ``[PATTERNS]`` / ``[ENERGY]`` rows,
+    ``[EMITTERS]`` / ``[DEMANDS]`` rows, or ``[QUALITY]`` /
+    ``[SOURCES]`` / ``[REACTIONS]`` / ``[MIXING]`` rows. See
     ``docs/epanet-inp-import.md``.
 
     Parameters mirror :func:`load_network_from_inp`. The same
@@ -3946,6 +4138,7 @@ __all__ = [
     "EpanetPressureUnit",
     "EpanetStatusDiagnostic",
     "EpanetUnitSystem",
+    "EpanetWaterQualityDiagnostic",
     "IGNORED_SECTIONS",
     "SUPPORTED_FLOW_UNITS",
     "SUPPORTED_PRESSURE_UNITS",

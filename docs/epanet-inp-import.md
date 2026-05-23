@@ -107,6 +107,22 @@ identical to one loaded from a fixture with no `[EMITTERS]` /
 rejection, `[CONTROLS]` / `[RULES]` no-op, `[PATTERNS]` / `[ENERGY]`
 no-op, etc.) is preserved (see "Read-only [EMITTERS] / [DEMANDS] row
 diagnostics (Sprint 28)" below).
+Sprint 29 closes the per-row visibility ladder for the remaining
+content-bearing members of `IGNORED_SECTIONS` — the four water-
+quality-family sections `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, and
+`[MIXING]` — by adding a `water_quality_rows` field on the same
+`EpanetImportDiagnostics` container. Each row inside those four
+sections produces one read-only `EpanetWaterQualityDiagnostic`
+(`section`, `row_index`, `tokens`, `text`, `message`) in source
+order. Sprint 29 still does NOT activate water-quality simulation,
+source injection, reaction / decay modelling, or tank-mixing
+modelling — rows remain dropped on the floor at parse time, the
+loaded `Network` is byte-for-byte identical to one loaded from a
+fixture with no water-quality block, and every earlier-sprint
+contract (`[STATUS]` rejection, `[CONTROLS]` / `[RULES]` no-op,
+`[PATTERNS]` / `[ENERGY]` no-op, `[EMITTERS]` / `[DEMANDS]` no-op,
+etc.) is preserved (see "Read-only water-quality row diagnostics
+(Sprint 29)" below).
 The public entry point is one function:
 
 ```python
@@ -2454,6 +2470,265 @@ Sprint 28 deliberately does **not**:
   `EpanetImportDiagnostics` with an empty `emitter_demand_rows`
   tuple; diagnostic parity with the fallback parser is **not**
   required.
+
+## Read-only water-quality row diagnostics (Sprint 29)
+
+Sprint 25 surfaced per-row content for `[CONTROLS]` / `[RULES]`,
+Sprint 26 added the same for `[PATTERNS]` / `[ENERGY]`, Sprint 28
+added the same for `[EMITTERS]` / `[DEMANDS]`, and Sprint 29 closes
+the per-row visibility ladder for the remaining content-bearing
+members of `IGNORED_SECTIONS` — the four water-quality-family
+sections `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, and `[MIXING]` —
+through a new `water_quality_rows` field on the same
+`EpanetImportDiagnostics` container. Analysts can inspect the exact
+unsupported initial-quality, source, reaction, and tank-mixing rows
+the parser dropped on the floor, without changing any hydraulic
+field on the loaded `Network`. Sprint 29 still does NOT activate any
+water-quality simulation, source injection semantics, reaction /
+decay modelling, or tank-mixing modelling — the rows remain dropped
+on the floor, and the loaded `Network` is byte-for-byte identical to
+one loaded from a fixture with no water-quality block.
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportDiagnostics,
+    EpanetWaterQualityDiagnostic,
+    load_inp_diagnostics,
+)
+
+diagnostics: EpanetImportDiagnostics = load_inp_diagnostics(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="fallback",
+)
+
+for rec in diagnostics.water_quality_rows:
+    print(rec.section, rec.row_index, rec.tokens, rec.message)
+    # e.g. "QUALITY 0 ('J1', '0.5') Row present but ignored ..."
+
+# Split per section if you only care about one of them:
+quality = [r for r in diagnostics.water_quality_rows if r.section == "QUALITY"]
+sources = [r for r in diagnostics.water_quality_rows if r.section == "SOURCES"]
+reactions = [r for r in diagnostics.water_quality_rows if r.section == "REACTIONS"]
+mixing = [r for r in diagnostics.water_quality_rows if r.section == "MIXING"]
+```
+
+The record and the extended container:
+
+```python
+@dataclass(frozen=True)
+class EpanetWaterQualityDiagnostic:
+    section: str            # one of "QUALITY", "SOURCES", "REACTIONS", "MIXING"
+    row_index: int          # 0-based within the section bucket
+    tokens: tuple[str, ...] # exact parser tokens (comments stripped)
+    text: str               # single-space-joined token text
+    message: str            # human-readable no-op explanation
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()                  # Sprint 23
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()     # Sprint 24
+    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()       # Sprint 25 (+ Sprint 27 `kind` classification)
+    pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()   # Sprint 26
+    emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()   # Sprint 28
+    water_quality_rows: tuple[EpanetWaterQualityDiagnostic, ...] = ()     # Sprint 29
+```
+
+Both dataclasses are `frozen=True`. `water_quality_rows` is a `tuple`
+of `EpanetWaterQualityDiagnostic` instances. Field reassignment on
+either type raises `dataclasses.FrozenInstanceError`.
+
+### What the fallback parser emits
+
+The fallback parser emits **one `EpanetWaterQualityDiagnostic` per
+tokenised parser row** inside every `[QUALITY]`, `[SOURCES]`,
+`[REACTIONS]`, and `[MIXING]` section that appears in the source
+file. Rules:
+
+- Section ordering: rows appear in the order the corresponding
+  section header first appeared in the source file
+  (`_split_sections` is built on a regular `dict`, which preserves
+  insertion order on Python 3.7+). The four water-quality sections
+  are not ordered against each other — whichever appears first in
+  the file appears first in `water_quality_rows`.
+- `row_index` resets per section and is the 0-based index into the
+  per-section accumulated row list.
+- `tokens` is a `tuple` (not a list) so the record is structurally
+  immutable. Token order matches the source row.
+- Inline `; ...` comments and blank lines are dropped by
+  `_split_sections` **before** any row enters `water_quality_rows`.
+- A bare `[QUALITY]` / `[SOURCES]` / `[REACTIONS]` / `[MIXING]`
+  header with no body produces no per-row diagnostic (there are no
+  rows to surface), but the section itself still shows up in
+  `ignored_sections` via Sprint 24.
+
+A record represents a *tokenised parser row*, **not** a semantic
+EPANET water-quality evaluation. EPANET `QUALITY` rows declare an
+initial-quality value per node; `SOURCES` rows declare a source
+type / strength (and optional time pattern) per node; `REACTIONS`
+rows declare bulk and wall reaction coefficients per pipe / tank,
+along with global directives like `ORDER BULK`, `GLOBAL BULK`, and
+`LIMITING POTENTIAL`; `MIXING` rows declare a tank mixing model
+(`MIXED`, `2COMP`, `FIFO`, `LIFO`) with an optional compartment
+fraction. Sprint 29 does not interpret any of those fields — the
+goal is row visibility, not semantic resolution.
+
+### Disjoint with the other diagnostic channels
+
+- `[CONTROLS]` and `[RULES]` — never appear in `water_quality_rows`.
+  They surface per-row through `control_rule_rows` (Sprint 25, plus
+  Sprint 27 `kind` classification). The two channels are disjoint by
+  construction.
+- `[PATTERNS]` and `[ENERGY]` — never appear in
+  `water_quality_rows`. They surface per-row through
+  `pattern_energy_rows` (Sprint 26). Disjoint by construction.
+- `[EMITTERS]` and `[DEMANDS]` — never appear in
+  `water_quality_rows`. They surface per-row through
+  `emitter_demand_rows` (Sprint 28). Disjoint by construction.
+- `[STATUS]` — never appears in `water_quality_rows`. Sprint 22
+  removed it from `IGNORED_SECTIONS` entirely, so it cannot be
+  recorded as a water-quality row either.
+- Active hydraulic sections (`[JUNCTIONS]`, `[PIPES]`, `[OPTIONS]`,
+  `[CURVES]`, …) — never appear in `water_quality_rows`. Disjoint by
+  construction.
+- Other ignored sections (`[TIMES]`, `[REPORT]`, plus the inert
+  layout sections) — only surface at the **section** level through
+  `ignored_sections` (Sprint 24), but **not** per-row through
+  `water_quality_rows`.
+
+### Hydraulic invariance
+
+The diagnostics are **read-only and hydraulically inert**. The
+Sprint 21 ignored-section no-op contract is unchanged: every
+`[QUALITY]` / `[SOURCES]` / `[REACTIONS]` / `[MIXING]` row is still
+dropped on the floor at parse time. `water_quality_rows` is a side
+channel only. Adding water-quality content to a fixture leaves:
+
+- the `Network` dataclass byte-for-byte identical (same `edge_index`,
+  `pipe_mask`, `pump_mask`, `demands`, `lengths`, `diameters`,
+  `c_factors`, `pump_coeffs`, `pump_speeds`, `fixed_head_mask`,
+  `fixed_head_values`); junction demands continue to come exclusively
+  from the `[JUNCTIONS]` base-demand column (with `[OPTIONS] Demand
+  Multiplier` applied); reservoir / tank fixed-heads continue to come
+  exclusively from `[RESERVOIRS]` / `[TANKS]` rows; no quality field
+  is added or modified on `Network` (because there isn't one);
+- Newton-solver heads / flows identical to the un-perturbed baseline;
+- Sprint 22 `[STATUS]` rejection behaviour unchanged — `CLOSED` /
+  `CV` / numeric pump speed / unknown link id / arbitrary token still
+  raise `ValueError` even on files that also carry water-quality
+  rows; no partial diagnostics leak out.
+
+### What Sprint 29 does NOT do
+
+Sprint 29 deliberately does **not**:
+
+- run any water-quality simulation, age modelling, or
+  contaminant-transport integration;
+- interpret `[QUALITY]` rows as initial-concentration boundary
+  conditions on `Network` nodes;
+- interpret `[SOURCES]` rows as source-injection terms (`CONCEN`,
+  `MASS`, `FLOWPACED`, `SETPOINT`) on `Network` nodes;
+- interpret `[REACTIONS]` rows as bulk / wall reaction coefficients
+  (`Order Bulk`, `Order Wall`, `Global Bulk`, `Global Wall`, per-pipe
+  / per-tank coefficients, `Limiting Potential`, `Roughness
+  Correlation`);
+- interpret `[MIXING]` rows as tank-mixing models (`MIXED`, `2COMP`,
+  `FIFO`, `LIFO`) on `Network` tanks (the dPHM steady-state core does
+  not model tank dynamics in the first place);
+- change the loaded `Network` in any way, ever;
+- reject any water-quality row. They are diagnosed, not validated. A
+  row with malformed numerics or unknown tokens still shows up as a
+  diagnostic with the offending tokens — the importer does not
+  interpret them;
+- make the WNTR back-end emit `water_quality_rows`. The fallback
+  parser is authoritative for Sprint 29 diagnostics. The WNTR adapter
+  acknowledges the new channel and returns an **empty**
+  `water_quality_rows` tuple when `parser="wntr"`, matching the
+  Sprint 23 / 24 / 25 / 26 / 27 / 28 documented asymmetry.
+
+### WNTR adapter behaviour / asymmetry
+
+The optional WNTR back-end is documented as fallback-authoritative
+for every Sprint 29 diagnostic channel. When `parser="wntr"`, the
+returned `EpanetImportDiagnostics.water_quality_rows` tuple is
+**empty**, regardless of how many water-quality rows the source
+fixture declared. WNTR has its own `[QUALITY]` / `[SOURCES]` /
+`[REACTIONS]` / `[MIXING]` parsers and surfaces its own
+representations through its own data model, but the dPHM WNTR
+adapter does not re-emit them as dPHM diagnostics — the visibility
+surface is uniform across back-ends and the fallback parser is the
+single source of truth. Note that WNTR's water-quality parsers can
+themselves raise on fixtures that reference IDs WNTR does not know
+about (e.g. `MIXING T1 MIXED` when `T1` is not declared as a
+`[TANKS]` row); those raises are WNTR-side behaviour, not Sprint 29
+behaviour, and the fallback parser tolerates the same rows as
+diagnostics.
+
+### Tests
+
+`tests/dphm/test_inp_water_quality_row_diagnostics.py` — Sprint 29:
+
+- public-surface checks: `EpanetWaterQualityDiagnostic` is a frozen
+  dataclass with `section`, `row_index`, `tokens`, `text`, `message`,
+  and `EpanetImportDiagnostics.water_quality_rows` defaults to `()`
+  and is a tuple;
+- empty `water_quality_rows` for fixtures without any of the four
+  water-quality sections, and for bare headers with no body — the
+  section still shows up in `ignored_sections` via Sprint 24;
+- one-row fixtures for `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`,
+  `[MIXING]` each produce one record, with the expected `section`,
+  `row_index`, `tokens`, `text`;
+- multi-row fixtures preserve `row_index` (`[0, 1, 2, ...]`) and
+  source-file order, both within a single section and across all
+  four;
+- mixed all-four fixtures preserve source-section order in both the
+  canonical (`QUALITY` → `SOURCES` → `REACTIONS` → `MIXING`) and
+  reverse orderings;
+- `row_index` resets per section in the all-four-mixed fixtures;
+- inline `; ...` comments are stripped before tokenisation; blank
+  rows are dropped;
+- every other section — `[CONTROLS]`, `[RULES]`, `[PATTERNS]`,
+  `[ENERGY]`, `[EMITTERS]`, `[DEMANDS]`, `[TIMES]`, `[REPORT]`, and
+  active hydraulic sections — never appears in `water_quality_rows`
+  (the section still surfaces at the section level through
+  `ignored_sections`);
+- `[STATUS]` is never surfaced through `water_quality_rows` or
+  `ignored_sections`; Sprint 23 `status_rows` still captures `OPEN`;
+- the Sprint 25 `control_rule_rows` channel never includes
+  water-quality rows;
+- the Sprint 26 `pattern_energy_rows` channel never includes
+  water-quality rows;
+- the Sprint 28 `emitter_demand_rows` channel never includes
+  water-quality rows;
+- hydraulic-inertness proofs: `_assert_networks_identical` against
+  the baseline fixture; Newton-solve heads / flows match the
+  baseline to 1e-9 / 1e-12;
+- combined Sprint 23 + 24 + 25 + 26 + 28 + 29 coexistence on a
+  fixture carrying `[STATUS]`, `[CONTROLS]`, `[RULES]`,
+  `[PATTERNS]`, `[ENERGY]`, `[EMITTERS]`, `[DEMANDS]`,
+  `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]` rows — all
+  six channels populated, with the new `water_quality_rows`
+  carrying exactly the expected source order;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` return
+  identical `water_quality_rows`, identical `emitter_demand_rows`,
+  identical `pattern_energy_rows`, identical `control_rule_rows`,
+  identical `status_rows`, and identical `ignored_sections`;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network` even when water-quality rows are
+  present;
+- Sprint 22 rejection paths still raise (`CLOSED`, `CV`, numeric
+  pump-status, unknown link id, arbitrary token) when water-quality
+  rows are present; no partial diagnostics leak out;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`) — the WNTR back-end returns an
+  `EpanetImportDiagnostics` with an empty `water_quality_rows`
+  tuple; diagnostic parity with the fallback parser is **not**
+  required. The smoke fixture uses only the water-quality sections
+  WNTR accepts on a tank-less loop fixture (`[QUALITY]`,
+  `[REACTIONS]`); `[SOURCES]` / `[MIXING]` rows that reference
+  unknown IDs raise on the WNTR side and are exercised against the
+  fallback parser instead.
 
 ## Mass balancing
 
