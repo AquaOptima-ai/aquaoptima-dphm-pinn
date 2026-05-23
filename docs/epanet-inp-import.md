@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–22)
+# EPANET `.inp` Topology Import (Sprint 11–23)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -38,6 +38,13 @@ fallback parser now actively validates `[STATUS]` rows so EPANET-
 exported files that declare explicit `<link_id> OPEN` rows load
 without pretending to implement closed-link or active status physics
 (see "Explicit [STATUS] no-op rows (Sprint 22)" below).
+Sprint 23 builds on Sprint 22 by surfacing accepted `[STATUS] OPEN`
+rows as a read-only diagnostics container (`EpanetImportDiagnostics`),
+accessed via the new `load_inp_diagnostics(path)` accessor or via
+`load_network_from_inp(path, return_diagnostics=True)`. Diagnostics
+are hydraulically inert — the returned `Network` is unchanged — and
+the Sprint 22 rejection behaviour for status-changing rows is
+preserved (see "Read-only [STATUS] diagnostics (Sprint 23)" below).
 The public entry point is one function:
 
 ```python
@@ -1255,6 +1262,166 @@ pins this removal — a future sprint that reintroduces global
   - HEAD pump `[CURVES]` resolution unaffected by `[STATUS] PU1 OPEN`;
   - empty `[STATUS]` section accepted;
   - optional WNTR back-end smoke check (`pytest.importorskip("wntr")`).
+
+## Read-only `[STATUS]` diagnostics (Sprint 23)
+
+Sprint 22 made accepted `[STATUS] OPEN` rows validated no-ops — the
+loaded `Network` is byte-for-byte identical with or without
+`[STATUS]`. Sprint 23 adds a small, explicit *diagnostics surface*
+so analysts can see **which** status rows were declared in an
+imported file. The diagnostics are deliberately read-only and
+hydraulically inert: they do not change any field on the returned
+`Network`, and the Sprint 22 rejection behaviour for status-changing
+rows (`CLOSED`, `CV`, numeric pump speed/status, unknown link id,
+short row, arbitrary token) is unchanged — rejected rows still
+raise `ValueError` and never appear as diagnostics.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportDiagnostics,
+    EpanetStatusDiagnostic,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# Option A — explicit, read-only diagnostics accessor.
+diagnostics = load_inp_diagnostics(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="fallback",   # "auto" | "fallback" | "wntr"
+)
+for row in diagnostics.status_rows:
+    print(row.link_id, row.status, row.is_noop, row.message)
+
+# Option B — fetch the Network and the diagnostics together.
+network, diagnostics = load_network_from_inp(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="fallback",
+    return_diagnostics=True,
+)
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–22 caller works unchanged.
+
+### Shape
+
+```python
+@dataclass(frozen=True)
+class EpanetStatusDiagnostic:
+    link_id: str            # spelling preserved from the source file
+    status: str             # normalised, e.g. "OPEN"
+    section: str = "STATUS"
+    is_noop: bool = True
+    message: str = "OPEN accepted as a no-op; status-changing semantics are unsupported."
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+```
+
+Both dataclasses are `frozen=True`. `status_rows` is a `tuple`
+(not a list) so the diagnostics surface is structurally read-only:
+attempting to reassign a field raises
+`dataclasses.FrozenInstanceError`.
+
+### What gets recorded
+
+The fallback parser emits **one `EpanetStatusDiagnostic` per
+accepted `<link_id> OPEN` row**, in source order:
+
+- the `link_id` is echoed verbatim from the file (link ids are
+  case-sensitive in the dPHM fallback parser);
+- the `status` token is normalised to upper-case `OPEN`
+  (case-insensitive matching: `OPEN` / `open` / `Open` all
+  normalise here);
+- `is_noop=True` and the no-op `message` are set so consumers can
+  filter without re-checking the string;
+- the row order in `status_rows` matches the row order in the
+  source `[STATUS]` block.
+
+Diagnostics are empty when:
+
+- the file has no `[STATUS]` section, or
+- the `[STATUS]` section header is present but the body is empty.
+
+Rejected rows (Sprint 22) abort the validator **before** any
+diagnostic is appended — a block mixing `OPEN` and `CLOSED` rows
+raises with no partial diagnostics leaking out.
+
+### Hydraulic inertness
+
+The diagnostics path **does not** mutate the loaded `Network`:
+
+- `load_network_from_inp(path, return_diagnostics=True)` returns
+  the *exact same* `Network` object shape that
+  `load_network_from_inp(path)` does — same `edge_index`, same
+  `pipe_mask` / `pump_mask`, same `demands`, `fixed_head_values`,
+  `lengths`, `diameters`, `c_factors`, `pump_coeffs`, and
+  `pump_speeds`.
+- `load_inp_diagnostics(path)` returns *only* an
+  `EpanetImportDiagnostics` — never a `Network`.
+- The diagnostic records themselves are frozen, so consumers
+  cannot mutate them in place and accidentally inject state back
+  into a future parse.
+
+Tests in
+`tests/dphm/test_inp_status_diagnostics.py` pin the byte-for-byte
+network-equality contract on top of the Sprint 22 invariance tests.
+
+### What Sprint 23 does NOT do
+
+- It does **not** model closed-link, check-valve, or pump-speed
+  semantics. Sprint 22 rejections are unchanged.
+- It does **not** activate `[CONTROLS]` or `[RULES]`. Those
+  sections remain in `IGNORED_SECTIONS` and are explicitly *not*
+  emitted as diagnostics — even in a file that also declares
+  `[STATUS] OPEN`, `[CONTROLS]` and `[RULES]` rows are silently
+  ignored exactly as in Sprint 21.
+- It does **not** attach diagnostic state to `Network`. The
+  `Network` dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit diagnostics. The
+  fallback parser is authoritative for Sprint 23 `[STATUS]`
+  diagnostics. When `parser="wntr"` is requested, the WNTR
+  back-end relies on WNTR's own `[STATUS]` parser (which handles
+  closed-link state internally inside the WNTR engine) and the
+  dPHM WNTR adapter returns an **empty**
+  `EpanetImportDiagnostics`. Asymmetry between back-ends is
+  documented rather than papered over — see also
+  `SPRINT22_REPORT.md` for the same fallback-authoritative split.
+
+### Tests
+
+`tests/dphm/test_inp_status_diagnostics.py` — Sprint 23:
+
+- public-surface checks: dataclasses are importable, frozen, and
+  use a tuple-backed container;
+- accepted-row records for pipes, HEAD-curve pumps, and PRV
+  valves;
+- case-insensitive `OPEN` normalisation; link id casing preserved;
+- multiple-row count + order invariance;
+- empty diagnostics for files with no `[STATUS]` and for an
+  empty `[STATUS]` section;
+- `Network` equality between default and `return_diagnostics=True`
+  loads, and between fixtures with and without `[STATUS]`;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- every Sprint 22 rejection (CLOSED / CV / numeric / unknown id /
+  short row / arbitrary token) still raises through both
+  `load_inp_diagnostics` and `load_network_from_inp(..., return_diagnostics=True)`;
+- mixed OPEN+CLOSED blocks raise with no partial diagnostics
+  leaked out;
+- `[CONTROLS]` / `[RULES]` content does **not** appear in
+  diagnostics, even in files that also declare `[STATUS] OPEN`;
+- parser selector + units kwargs reach the diagnostics path
+  (unknown parser / non-SI units raise);
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`) confirms the API does not raise
+  and returns the read-only container shape — it does **not**
+  require diagnostic parity with the fallback back-end.
 
 ## Mass balancing
 

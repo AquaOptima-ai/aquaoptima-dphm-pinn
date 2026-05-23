@@ -692,7 +692,80 @@ def resolve_viscosity(opts: dict[str, str]) -> float:
     return value
 
 
-# --- [STATUS] handling (Sprint 22) -----------------------------------------
+# --- [STATUS] handling (Sprint 22, Sprint 23 diagnostics) ------------------
+
+
+# Sprint 23: human-readable message attached to every accepted
+# ``[STATUS] OPEN`` diagnostic record. Kept as a module-level constant so
+# all accepted rows share the exact same message text — diffing two
+# diagnostics records does not surface spurious string variation.
+_STATUS_OPEN_NOOP_MESSAGE: str = (
+    "OPEN accepted as a no-op; status-changing semantics are unsupported."
+)
+
+
+@dataclass(frozen=True)
+class EpanetStatusDiagnostic:
+    """Read-only record of one accepted ``[STATUS]`` row.
+
+    Sprint 23 surfaces accepted ``[STATUS] OPEN`` declarations as
+    metadata so analysts can see *what* status rows were present in
+    an imported ``.inp`` file. Diagnostics are deliberately read-only
+    and hydraulically inert — they do not change any field on the
+    loaded :class:`Network`, and the surrogate ``[STATUS]`` rejection
+    behaviour from Sprint 22 is unchanged: rejected rows raise
+    :class:`ValueError` and never produce diagnostic records.
+
+    Attributes
+    ----------
+    link_id
+        The link identifier exactly as it appeared in the source
+        ``[STATUS]`` row (no case folding — EPANET link ids are
+        case-sensitive in the dPHM fallback parser).
+    status
+        The normalised status token. For Sprint 23 this is always the
+        upper-case string ``"OPEN"``; case-insensitive ``open`` /
+        ``Open`` / ``OPEN`` in the source file all normalise here.
+    section
+        Source section name. Always ``"STATUS"`` for the records this
+        module emits. Kept as a field so a future sprint that emits
+        diagnostics from other sections (e.g. ``[CONTROLS]`` if it is
+        ever modelled) does not have to break the record shape.
+    is_noop
+        ``True`` when the row was accepted as a redundant no-op
+        (Sprint 23: every accepted row sets this). The field exists so
+        diagnostic consumers can filter without re-checking the
+        status string.
+    message
+        Human-readable explanation of the read-only / no-op contract.
+        Pinned to a single module-level string so the surface stays
+        stable.
+    """
+
+    link_id: str
+    status: str
+    section: str = "STATUS"
+    is_noop: bool = True
+    message: str = _STATUS_OPEN_NOOP_MESSAGE
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    """Read-only container for EPANET ``.inp`` import diagnostics.
+
+    Sprint 23 only populates ``status_rows`` (one record per accepted
+    ``[STATUS] OPEN`` row). Future sprints may grow additional fields
+    on this container as new diagnostics are surfaced — adding a new
+    optional field with a default value is backwards-compatible for
+    keyword-only callers.
+
+    The container is ``frozen=True`` and ``status_rows`` is a
+    :class:`tuple` rather than a list so the diagnostics surface is
+    structurally read-only. Attempting to reassign a field raises
+    :class:`dataclasses.FrozenInstanceError`.
+    """
+
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
 
 
 # Status tokens the Sprint 22 ``[STATUS]`` validator accepts as no-ops.
@@ -717,8 +790,8 @@ _STATUS_REJECTED_LINK_TOKENS: frozenset[str] = frozenset({"CLOSED", "CV"})
 
 def _validate_status_rows(
     rows: list[list[str]], known_link_ids: set[str]
-) -> None:
-    """Validate ``[STATUS]`` rows against the parsed link surface.
+) -> tuple[EpanetStatusDiagnostic, ...]:
+    """Validate ``[STATUS]`` rows and emit Sprint 23 diagnostics.
 
     Sprint 22 narrows the Sprint 21 ignored-section contract for
     ``[STATUS]``: rows of the form ``<link_id> OPEN`` (case-insensitive)
@@ -730,6 +803,16 @@ def _validate_status_rows(
     row that references an id the file never declared in
     ``[PIPES]``/``[PUMPS]``/``[VALVES]`` is a structural error in the
     source fixture and fails loudly.
+
+    Sprint 23 extends the validator to return one
+    :class:`EpanetStatusDiagnostic` per accepted ``OPEN`` row so the
+    public :func:`load_inp_diagnostics` entry point can surface read-
+    only metadata about what status rows the file declared. The
+    diagnostic records preserve the source link-id spelling and
+    normalise the status token to upper-case ``"OPEN"``; rejected
+    rows still raise before any diagnostic can be emitted (so a
+    block mixing OPEN and CLOSED rows raises with no partial
+    diagnostics leaking out).
 
     The function is intentionally read-only: accepted rows are no-ops
     and the loaded :class:`Network` is byte-for-byte identical to the
@@ -750,14 +833,23 @@ def _validate_status_rows(
         are validated *after* every link is known so the order of
         ``[STATUS]`` relative to those sections does not matter.
 
+    Returns
+    -------
+    tuple of EpanetStatusDiagnostic
+        Sprint 23: one record per accepted ``<link_id> OPEN`` row, in
+        source order. Empty when no ``[STATUS]`` rows were declared or
+        when the section is empty.
+
     Raises
     ------
     ValueError
         On short rows (< 2 tokens), unknown link ids, ``CLOSED`` / ``CV``
         tokens, numeric pump speed/status values, or any other
         unsupported token. The error message names ``[STATUS]``, the
-        link id, and the offending token.
+        link id, and the offending token. Rejected rows abort the
+        validator before any diagnostic record is appended.
     """
+    diagnostics: list[EpanetStatusDiagnostic] = []
     for row in rows:
         if len(row) < 2:
             raise ValueError(
@@ -774,6 +866,9 @@ def _validate_status_rows(
                 "before its status can be set"
             )
         if status_word in _STATUS_ACCEPTED_TOKENS:
+            diagnostics.append(
+                EpanetStatusDiagnostic(link_id=link_id, status=status_word)
+            )
             continue
         if status_word in _STATUS_REJECTED_LINK_TOKENS:
             raise ValueError(
@@ -799,6 +894,7 @@ def _validate_status_rows(
             f"token {status_raw!r}; the only accepted token is OPEN "
             "(case-insensitive)"
         )
+    return tuple(diagnostics)
 
 
 # Sections the fallback parser tolerates as silent no-ops because they
@@ -1739,7 +1835,7 @@ def _fallback_parse(
     text: str,
     *,
     default_c_factor: float,
-) -> Network:
+) -> tuple[Network, EpanetImportDiagnostics]:
     sections = _split_sections(text)
 
     # Required sections
@@ -2205,7 +2301,15 @@ def _fallback_parse(
     # link ids with a clear ValueError. Accepted rows leave the network
     # byte-for-byte unchanged — they only buy explicit fail-fast on
     # ``CLOSED``-bearing files and on dangling link-id references.
-    _validate_status_rows(sections.get("STATUS", []), seen_edge_ids)
+    # Sprint 23: the validator also returns one diagnostic record per
+    # accepted OPEN row so the public diagnostics surface can surface
+    # the accepted rows as read-only metadata. The diagnostic records
+    # are immutable and are not attached to the Network — see
+    # :class:`EpanetImportDiagnostics` and
+    # :func:`load_inp_diagnostics`.
+    status_diagnostics = _validate_status_rows(
+        sections.get("STATUS", []), seen_edge_ids
+    )
 
     # Re-balance demand so the network is mass-consistent at parse time:
     # any drift (e.g. demands declared on junctions but no matching supply
@@ -2224,7 +2328,7 @@ def _fallback_parse(
             demands[i] -= share
 
     edge_index = torch.tensor([src_idx, dst_idx], dtype=torch.long)
-    return Network(
+    network = Network(
         edge_index=edge_index,
         num_nodes=len(node_ids),
         pipe_mask=torch.tensor(pipe_mask, dtype=torch.bool),
@@ -2238,6 +2342,8 @@ def _fallback_parse(
         fixed_head_mask=torch.tensor(fixed_mask, dtype=torch.bool),
         fixed_head_values=torch.tensor(fixed_vals, dtype=torch.get_default_dtype()),
     )
+    diagnostics = EpanetImportDiagnostics(status_rows=status_diagnostics)
+    return network, diagnostics
 
 
 # --- WNTR-backed parser (optional) ------------------------------------------
@@ -2611,7 +2717,9 @@ def _wntr_extract_demand_multiplier(wn: object) -> float:
     return value
 
 
-def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
+def _wntr_parse(
+    source: PathLike, *, default_c_factor: float
+) -> tuple[Network, EpanetImportDiagnostics]:
     try:
         import wntr  # type: ignore
     except ImportError as exc:
@@ -2850,7 +2958,7 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
             demands[i] -= share
 
     edge_index = torch.tensor([src_idx, dst_idx], dtype=torch.long)
-    return Network(
+    network = Network(
         edge_index=edge_index,
         num_nodes=len(node_ids),
         pipe_mask=torch.tensor(pipe_mask, dtype=torch.bool),
@@ -2864,6 +2972,15 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         fixed_head_mask=torch.tensor(fixed_mask, dtype=torch.bool),
         fixed_head_values=torch.tensor(fixed_vals, dtype=torch.get_default_dtype()),
     )
+    # Sprint 23: the WNTR back-end is documented as fallback-authoritative
+    # for ``[STATUS]`` diagnostics. WNTR has its own ``[STATUS]`` parser
+    # that handles closed-link state internally; the dPHM WNTR adapter
+    # does not re-emit accepted ``OPEN`` rows as diagnostics. The
+    # container is returned empty so the public API surface is uniform
+    # across back-ends and so callers can branch on parser explicitly
+    # if they need WNTR-side status records (none are surfaced today).
+    diagnostics = EpanetImportDiagnostics()
+    return network, diagnostics
 
 
 # --- public entry point -----------------------------------------------------
@@ -2872,13 +2989,56 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
 _VALID_PARSERS = ("auto", "fallback", "wntr")
 
 
+def _dispatch_inp_parse(
+    source: PathLike,
+    *,
+    parser: str,
+    units: str,
+    default_c_factor: float,
+) -> tuple[Network, EpanetImportDiagnostics]:
+    """Validate kwargs and run the appropriate parser back-end.
+
+    Sprint 23 internal helper. Returns the ``(Network, diagnostics)``
+    pair both public entry points (:func:`load_network_from_inp` and
+    :func:`load_inp_diagnostics`) need, with one single point of
+    keyword validation so the two functions cannot drift.
+    """
+    if parser not in _VALID_PARSERS:
+        raise ValueError(
+            f"parser must be one of {_VALID_PARSERS}, got {parser!r}"
+        )
+    if units.lower() != "si":
+        raise ValueError(
+            f"units={units!r} is not supported; load_network_from_inp always "
+            "returns an SI Network. The input fixture's flow-unit family is "
+            "read from [OPTIONS] Units and may be either SI or US-customary."
+        )
+    if default_c_factor <= 0.0:
+        raise ValueError(
+            f"default_c_factor must be > 0, got {default_c_factor}"
+        )
+
+    text = _read_inp_text(source)
+
+    if parser == "wntr":
+        return _wntr_parse(source, default_c_factor=default_c_factor)
+    if parser == "fallback":
+        return _fallback_parse(text, default_c_factor=default_c_factor)
+
+    # "auto"
+    if _wntr_available():
+        return _wntr_parse(source, default_c_factor=default_c_factor)
+    return _fallback_parse(text, default_c_factor=default_c_factor)
+
+
 def load_network_from_inp(
     source: PathLike,
     *,
     parser: str = "auto",
     units: str = "si",
     default_c_factor: float = 130.0,
-) -> Network:
+    return_diagnostics: bool = False,
+) -> Network | tuple[Network, EpanetImportDiagnostics]:
     """Parse an EPANET ``.inp`` topology into a :class:`Network`.
 
     Parameters
@@ -2912,13 +3072,24 @@ def load_network_from_inp(
         Hazen-Williams roughness coefficient used when a pipe row
         omits its roughness column. Default ``130.0`` matches the
         Sprint 1-10 reference networks.
+    return_diagnostics
+        Sprint 23 read-only side channel. When ``False`` (default) the
+        function returns the bare :class:`Network` — the same shape
+        every Sprint 11-22 caller expects, so existing code keeps
+        working without changes. When ``True`` the function returns a
+        ``(Network, EpanetImportDiagnostics)`` tuple; the
+        :class:`EpanetImportDiagnostics` carries one record per
+        accepted ``[STATUS] OPEN`` row. The returned :class:`Network`
+        is identical in either case; ``return_diagnostics=True``
+        never alters hydraulic fields.
 
     Returns
     -------
-    Network
-        The validated dPHM network with node ordering preserved
-        as ``[junctions..., reservoirs..., tanks...]`` from the
-        file's own ordering inside each section.
+    Network or tuple
+        Default: the validated dPHM network with node ordering
+        preserved as ``[junctions..., reservoirs..., tanks...]`` from
+        the file's own ordering inside each section. With
+        ``return_diagnostics=True``: ``(Network, EpanetImportDiagnostics)``.
 
     Raises
     ------
@@ -2932,36 +3103,62 @@ def load_network_from_inp(
     ImportError
         Only when ``parser="wntr"`` and WNTR is not installed.
     """
-    if parser not in _VALID_PARSERS:
-        raise ValueError(
-            f"parser must be one of {_VALID_PARSERS}, got {parser!r}"
-        )
-    if units.lower() != "si":
-        raise ValueError(
-            f"units={units!r} is not supported; load_network_from_inp always "
-            "returns an SI Network. The input fixture's flow-unit family is "
-            "read from [OPTIONS] Units and may be either SI or US-customary."
-        )
-    if default_c_factor <= 0.0:
-        raise ValueError(
-            f"default_c_factor must be > 0, got {default_c_factor}"
-        )
+    network, diagnostics = _dispatch_inp_parse(
+        source,
+        parser=parser,
+        units=units,
+        default_c_factor=default_c_factor,
+    )
+    if return_diagnostics:
+        return network, diagnostics
+    return network
 
-    text = _read_inp_text(source)
 
-    if parser == "wntr":
-        return _wntr_parse(source, default_c_factor=default_c_factor)
-    if parser == "fallback":
-        return _fallback_parse(text, default_c_factor=default_c_factor)
+def load_inp_diagnostics(
+    source: PathLike,
+    *,
+    parser: str = "auto",
+    units: str = "si",
+    default_c_factor: float = 130.0,
+) -> EpanetImportDiagnostics:
+    """Return read-only diagnostics for an EPANET ``.inp`` import.
 
-    # "auto"
-    if _wntr_available():
-        return _wntr_parse(source, default_c_factor=default_c_factor)
-    return _fallback_parse(text, default_c_factor=default_c_factor)
+    Sprint 23 surfaces accepted ``[STATUS] OPEN`` rows as a read-only
+    diagnostics container so analysts can see what status declarations
+    were present in an imported file without changing any hydraulic
+    field on the loaded :class:`Network`.
+
+    The returned :class:`EpanetImportDiagnostics` is structurally
+    immutable: the container is a frozen :class:`dataclasses.dataclass`
+    and ``status_rows`` is a :class:`tuple` of frozen
+    :class:`EpanetStatusDiagnostic` records.
+
+    The fallback parser is authoritative for Sprint 23 diagnostics —
+    the optional WNTR back-end has its own ``[STATUS]`` parser and
+    the dPHM WNTR adapter does not re-emit ``[STATUS]`` records.
+    Calling this function with ``parser="wntr"`` returns an empty
+    :class:`EpanetImportDiagnostics` even on files that declare
+    ``[STATUS] OPEN`` rows. See ``docs/epanet-inp-import.md``.
+
+    Parameters mirror :func:`load_network_from_inp`. The same
+    :class:`ValueError` / :class:`ImportError` failure surface
+    applies: rejected ``[STATUS]`` rows (CLOSED / CV / numeric /
+    unknown link id / short row / arbitrary token) still raise, and
+    no partial diagnostics leak out of an error.
+    """
+    _network, diagnostics = _dispatch_inp_parse(
+        source,
+        parser=parser,
+        units=units,
+        default_c_factor=default_c_factor,
+    )
+    return diagnostics
 
 
 __all__ = [
+    "EpanetImportDiagnostics",
     "EpanetPressureUnit",
+    "EpanetStatusDiagnostic",
     "EpanetUnitSystem",
     "IGNORED_SECTIONS",
     "SUPPORTED_FLOW_UNITS",
@@ -2969,6 +3166,7 @@ __all__ = [
     "fit_power_pump_surrogate",
     "fit_pump_head_curve",
     "fit_tcv_resistance_surrogate",
+    "load_inp_diagnostics",
     "load_network_from_inp",
     "resolve_demand_multiplier",
     "resolve_pressure_unit",
