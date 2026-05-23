@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import pytest
 
-from aquaoptima.dphm import fit_pump_head_curve
+from aquaoptima.dphm import fit_power_pump_surrogate, fit_pump_head_curve
 from aquaoptima.dphm.inp_io import (
+    _wntr_extract_power_pump_kw,
     _wntr_extract_pump_curve_points,
     _wntr_translate_pump,
 )
@@ -216,3 +217,101 @@ def test_translate_propagates_fit_errors() -> None:
     pump = _FakeHeadPump(_FakeCurve([(0.0, 45.0), (0.02, 44.68)]))  # only 2 pts
     with pytest.raises(ValueError, match="at least 3 points"):
         _wntr_translate_pump(pump)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 14 — POWER pump translation via the conservative surrogate
+# ---------------------------------------------------------------------------
+
+
+def test_extract_power_pump_kw_converts_watts_to_kilowatts() -> None:
+    """WNTR stores ``Pump.power`` in SI watts; helper returns kW."""
+    pump = _FakePowerPump(power=5000.0)
+    assert _wntr_extract_power_pump_kw(pump) == pytest.approx(5.0)
+
+
+def test_extract_power_pump_kw_rejects_missing_attribute() -> None:
+    class _Bare:
+        pump_type = "POWER"
+
+    with pytest.raises(ValueError, match="no 'power' attribute"):
+        _wntr_extract_power_pump_kw(_Bare())
+
+
+def test_extract_power_pump_kw_rejects_non_numeric_power() -> None:
+    pump = _FakePowerPump(power="oops")
+    with pytest.raises(ValueError, match="non-numeric"):
+        _wntr_extract_power_pump_kw(pump)
+
+
+def test_extract_power_pump_kw_rejects_non_positive_power() -> None:
+    pump_zero = _FakePowerPump(power=0.0)
+    with pytest.raises(ValueError, match="non-positive"):
+        _wntr_extract_power_pump_kw(pump_zero)
+    pump_neg = _FakePowerPump(power=-1000.0)
+    with pytest.raises(ValueError, match="non-positive"):
+        _wntr_extract_power_pump_kw(pump_neg)
+
+
+def test_extract_power_pump_kw_rejects_non_finite_power() -> None:
+    pump = _FakePowerPump(power=float("inf"))
+    with pytest.raises(ValueError, match="non-positive or non-finite"):
+        _wntr_extract_power_pump_kw(pump)
+
+
+def test_translate_power_pump_matches_surrogate_with_downstream_demand() -> None:
+    """A POWER pump with a positive downstream demand uses it as Q_nom."""
+    pump = _FakePowerPump(power=7500.0)  # 7.5 kW
+    coeffs, base_speed, diag = _wntr_translate_pump(
+        pump,
+        downstream_demand=0.015,
+        total_positive_demand=0.015,
+    )
+    expected_coeffs, expected_diag = fit_power_pump_surrogate(7.5, 0.015)
+    assert coeffs == pytest.approx(expected_coeffs, abs=1e-9)
+    assert diag["approximation"] == "constant_power_surrogate"
+    assert diag["head_at_nominal_m"] == pytest.approx(
+        expected_diag["head_at_nominal_m"], abs=1e-9
+    )
+    assert base_speed == pytest.approx(1.0)
+
+
+def test_translate_power_pump_falls_back_to_total_positive_demand() -> None:
+    """Zero downstream demand -> total_positive_demand anchor."""
+    pump = _FakePowerPump(power=7500.0)
+    coeffs, _, diag = _wntr_translate_pump(
+        pump,
+        downstream_demand=0.0,
+        total_positive_demand=0.020,
+    )
+    expected_coeffs, _ = fit_power_pump_surrogate(7.5, 0.020)
+    assert coeffs == pytest.approx(expected_coeffs, abs=1e-9)
+    assert diag["nominal_flow_m3s"] == pytest.approx(0.020)
+
+
+def test_translate_power_pump_uses_default_anchor_when_no_demand() -> None:
+    """Both demand anchors are zero -> 1 L/s default anchor."""
+    pump = _FakePowerPump(power=5000.0)
+    coeffs, _, diag = _wntr_translate_pump(pump)
+    expected_coeffs, _ = fit_power_pump_surrogate(5.0, 1.0e-3)
+    assert coeffs == pytest.approx(expected_coeffs, abs=1e-6)
+    assert diag["nominal_flow_m3s"] == pytest.approx(1.0e-3)
+
+
+def test_translate_power_pump_preserves_base_speed() -> None:
+    pump = _FakePowerPump(power=5000.0)
+    pump.base_speed = 0.9
+    _, base_speed, _ = _wntr_translate_pump(
+        pump,
+        downstream_demand=0.0,
+        total_positive_demand=0.015,
+    )
+    assert base_speed == pytest.approx(0.9)
+
+
+def test_translate_power_pump_rejects_non_positive_power() -> None:
+    pump = _FakePowerPump(power=0.0)
+    with pytest.raises(ValueError, match="non-positive"):
+        _wntr_translate_pump(
+            pump, downstream_demand=0.015, total_positive_demand=0.015
+        )

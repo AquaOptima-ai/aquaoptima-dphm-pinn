@@ -212,11 +212,13 @@ def test_pump_referencing_undefined_curve_raises(tmp_path: Path) -> None:
 
 
 def test_pump_with_unsupported_keyword_raises(tmp_path: Path) -> None:
+    # POWER is supported from Sprint 14 onwards; SPEED is not — the
+    # fallback parser only accepts ``HEAD curve_id`` and ``POWER value``.
     inp = _pump_inp(
-        pumps_body=" PU1   R1   J1   POWER   5\n",
+        pumps_body=" PU1   R1   J1   SPEED   1.0\n",
         curves_body=" REAL   0   45\n REAL  20  44\n REAL  40  43\n",
     )
-    path = tmp_path / "power_pump.inp"
+    path = tmp_path / "speed_pump.inp"
     path.write_text(inp)
     with pytest.raises(ValueError, match="unsupported keyword"):
         load_network_from_inp(path, parser="fallback")

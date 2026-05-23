@@ -11,7 +11,11 @@ from .fixtures import (
 from .hazen_williams import hazen_williams_head_loss
 from .large_fixtures import make_grid_network
 from .incidence import cached_incidence_matrix, incidence_matrix, node_flow_balance
-from .inp_io import fit_pump_head_curve, load_network_from_inp
+from .inp_io import (
+    fit_power_pump_surrogate,
+    fit_pump_head_curve,
+    load_network_from_inp,
+)
 from .network import Network
 from .network_io import load_network_from_json
 from .pump_affinity import pump_head_gain
@@ -35,6 +39,7 @@ __all__ = [
     "FeasibilityResult",
     "check_feasibility",
     "hazen_williams_head_loss",
+    "fit_power_pump_surrogate",
     "fit_pump_head_curve",
     "incidence_matrix",
     "initial_guess",

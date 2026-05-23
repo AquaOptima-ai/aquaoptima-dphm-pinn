@@ -19,8 +19,19 @@ Sprint 13 brings the WNTR-backed parser into parity with the
 fallback parser for HEAD-curve pumps. The WNTR adapter now iterates
 ``wn.pump_name_list`` and translates each pump via the same
 :func:`fit_pump_head_curve` helper, reading WNTR's already-SI curve
-points so no second unit conversion is applied. Non-HEAD pump forms
-(``POWER``, etc.) still raise :class:`ValueError`.
+points so no second unit conversion is applied.
+
+Sprint 14 extends both the fallback and WNTR adapters to accept
+EPANET ``POWER`` pumps via a deliberately conservative quadratic
+surrogate. A constant-power declaration ``P = rho * g * Q * H``
+carries no head-flow curve, so the surrogate is anchored on a single
+nominal-flow point and forced to droop with a documented shut-off
+multiplier. The translation is exposed publicly as
+:func:`fit_power_pump_surrogate` and is *not* a faithful
+constant-power conversion — see the helper docstring and
+``docs/epanet-inp-import.md`` for the explicit assumptions and
+limitations. Non-HEAD, non-POWER pump forms (``SPEED``, custom)
+still raise :class:`ValueError`.
 
 Two parser back-ends are available:
 
@@ -71,12 +82,11 @@ Sections honoured:
 
 Sections that intentionally **fail loudly**:
 
-* ``[PUMPS]`` — Sprint 12: pump rows of the form
-  ``id n1 n2 HEAD curve_id`` are translated into a dPHM pump edge by
-  fitting the referenced ``[CURVES]`` rows to the quadratic pump
-  characteristic ``H(Q) = a0 + a1*Q + a2*Q^2`` at ``s = 1``. Any
-  other pump form (``POWER``, ``SPEED``, etc.) still raises
-  :class:`ValueError`.
+* ``[PUMPS]`` — Sprint 12 supports the ``HEAD curve_id`` form via
+  least-squares quadratic curve fitting. Sprint 14 adds the
+  ``POWER value`` form via the bounded surrogate
+  :func:`fit_power_pump_surrogate`. Any other pump form
+  (``SPEED``, custom) still raises :class:`ValueError`.
 * ``[VALVES]`` — raises :class:`ValueError`. The dPHM core does not
   model valves.
 
@@ -410,6 +420,168 @@ def fit_pump_head_curve(
     return [a0, a1, a2], diagnostics
 
 
+# --- POWER pump surrogate (Sprint 14) --------------------------------------
+
+# Conventional EPANET ``POWER`` value is declared in kW for SI flow
+# units. Document this explicitly so downstream readers can see why
+# the fallback parser multiplies by 1000 before applying
+# ``P = rho * g * Q * H``.
+_POWER_PUMP_KW_TO_W = 1.0e3
+
+# Water density at ~20 C and standard gravity. EPANET uses constant
+# rho/g internally for its pump-energy calculations; the surrogate
+# mirrors those choices so the operating point matches an EPANET run
+# in the limit ``shutoff_multiplier -> 1+`` and ``Q -> Q_nom``.
+_POWER_PUMP_RHO = 1000.0  # kg/m^3
+_POWER_PUMP_G = 9.80665   # m/s^2
+
+# Fallback nominal-flow anchor when the network has no positive
+# downstream demand and no positive total demand (e.g. an isolated
+# pump-only fixture inspected outside a real solve). 1 L/s is small
+# but keeps ``a2`` finite and the surrogate Newton-stable. The
+# diagnostics ``nominal_flow_source`` field flags this branch.
+_POWER_PUMP_DEFAULT_NOMINAL_FLOW = 1.0e-3  # m^3/s
+
+
+def fit_power_pump_surrogate(
+    power_kw: float,
+    nominal_flow_m3s: float,
+    *,
+    shutoff_multiplier: float = 1.5,
+) -> tuple[list[float], dict[str, object]]:
+    """Construct a conservative quadratic surrogate for a POWER pump.
+
+    EPANET ``POWER`` pumps declare a constant shaft power
+    ``P = rho * g * Q * H``, which gives ``H = P / (rho * g * Q)`` —
+    hyperbolic in ``Q`` and singular at ``Q -> 0``. That shape is
+    incompatible with the dPHM core's quadratic pump characteristic
+    ``H(Q, s) = a0 * s^2 + a1 * s * Q + a2 * Q^2``.
+
+    The Sprint 14 surrogate is therefore deliberately **conservative
+    and bounded**, not a faithful constant-power conversion:
+
+    1. Compute the operating head at the nominal flow anchor:
+       ``H_nom = P_watts / (rho * g * Q_nom)``.
+    2. Choose a shut-off head ``a0 = shutoff_multiplier * H_nom``
+       (default ``1.5 * H_nom``: shut-off head 50% above the
+       operating head).
+    3. Solve for ``a2`` so the surrogate passes through
+       ``(Q_nom, H_nom)``:
+       ``a2 = (H_nom - a0) / Q_nom**2``
+       ``  = H_nom * (1 - shutoff_multiplier) / Q_nom**2``.
+       With ``shutoff_multiplier > 1`` this yields ``a2 < 0`` — a
+       physically sensible drooping centrifugal-pump curve.
+    4. Set ``a1 = 0``. The constant-power declaration carries no
+       information about a linear term.
+
+    The result matches the EPANET POWER pump at exactly one point —
+    ``(Q_nom, H_nom)`` — and is finite, bounded, and Newton-stable
+    everywhere. It does **not** preserve the constant-power
+    relationship away from ``Q_nom``; for credible operation far
+    from the anchor flow, supply an explicit ``HEAD`` curve instead.
+
+    Parameters
+    ----------
+    power_kw
+        Pump shaft power in **kilowatts**, matching the EPANET
+        ``[PUMPS] POWER`` convention under SI flow units. Must be
+        strictly positive and finite.
+    nominal_flow_m3s
+        Anchor flow used to evaluate the operating head, in
+        **m^3/s**. Must be strictly positive and finite. The
+        fallback INP parser derives this from the network's
+        downstream / total positive demand; the WNTR adapter follows
+        the same rule. A trustworthy nominal flow is the single
+        most important input to this surrogate.
+    shutoff_multiplier
+        Ratio ``a0 / H_nom``. Must be strictly greater than 1 so
+        ``a2 < 0`` (the resulting curve droops). Default ``1.5``.
+
+    Returns
+    -------
+    tuple
+        ``([a0, a1, a2], diagnostics)`` where ``diagnostics`` is a
+        dict carrying ``approximation = "constant_power_surrogate"``
+        plus ``power_kw``, ``nominal_flow_m3s``,
+        ``head_at_nominal_m``, ``shutoff_head_m``,
+        ``shutoff_multiplier``, ``a0``, ``a1``, ``a2``. No ``rmse``
+        is reported because the surrogate is not a fit to multiple
+        points.
+
+    Raises
+    ------
+    ValueError
+        If ``power_kw`` or ``nominal_flow_m3s`` is non-positive or
+        non-finite, or if ``shutoff_multiplier`` is not strictly
+        greater than 1 (which would produce a non-drooping curve).
+    """
+    if not math.isfinite(power_kw) or power_kw <= 0.0:
+        raise ValueError(
+            f"power_kw must be strictly positive and finite, got {power_kw}"
+        )
+    if not math.isfinite(nominal_flow_m3s) or nominal_flow_m3s <= 0.0:
+        raise ValueError(
+            "nominal_flow_m3s must be strictly positive and finite, got "
+            f"{nominal_flow_m3s}"
+        )
+    if not math.isfinite(shutoff_multiplier) or shutoff_multiplier <= 1.0:
+        raise ValueError(
+            "shutoff_multiplier must be > 1 so the surrogate droops, got "
+            f"{shutoff_multiplier}"
+        )
+
+    power_watts = power_kw * _POWER_PUMP_KW_TO_W
+    head_at_nominal = power_watts / (
+        _POWER_PUMP_RHO * _POWER_PUMP_G * nominal_flow_m3s
+    )
+    a0 = shutoff_multiplier * head_at_nominal
+    a1 = 0.0
+    a2 = (head_at_nominal - a0) / (nominal_flow_m3s * nominal_flow_m3s)
+
+    diagnostics: dict[str, object] = {
+        "approximation": "constant_power_surrogate",
+        "power_kw": float(power_kw),
+        "nominal_flow_m3s": float(nominal_flow_m3s),
+        "head_at_nominal_m": float(head_at_nominal),
+        "shutoff_head_m": float(a0),
+        "shutoff_multiplier": float(shutoff_multiplier),
+        "a0": float(a0),
+        "a1": float(a1),
+        "a2": float(a2),
+    }
+    return [a0, a1, a2], diagnostics
+
+
+def _resolve_power_pump_nominal_flow(
+    *,
+    downstream_demand: float,
+    total_positive_demand: float,
+) -> tuple[float, str]:
+    """Pick a nominal-flow anchor for the POWER pump surrogate.
+
+    Preference order:
+
+    1. The downstream node's base demand, when positive and finite.
+       This is the flow the pump must supply if it is the *only*
+       source for that consumer.
+    2. The total positive demand across the network, when positive
+       and finite. This is the flow the pump must supply if it is
+       the only source for the entire network.
+    3. ``_POWER_PUMP_DEFAULT_NOMINAL_FLOW`` (1 L/s). This branch is
+       flagged in the returned source label so callers can detect
+       it and warn.
+
+    Returns ``(Q_nom, source_label)`` where ``source_label`` is one
+    of ``"downstream_demand"``, ``"total_positive_demand"``, or
+    ``"default_fallback"``.
+    """
+    if math.isfinite(downstream_demand) and downstream_demand > 0.0:
+        return float(downstream_demand), "downstream_demand"
+    if math.isfinite(total_positive_demand) and total_positive_demand > 0.0:
+        return float(total_positive_demand), "total_positive_demand"
+    return _POWER_PUMP_DEFAULT_NOMINAL_FLOW, "default_fallback"
+
+
 # --- the fallback parser ----------------------------------------------------
 
 
@@ -623,18 +795,52 @@ def _fallback_parse(
             raise ValueError(
                 f"pump {pump_id!r} references unknown target node {node2!r}"
             )
-        if keyword != "HEAD":
+        if keyword == "HEAD":
+            curve_id = row[4]
+            if curve_id not in curves:
+                raise ValueError(
+                    f"pump {pump_id!r} references undefined HEAD curve "
+                    f"{curve_id!r}; available curves: {sorted(curves)}"
+                )
+            coeffs, _diag = fit_pump_head_curve(curves[curve_id])
+        elif keyword == "POWER":
+            # Sprint 14: constant-power surrogate. EPANET POWER values
+            # under SI flow units are expressed in kW; the surrogate
+            # converts to W internally before applying
+            # ``P = rho * g * Q * H``.
+            try:
+                power_kw_raw = float(row[4])
+            except ValueError as exc:
+                raise ValueError(
+                    f"pump {pump_id!r} POWER value {row[4]!r} is not numeric"
+                ) from exc
+            if not math.isfinite(power_kw_raw) or power_kw_raw <= 0.0:
+                raise ValueError(
+                    f"pump {pump_id!r} POWER value must be strictly positive "
+                    f"and finite, got {power_kw_raw}"
+                )
+            # Anchor nominal flow on the downstream node's demand when
+            # positive (single-consumer pumps), else fall back to the
+            # network's total positive demand (single-source pump for
+            # the whole network), else use the documented default.
+            downstream_idx = id_to_index[node2]
+            downstream_demand = (
+                demands[downstream_idx]
+                if 0 <= downstream_idx < len(demands)
+                else 0.0
+            )
+            total_positive_demand = sum(d for d in demands if d > 0.0)
+            q_nom, _q_nom_source = _resolve_power_pump_nominal_flow(
+                downstream_demand=downstream_demand,
+                total_positive_demand=total_positive_demand,
+            )
+            coeffs, _diag = fit_power_pump_surrogate(power_kw_raw, q_nom)
+        else:
             raise ValueError(
                 f"pump {pump_id!r} uses unsupported keyword {row[3]!r}; the "
-                "fallback parser only supports 'HEAD curve_id' pump rows"
+                "fallback parser supports only 'HEAD curve_id' and "
+                "'POWER value' pump rows"
             )
-        curve_id = row[4]
-        if curve_id not in curves:
-            raise ValueError(
-                f"pump {pump_id!r} references undefined HEAD curve "
-                f"{curve_id!r}; available curves: {sorted(curves)}"
-            )
-        coeffs, _diag = fit_pump_head_curve(curves[curve_id])
 
         src_idx.append(id_to_index[node1])
         dst_idx.append(id_to_index[node2])
@@ -777,24 +983,94 @@ def _wntr_extract_pump_curve_points(pump: object) -> list[PumpCurvePoint]:
     return out
 
 
+def _wntr_extract_power_pump_kw(pump: object) -> float:
+    """Pull the constant-power value (in kW) from a WNTR POWER pump.
+
+    WNTR stores ``Pump.power`` in SI **watts** after loading the
+    ``.inp`` file (regardless of the file's ``[OPTIONS] Units``
+    directive), so we convert to kW here so the same surrogate
+    helper handles both fallback (kW already from the file column)
+    and WNTR paths through a single kW-typed interface.
+
+    The helper is deliberately defensive: WNTR's ``Pump.power``
+    attribute has been stable across recent releases, but its dtype
+    can be a NumPy scalar, a Python float, or (rarely) ``None`` when
+    the underlying ``PowerPump`` is mid-construction. We tolerate
+    each.
+
+    Raises
+    ------
+    ValueError
+        If the pump exposes no ``power`` attribute, the value is
+        non-numeric, non-finite, or non-positive.
+    """
+    power_raw = getattr(pump, "power", None)
+    if power_raw is None:
+        raise ValueError(
+            "WNTR POWER pump has no 'power' attribute; the WNTR version may "
+            "be too old or the pump object is malformed"
+        )
+    try:
+        power_w = float(power_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"WNTR POWER pump exposes non-numeric power={power_raw!r}: {exc}"
+        ) from exc
+    if not math.isfinite(power_w) or power_w <= 0.0:
+        raise ValueError(
+            f"WNTR POWER pump has non-positive or non-finite power={power_w} W"
+        )
+    return power_w / _POWER_PUMP_KW_TO_W
+
+
 def _wntr_translate_pump(
     pump: object,
-) -> tuple[list[float], float, dict[str, float]]:
+    *,
+    downstream_demand: float = 0.0,
+    total_positive_demand: float = 0.0,
+) -> tuple[list[float], float, dict[str, object]]:
     """Translate a WNTR pump-like object into dPHM pump parameters.
 
     Returns ``(coeffs, base_speed, diagnostics)`` where ``coeffs`` is
     the 3-vector ``[a0, a1, a2]`` consumed by
     :func:`aquaoptima.dphm.pump_head_gain`, ``base_speed`` is the
     pump's static nominal speed (defaults to ``1.0`` if WNTR does not
-    expose one), and ``diagnostics`` is the same dict
-    :func:`fit_pump_head_curve` returns.
+    expose one), and ``diagnostics`` is the dict the underlying fit
+    helper produces.
 
-    Reuses :func:`fit_pump_head_curve` so the WNTR and fallback paths
-    produce numerically identical coefficients for the same curve
-    points.
+    Routing by ``pump.pump_type``:
+
+    * ``"HEAD"`` (Sprint 13) — extract the WNTR pump curve and reuse
+      :func:`fit_pump_head_curve`. WNTR and fallback paths produce
+      numerically identical coefficients on the same curve points.
+    * ``"POWER"`` (Sprint 14) — extract the WNTR pump power and reuse
+      :func:`fit_power_pump_surrogate` with the same downstream- /
+      total-positive-demand anchor rule the fallback parser uses.
+
+    Any other ``pump_type`` raises :class:`ValueError`. POWER-pump
+    callers should pass ``downstream_demand`` and
+    ``total_positive_demand`` from the surrounding WNTR network so
+    the surrogate is anchored on real data; HEAD-pump callers can
+    leave these defaulted (HEAD translation does not consult them).
     """
-    points = _wntr_extract_pump_curve_points(pump)
-    coeffs, diagnostics = fit_pump_head_curve(points)
+    pump_type = getattr(pump, "pump_type", None)
+    pump_type_str = str(pump_type).upper() if pump_type is not None else ""
+
+    if pump_type_str == "POWER":
+        power_kw = _wntr_extract_power_pump_kw(pump)
+        q_nom, _q_nom_source = _resolve_power_pump_nominal_flow(
+            downstream_demand=downstream_demand,
+            total_positive_demand=total_positive_demand,
+        )
+        coeffs, diagnostics = fit_power_pump_surrogate(power_kw, q_nom)
+    else:
+        # HEAD path (and rejection for unknown pump_type) is handled
+        # by the extract helper, which raises a clear ValueError for
+        # anything other than HEAD-curve forms.
+        points = _wntr_extract_pump_curve_points(pump)
+        coeffs, head_diag = fit_pump_head_curve(points)
+        diagnostics = dict(head_diag)
+
     base_speed = getattr(pump, "base_speed", None)
     try:
         base_speed_f = float(base_speed) if base_speed is not None else 1.0
@@ -897,13 +1173,18 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         edge_pump_coeffs.append([0.0, 0.0, 0.0])
         edge_pump_speeds.append(0.0)
 
-    # Sprint 13: WNTR-side HEAD-curve pump translation. Pumps are
-    # appended after pipes so the edge ordering matches the fallback
-    # parser's ``[pipes..., pumps...]`` convention. Each pump is
-    # translated by extracting the WNTR HEAD curve points (already in
-    # SI — WNTR converts on load) and reusing
-    # :func:`fit_pump_head_curve`.
+    # Sprint 13/14: WNTR-side pump translation. Pumps are appended
+    # after pipes so the edge ordering matches the fallback parser's
+    # ``[pipes..., pumps...]`` convention. HEAD-curve pumps reuse
+    # :func:`fit_pump_head_curve` against WNTR's SI curve points;
+    # POWER pumps reuse :func:`fit_power_pump_surrogate` anchored on
+    # the same downstream / total-positive-demand rule the fallback
+    # parser uses.
     pump_names = getattr(wn, "pump_name_list", []) or []
+    # Snapshot the demand list before pumps are appended so the
+    # POWER surrogate sees the network's original positive demand
+    # distribution (not yet rebalanced onto fixed-head nodes).
+    total_positive_demand = sum(d for d in demands if d > 0.0)
     for pid in pump_names:
         p = wn.get_link(pid)
         n1 = p.start_node_name
@@ -912,8 +1193,18 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
             raise ValueError(
                 f"WNTR pump {pid!r} references nodes outside the supported set"
             )
+        downstream_idx = id_to_index[n2]
+        downstream_demand = (
+            demands[downstream_idx]
+            if 0 <= downstream_idx < len(demands)
+            else 0.0
+        )
         try:
-            coeffs, base_speed, _diag = _wntr_translate_pump(p)
+            coeffs, base_speed, _diag = _wntr_translate_pump(
+                p,
+                downstream_demand=downstream_demand,
+                total_positive_demand=total_positive_demand,
+            )
         except ValueError as exc:
             raise ValueError(
                 f"WNTR pump {pid!r}: {exc}"
@@ -1051,4 +1342,8 @@ def load_network_from_inp(
     return _fallback_parse(text, default_c_factor=default_c_factor)
 
 
-__all__ = ["fit_pump_head_curve", "load_network_from_inp"]
+__all__ = [
+    "fit_power_pump_surrogate",
+    "fit_pump_head_curve",
+    "load_network_from_inp",
+]

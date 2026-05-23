@@ -142,8 +142,15 @@ def test_wntr_and_fallback_pump_solutions_agree() -> None:
     assert torch.allclose(r_fb.flows, r_wn.flows, atol=1e-6, rtol=0.0)
 
 
-def test_wntr_loader_rejects_power_pump_form(tmp_path: Path) -> None:
-    """WNTR adapter raises a clear ValueError on unsupported pump forms."""
+def test_wntr_loader_accepts_power_pump_form(tmp_path: Path) -> None:
+    """Sprint 14: WNTR adapter accepts POWER pumps via the surrogate.
+
+    POWER pumps used to be rejected by the WNTR back-end in Sprint
+    13. Sprint 14 routes them through ``fit_power_pump_surrogate``,
+    which emits a bounded quadratic surrogate that the solver can
+    consume. We assert the network loads, has one pump edge, and
+    solves with analytic Newton.
+    """
     pytest.importorskip("wntr")
 
     inp = """[JUNCTIONS]
@@ -162,8 +169,62 @@ def test_wntr_loader_rejects_power_pump_form(tmp_path: Path) -> None:
 """
     path = tmp_path / "power_pump.inp"
     path.write_text(inp)
-    with pytest.raises(ValueError, match="POWER"):
-        load_network_from_inp(path, parser="wntr")
+    net = load_network_from_inp(path, parser="wntr")
+    assert isinstance(net, Network)
+    assert int(net.pump_mask.sum().item()) == 1
+    assert int(net.pipe_mask.sum().item()) == 1
+    # Surrogate coefficients must be finite and droop-shaped.
+    pump_row = net.pump_coeffs[net.pump_mask][0]
+    assert torch.isfinite(pump_row).all()
+    assert float(pump_row[0].item()) > 0.0   # positive shut-off head
+    assert float(pump_row[1].item()) == pytest.approx(0.0, abs=1e-12)
+    assert float(pump_row[2].item()) < 0.0   # droop
+
+
+def test_wntr_power_pump_fixture_solves_with_analytic_newton(tmp_path: Path) -> None:
+    """The Sprint 14 shipped POWER fixture solves through the WNTR path."""
+    pytest.importorskip("wntr")
+
+    power_fixture = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "examples"
+        / "epanet_reference_power_pump.inp"
+    )
+    net = load_network_from_inp(power_fixture, parser="wntr")
+    result = newton_solve(
+        net, max_iterations=200, tol=1e-9, jacobian_mode="analytic"
+    )
+    assert result.converged, (
+        f"WNTR POWER pump network did not solve: {result.reason}"
+    )
+    assert result.residual_norm < 1e-8
+
+
+def test_wntr_and_fallback_power_pump_agree_on_shipped_fixture() -> None:
+    """WNTR and fallback POWER surrogates must match on the shipped fixture.
+
+    Both back-ends call the same ``fit_power_pump_surrogate`` with
+    the same nominal-flow anchor (total positive demand = 15 L/s)
+    and the same 7.5 kW input, so the surrogate coefficients should
+    agree to round-off.
+    """
+    pytest.importorskip("wntr")
+
+    power_fixture = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "examples"
+        / "epanet_reference_power_pump.inp"
+    )
+    net_fb = load_network_from_inp(power_fixture, parser="fallback")
+    net_wn = load_network_from_inp(power_fixture, parser="wntr")
+
+    fb_pump = net_fb.pump_coeffs[net_fb.pump_mask][0].tolist()
+    wn_pump = net_wn.pump_coeffs[net_wn.pump_mask][0].tolist()
+    assert wn_pump[0] == pytest.approx(fb_pump[0], abs=1e-9)
+    assert wn_pump[1] == pytest.approx(fb_pump[1], abs=1e-12)
+    assert wn_pump[2] == pytest.approx(fb_pump[2], abs=1e-6)
 
 
 # ---------------------------------------------------------------------------

@@ -1,11 +1,13 @@
-# EPANET `.inp` Topology Import (Sprint 11–13)
+# EPANET `.inp` Topology Import (Sprint 11–14)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
 Sprint 12 adds HEAD-curve pump translation to the fallback parser
 (see "Pump HEAD curves" below). Sprint 13 brings the optional
 WNTR-backed parser into parity with the fallback parser for the same
-HEAD-curve pumps. The public entry point is one function:
+HEAD-curve pumps. Sprint 14 adds `POWER`-pump support to both
+back-ends via a bounded quadratic surrogate (see "POWER pumps"
+below). The public entry point is one function:
 
 ```python
 from aquaoptima.dphm import load_network_from_inp
@@ -69,7 +71,7 @@ needed to load steady-state reference fixtures.
 | `[TANKS]`        | id, elevation, init-level → mapped to a fixed-head boundary at `elev + init_level`. Curves ignored.       |
 | `[PIPES]`        | id, node1, node2, length, diameter, roughness, optional minor-loss (ignored), optional status (`OPEN`).  |
 | `[OPTIONS]`      | `Units` (flow-unit family) and `Headloss` (must be `H-W`).                                               |
-| `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate into a dPHM pump edge via least-squares curve fit.       |
+| `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate via least-squares curve fit. Sprint 14: `POWER value` pump rows translate via the constant-power surrogate. |
 | `[CURVES]`       | Sprint 12: pump HEAD curves are parsed into `(Q, H)` points. The X column is converted to m³/s using the file's flow-unit factor. Unused curves are tolerated. |
 | `[TITLE]`, `[COORDINATES]`, `[PATTERNS]`, `[REPORT]`, `[TIMES]`, `[END]`, ... | Silently ignored.                                  |
 
@@ -77,14 +79,14 @@ needed to load steady-state reference fixtures.
 
 | Section          | Reason                                                                                                                                |
 |------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| `[PUMPS]` (non-HEAD form) | Raises `ValueError`. The fallback parser only supports `HEAD curve_id` pump rows. `POWER`, `SPEED`, and other forms are out of scope. |
+| `[PUMPS]` (unsupported keyword) | Raises `ValueError`. The parser supports `HEAD curve_id` (Sprint 12) and `POWER value` (Sprint 14). `SPEED` and any custom keyword still raise. |
 | `[VALVES]`       | Raises `ValueError`. The dPHM steady-state core does not model valves.                                                                |
 
-The WNTR back-end still refuses `[VALVES]`. As of Sprint 13, the
-WNTR back-end **does** translate HEAD-curve pumps (see "WNTR-backed
-pump translation" below); non-HEAD forms (`POWER`, etc.) still raise
-`ValueError` from the WNTR adapter, matching the fallback parser's
-behaviour.
+The WNTR back-end still refuses `[VALVES]`. As of Sprint 14, the
+WNTR back-end translates both HEAD-curve and POWER pumps; any
+remaining pump type (custom strings, future EPANET extensions)
+raises `ValueError` from the WNTR adapter, matching the fallback
+parser's behaviour.
 
 ## Pump HEAD curves (Sprint 12)
 
@@ -169,13 +171,137 @@ to float-precision tolerances. The network solves with
 `newton_solve(..., jacobian_mode="analytic")` to a residual norm at
 or below the working tolerance.
 
+## POWER pumps (Sprint 14)
+
+EPANET also accepts a constant-power pump declaration:
+
+```text
+[PUMPS]
+;ID    Node1   Node2   Parameters
+ PU1   R1      J1      POWER   7.5     ; 7.5 kW shaft power
+```
+
+A constant-power pump describes its shaft power as
+
+```
+P = rho * g * Q * H
+=> H = P / (rho * g * Q)
+```
+
+That curve is **hyperbolic** in `Q` and **singular** at `Q -> 0`,
+which is fundamentally incompatible with the dPHM core's quadratic
+pump characteristic `H(Q, s) = a0 s² + a1 s Q + a2 Q²`. Sprint 14
+therefore does **not** translate POWER pumps faithfully. Instead it
+ships a deliberately conservative, bounded **surrogate**:
+
+`aquaoptima.dphm.fit_power_pump_surrogate(power_kw, nominal_flow_m3s,
+*, shutoff_multiplier=1.5)` returns `[a0, a1, a2]` constructed so:
+
+1. The surrogate passes through one anchor operating point
+   `(Q_nom, H_nom)` where `H_nom = P_watts / (rho * g * Q_nom)`.
+2. The shut-off head is fixed at `a0 = shutoff_multiplier * H_nom`
+   (default 1.5×, i.e. 50% above the operating head).
+3. The linear term `a1 = 0` — a constant-power declaration carries
+   no information about it.
+4. The quadratic term `a2 = (H_nom - a0) / Q_nom²` is therefore
+   strictly negative (drooping curve) whenever
+   `shutoff_multiplier > 1`.
+
+Internally the helper uses `rho = 1000 kg/m³` and `g = 9.80665 m/s²`,
+matching EPANET's defaults.
+
+### Nominal-flow anchor
+
+The most important input to the surrogate is the nominal-flow
+anchor `Q_nom`. The fallback parser and the WNTR adapter both pick
+it from the loaded network in the same order:
+
+1. **Downstream node's base demand**, if positive — when the pump
+   directly feeds a single consumer.
+2. **Total positive demand** across the network, if positive —
+   when the pump is the only source.
+3. **1 L/s default**, as a finite last-resort anchor. The
+   surrogate diagnostics record `nominal_flow_m3s = 1e-3` so
+   downstream code can detect this branch.
+
+### Conventions and assumptions
+
+| Assumption                            | Reason                                                                            |
+|---------------------------------------|-----------------------------------------------------------------------------------|
+| EPANET `POWER` value is in **kW**     | The standard EPANET SI convention. Both parsers convert to W internally.          |
+| WNTR `Pump.power` is in **W**         | WNTR normalises all hydraulic quantities to SI on load. We divide by 1000 to get kW. |
+| `rho = 1000 kg/m³`, `g = 9.80665 m/s²` | Matches EPANET's internal pump-energy calculation.                                |
+| `shutoff_multiplier = 1.5`            | A conservative droop default. Tuneable via the keyword argument.                  |
+
+### `fit_power_pump_surrogate` diagnostics
+
+| key                  | meaning                                                  |
+|----------------------|----------------------------------------------------------|
+| `approximation`      | Always `"constant_power_surrogate"`.                     |
+| `power_kw`           | Input shaft power in kW.                                 |
+| `nominal_flow_m3s`   | Anchor flow used to compute `H_nom`.                     |
+| `head_at_nominal_m`  | `H_nom = P / (rho * g * Q_nom)`.                         |
+| `shutoff_head_m`     | `a0 = shutoff_multiplier * H_nom`.                       |
+| `shutoff_multiplier` | The ratio `a0 / H_nom`.                                  |
+| `a0`, `a1`, `a2`     | Resulting dPHM quadratic coefficients.                   |
+
+No `rmse` is reported: the surrogate is constructed analytically
+from one point and a shape choice, not fitted to multiple points.
+
+### Failure modes
+
+- `power_kw <= 0` or non-finite → `ValueError`.
+- `nominal_flow_m3s <= 0` or non-finite → `ValueError`.
+- `shutoff_multiplier <= 1` → `ValueError` (would not produce a
+  drooping curve).
+- Fallback parser: `POWER` value column is non-numeric or
+  non-positive → `ValueError`.
+- WNTR adapter: missing `power` attribute, non-numeric, or
+  non-positive → `ValueError`.
+
+### What the surrogate is NOT
+
+- It is **not** a faithful translation of the constant-power
+  declaration away from `Q_nom`. The product `Q * H(Q)` is not
+  constant under the surrogate; only the operating point matches.
+- It is **not** a substitute for a real HEAD curve. If the source
+  network has a known pump curve, replace the `POWER` row with a
+  `HEAD curve_id` declaration and the matching `[CURVES]` rows.
+- It does **not** model power loss, efficiency, or motor curves.
+
+### Shipped POWER fixture
+
+`docs/examples/epanet_reference_power_pump.inp` is a three-node
+topology (one reservoir, one pump, one pipe, two junctions). The
+pump declares `POWER 7.5` (kW). With the default
+`shutoff_multiplier = 1.5` and the anchor flow `Q_nom = 15 L/s`
+(total positive demand), the surrogate evaluates to:
+
+- `H_nom = 7500 / (1000 * 9.80665 * 0.015) ≈ 50.99 m`
+- `a0 = 1.5 * H_nom ≈ 76.48 m`
+- `a1 = 0`
+- `a2 = (H_nom - a0) / Q_nom² ≈ -113,288 m·s²/m⁶`
+
+The network solves with `newton_solve(jacobian_mode="analytic")` to a
+residual norm at or below the working tolerance, and round-trips
+through `generate_physics_consistent_telemetry`.
+
 ## WNTR-backed pump translation (Sprint 13)
 
 When `parser="wntr"` (or `parser="auto"` with WNTR installed), the
-adapter iterates `wn.pump_name_list` and translates each pump via
-the **same** `fit_pump_head_curve` helper used by the fallback
-parser. The two back-ends therefore produce numerically identical
-pump coefficients for the same curve points.
+adapter iterates `wn.pump_name_list` and routes each pump by its
+`pump_type`:
+
+- `"HEAD"` pumps share the fallback parser's `fit_pump_head_curve`
+  helper. The two back-ends therefore produce numerically
+  identical pump coefficients for the same curve points.
+- `"POWER"` pumps (Sprint 14) share the fallback parser's
+  `fit_power_pump_surrogate` helper with the same downstream- /
+  total-positive-demand anchor rule. WNTR exposes the constant
+  power as `Pump.power` in SI watts; the adapter divides by 1000
+  before invoking the surrogate.
+
+Any other `pump_type` raises `ValueError`.
 
 ### Unit conversion in the WNTR path
 
@@ -206,10 +332,12 @@ stable across recent WNTR releases:
 | `Curve.curve_type`                    | Sanity check — must be `"HEAD"` when present                |
 | `wn.valve_name_list`                  | Reject valves                                               |
 
-Any non-HEAD pump form (POWER, multi-point efficiency, etc.) raises
-a clear `ValueError` referencing the WNTR `pump_type`. Speed
-patterns (`speed_pattern_name`) are silently ignored — the dPHM
-core is steady-state, so only `base_speed` is consumed.
+Sprint 14: in addition, the adapter touches `pump.power` (SI watts)
+for `pump_type == "POWER"` pumps. Any other pump form
+(multi-point efficiency, custom future strings) raises a clear
+`ValueError` referencing the WNTR `pump_type`. Speed patterns
+(`speed_pattern_name`) are silently ignored — the dPHM core is
+steady-state, so only `base_speed` is consumed.
 
 ### Sprint 13 fixture parity
 
@@ -289,16 +417,22 @@ Tests:
   surface, solver compatibility, batched residual compatibility.
 - `tests/dphm/test_inp_pump_curves.py` — Sprint 12 pump-curve parser
   and `fit_pump_head_curve` helper, including malformed inputs.
+- `tests/dphm/test_inp_power_pump.py` — Sprint 14 POWER pump
+  surrogate, fallback parser POWER row handling, shipped fixture
+  load + solve + per-pump residual checks.
 - `tests/dphm/test_wntr_optional_import.py` — optional WNTR
-  comparison (loop + Sprint 13 pump fixtures), skipped when WNTR is
-  not installed.
-- `tests/dphm/test_wntr_pump_helpers.py` — Sprint 13 WNTR pump
-  translation helpers, exercised against duck-typed fakes (no WNTR
-  dependency).
+  comparison (loop + Sprint 13 HEAD pump + Sprint 14 POWER pump
+  fixtures), skipped when WNTR is not installed.
+- `tests/dphm/test_wntr_pump_helpers.py` — Sprint 13/14 WNTR pump
+  translation helpers (HEAD and POWER paths), exercised against
+  duck-typed fakes (no WNTR dependency).
 - `tests/dataio/test_inp_physics_telemetry.py` — physics-consistent
   telemetry round-trip on the INP-loaded loop network.
 - `tests/dataio/test_inp_pump_telemetry.py` — Sprint 12 analytic-Newton
-  solve and physics-consistent telemetry on the pump fixture.
+  solve and physics-consistent telemetry on the HEAD pump fixture.
+- `tests/dataio/test_inp_power_pump_telemetry.py` — Sprint 14
+  analytic-Newton solve and physics-consistent telemetry on the
+  POWER pump fixture.
 
 ## What this loader is **not**
 
@@ -316,9 +450,12 @@ Tests:
 Deferred to a future sprint:
 
 - US-customary flow units (`GPM`, `CFS`, …) on the fallback parser.
-- Pump curve translation for the `POWER` / `SPEED` / `LINEAR` /
-  multi-point efficiency forms (HEAD-curve form shipped in Sprint 12
-  for the fallback parser and Sprint 13 for the WNTR back-end).
+- Pump curve translation for the `SPEED` / `LINEAR` /
+  multi-point efficiency forms (HEAD-curve form shipped in Sprint
+  12, POWER form shipped in Sprint 14).
+- A more faithful POWER-pump model (e.g. solving the implicit
+  constant-power constraint inside Newton instead of an upfront
+  surrogate).
 - Larger reference fixtures (e.g. the EPANET `Net1` / `Net3` shipped
   examples) routed through the WNTR back-end.
 
