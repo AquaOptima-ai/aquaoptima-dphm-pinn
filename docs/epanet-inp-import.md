@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–24)
+# EPANET `.inp` Topology Import (Sprint 11–25)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -55,6 +55,18 @@ the Sprint 21 invariance contract still holds, and `[STATUS]` is
 never surfaced through `ignored_sections` because Sprint 22 already
 removed it from `IGNORED_SECTIONS` (see "Read-only ignored-section
 diagnostics (Sprint 24)" below).
+Sprint 25 narrows the per-row visibility surface for two ignored
+sections only — `[CONTROLS]` and `[RULES]` — by adding a
+`control_rule_rows` field on the same `EpanetImportDiagnostics`
+container. Each row inside those two sections produces one read-only
+`EpanetControlRuleDiagnostic` (`section`, `row_index`, `tokens`,
+`text`, `message`) in source order. Sprint 25 still does NOT
+activate any control or rule logic — rows remain dropped on the
+floor at parse time, the loaded `Network` is byte-for-byte
+identical to one loaded from a fixture with no `[CONTROLS]` /
+`[RULES]` block, and the Sprint 22 `[STATUS]` rejection behaviour is
+preserved (see "Read-only [CONTROLS] / [RULES] row diagnostics
+(Sprint 25)" below).
 The public entry point is one function:
 
 ```python
@@ -1590,6 +1602,214 @@ pins this invariance on top of the Sprint 21 contract.
   — the WNTR back-end returns an `EpanetImportDiagnostics` without
   raising; diagnostic parity with the fallback parser is **not**
   required.
+
+## Read-only [CONTROLS] / [RULES] row diagnostics (Sprint 25)
+
+Sprint 24 surfaced *which* `IGNORED_SECTIONS` were present in an
+imported `.inp` file. Sprint 25 narrows that surface for two ignored
+sections only — `[CONTROLS]` and `[RULES]` — by emitting one
+read-only record **per tokenised parser row** inside those sections.
+Analysts can inspect the exact unsupported rows declared in an
+imported file without changing any hydraulic field on the loaded
+`Network`. Sprint 25 still does NOT activate any control or rule
+logic — the rows remain dropped on the floor at parse time, the
+Sprint 21 byte-for-byte invariance contract still holds, and the
+Sprint 22 `[STATUS]` rejection behaviour is preserved.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetControlRuleDiagnostic,
+    EpanetImportDiagnostics,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# Option A — explicit, read-only diagnostics accessor.
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+for rec in diagnostics.control_rule_rows:
+    print(rec.section, rec.row_index, rec.tokens, rec.text)
+
+# Option B — fetch the Network and the diagnostics together.
+network, diagnostics = load_network_from_inp(
+    path, parser="fallback", return_diagnostics=True,
+)
+controls = [r for r in diagnostics.control_rule_rows if r.section == "CONTROLS"]
+rules = [r for r in diagnostics.control_rule_rows if r.section == "RULES"]
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–24 caller works unchanged.
+
+### Shape
+
+```python
+@dataclass(frozen=True)
+class EpanetControlRuleDiagnostic:
+    section: str                   # "CONTROLS" or "RULES"
+    row_index: int                 # 0-based, resets per section
+    tokens: tuple[str, ...]        # parser-tokenised row, single-space split
+    text: str                      # tokens joined by a single space
+    message: str = "Row present but ignored by the steady-state dPHM importer."
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()
+    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()
+```
+
+Both dataclasses are `frozen=True`. `control_rule_rows` is a `tuple`
+(not a list) and its `tokens` field is also a tuple, so the
+diagnostics surface is structurally read-only — reassigning a field
+raises `dataclasses.FrozenInstanceError`.
+
+### What gets recorded
+
+The fallback parser emits **one `EpanetControlRuleDiagnostic` per
+row inside a `[CONTROLS]` or `[RULES]` section**:
+
+- the `section` is `"CONTROLS"` or `"RULES"` (upper-case);
+- the `row_index` is the 0-based index into the section bucket
+  `_split_sections` produced; it resets per section and preserves
+  source-file row order within each section;
+- the `tokens` field carries the exact parser tokens for the row
+  (a tuple of strings), preserving token order;
+- the `text` field is the tokens joined by a single space — useful
+  for logging / display;
+- the `message` field is a pinned module-level constant explaining
+  the read-only / no-op contract.
+
+Section ordering follows the source file: whichever of
+`[CONTROLS]` / `[RULES]` is declared first appears first in
+`control_rule_rows`. Repeated `[CONTROLS]` headers collapse into one
+bucket because `_split_sections` already accumulates rows under
+the section's first occurrence; the records preserve their combined
+source order.
+
+EPANET rules span multiple lines (`RULE` / `IF` / `THEN` …). Sprint
+25 records each **tokenised parser line** as one record — the
+helper does **not** attempt to reconstruct semantic rule blocks. A
+three-line rule block produces three records with `row_index`
+`0`, `1`, `2`.
+
+Inline `; …` comments are stripped before tokenisation (the
+underlying `_strip_comment` runs first), so they never appear in
+`tokens` or `text`. Blank rows are dropped by `_split_sections` and
+therefore not surfaced as records.
+
+### Sections explicitly excluded
+
+- `[STATUS]` — never appears in `control_rule_rows`. Sprint 22
+  removed it from `IGNORED_SECTIONS`; accepted `OPEN` rows go through
+  `status_rows`, rejected rows raise.
+- `[PATTERNS]`, `[ENERGY]`, `[EMITTERS]`, `[QUALITY]`, `[SOURCES]`,
+  `[REACTIONS]`, `[MIXING]`, `[DEMANDS]`, `[TIMES]`, `[REPORT]`,
+  and the inert layout sections — these are still surfaced at the
+  section level via `ignored_sections` (Sprint 24), but **not**
+  per-row through `control_rule_rows`. The dPHM importer has no use
+  for their row content, so the diagnostics surface is kept narrow.
+- `[JUNCTIONS]`, `[RESERVOIRS]`, `[TANKS]`, `[PIPES]`, `[PUMPS]`,
+  `[VALVES]`, `[OPTIONS]`, `[CURVES]` — hydraulically active and
+  consumed by the parser; never surfaced as diagnostics.
+
+### Hydraulic inertness
+
+`control_rule_rows` is a side channel only. Adding `[CONTROLS]` or
+`[RULES]` blocks to a fixture leaves every `Network` field
+(`edge_index`, `pipe_mask`, `pump_mask`, `demands`,
+`fixed_head_values`, `lengths`, `diameters`, `c_factors`,
+`pump_coeffs`, `pump_speeds`) byte-for-byte identical to the
+Sprint 21 baseline. Newton-solving the perturbed network reproduces
+the baseline heads / flows to 1e-9 / 1e-12.
+`tests/dphm/test_inp_control_rule_row_diagnostics.py` pins this
+invariance.
+
+### What Sprint 25 does NOT do
+
+- It does **not** activate `[CONTROLS]` / `[RULES]` semantics. The
+  Sprint 21 limitation stands — both sections are still dropped on
+  the floor at parse time. Rows that would close a link, change a
+  pump speed, or modify a fixed-head boundary are recorded as
+  visibility only; the loaded `Network` and its Newton solve are
+  unchanged.
+- It does **not** interpret EPANET rule structure. A multi-line
+  `RULE` / `IF` / `THEN` block surfaces as one record per line, not
+  one record per semantic rule.
+- It does **not** surface per-row content for any other ignored
+  section. `[PATTERNS]`, `[ENERGY]`, `[EMITTERS]`, `[QUALITY]`,
+  `[SOURCES]`, `[REACTIONS]`, `[MIXING]`, `[DEMANDS]`, `[TIMES]`,
+  `[REPORT]` remain visible only at the section level via
+  `ignored_sections` (Sprint 24).
+- It does **not** add new hydraulic physics. No Darcy-Weisbach, no
+  time-varying demand, no closed-link / pump-speed modelling, no
+  energy-cost modelling, no rule engine.
+- It does **not** attach diagnostic state to `Network`. The
+  `Network` dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit `control_rule_rows`.
+  The fallback parser is authoritative for Sprint 25 diagnostics.
+  WNTR has its own `[CONTROLS]` / `[RULES]` parser and interprets
+  some of those rows internally; the dPHM WNTR adapter does not
+  re-emit any rows and returns an **empty** `control_rule_rows`
+  tuple when `parser="wntr"` is requested. The asymmetry mirrors
+  Sprint 23 / 24 — fallback authoritative, WNTR documented rather
+  than papered over.
+
+### Tests
+
+`tests/dphm/test_inp_control_rule_row_diagnostics.py` — Sprint 25:
+
+- public-surface checks: `EpanetControlRuleDiagnostic` is a frozen
+  dataclass with the expected fields; `tokens` is a tuple;
+  `EpanetImportDiagnostics.control_rule_rows` defaults to `()` and
+  is tuple-backed and frozen;
+- empty `control_rule_rows` for fixtures without `[CONTROLS]` /
+  `[RULES]`;
+- bare `[CONTROLS]` / `[RULES]` header (no body) yields no per-row
+  records (the section still appears in `ignored_sections`);
+- single `[CONTROLS]` row produces one record with the expected
+  `tokens` and reconstructed `text`;
+- multiple `[CONTROLS]` rows preserve source order and `row_index`
+  resets correctly per section;
+- `[RULES]` multi-line block surfaces as one record per line;
+- mixed `[CONTROLS]` + `[RULES]` blocks preserve source order in
+  both directions (controls-first and rules-first);
+- inline `; comment` is stripped from `tokens` (the underlying
+  tokeniser strips it before records can be emitted);
+- blank rows inside `[CONTROLS]` are dropped;
+- other ignored sections (`PATTERNS`, `ENERGY`, `EMITTERS`,
+  `QUALITY`, `SOURCES`, `REACTIONS`, `MIXING`, `TIMES`, `REPORT`,
+  `DEMANDS`) never appear in `control_rule_rows` — they still
+  surface at the section level via `ignored_sections`;
+- `[STATUS]` is never surfaced through `control_rule_rows`;
+- hydraulically active sections never surface through
+  `control_rule_rows`;
+- `ignored_sections` still lists `CONTROLS` / `RULES` when those
+  sections are present;
+- `Network` byte-for-byte invariance against the Sprint 21 baseline
+  with `[CONTROLS]` / `[RULES]` rows added;
+- Newton-solve heads / flows match the baseline to 1e-9 / 1e-12 with
+  `[CONTROLS]` present;
+- `return_diagnostics=True` returns the same `Network` as the
+  default `load_network_from_inp(path)` call, with `control_rule_rows`
+  populated;
+- backward compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- `load_inp_diagnostics(path)` and `load_network_from_inp(path,
+  return_diagnostics=True)` return identical `control_rule_rows`,
+  `status_rows`, and `ignored_sections`;
+- Sprint 23 + 24 + 25 diagnostics coexist on a single file (with
+  `[STATUS] OPEN`, `[CONTROLS]`, `[RULES]`, `[PATTERNS]`,
+  `[ENERGY]` all present);
+- Sprint 22 rejection paths still raise when `[CONTROLS]` is also
+  present in the file; no partial diagnostics leak out;
+- optional WNTR back-end smoke check (`pytest.importorskip("wntr")`)
+  — the WNTR back-end returns an `EpanetImportDiagnostics` with an
+  empty `control_rule_rows` tuple; diagnostic parity with the
+  fallback parser is **not** required.
 
 ## Mass balancing
 

@@ -12,6 +12,7 @@ from .hazen_williams import hazen_williams_head_loss
 from .large_fixtures import make_grid_network
 from .incidence import cached_incidence_matrix, incidence_matrix, node_flow_balance
 from .inp_io import (
+    EpanetControlRuleDiagnostic,
     EpanetIgnoredSectionDiagnostic,
     EpanetImportDiagnostics,
     EpanetStatusDiagnostic,
@@ -42,6 +43,7 @@ __all__ = [
     "assert_finite_gradients",
     "cached_incidence_matrix",
     "classify_failure",
+    "EpanetControlRuleDiagnostic",
     "EpanetIgnoredSectionDiagnostic",
     "EpanetImportDiagnostics",
     "EpanetStatusDiagnostic",
