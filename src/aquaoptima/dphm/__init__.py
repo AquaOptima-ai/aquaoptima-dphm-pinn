@@ -2,6 +2,15 @@
 
 from .autograd_checks import assert_finite_gradients
 from .diagnostics import SolveFailureReason, SolveResult, classify_failure
+from .dpl_calibration import (
+    DPL_AXES,
+    DPL_NUMERIC_AXES,
+    DPL_STATUS_AXES,
+    DPLCalibrationDiagnostics,
+    DPLCalibrationLossReport,
+    DPLResidual,
+    build_dpl_calibration_loss_report,
+)
 from .feasibility import FeasibilityResult, check_feasibility
 from .fixtures import (
     make_branch_network,
@@ -103,6 +112,13 @@ __all__ = [
     "assert_finite_gradients",
     "cached_incidence_matrix",
     "classify_failure",
+    "DPL_AXES",
+    "DPL_NUMERIC_AXES",
+    "DPL_STATUS_AXES",
+    "DPLCalibrationDiagnostics",
+    "DPLCalibrationLossReport",
+    "DPLResidual",
+    "build_dpl_calibration_loss_report",
     "EDGE_SURROGATE_KIND_PRV_FIXED_HEAD",
     "EDGE_SURROGATE_KIND_TCV_MINOR_LOSS",
     "EDGE_SURROGATE_SEVERITY_INFO",
