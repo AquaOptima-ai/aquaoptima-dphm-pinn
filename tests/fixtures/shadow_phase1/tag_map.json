@@ -1,0 +1,40 @@
+{
+  "tags": [
+    {
+      "tag": "PT_J1",
+      "target_type": "NODE",
+      "target_id": 0,
+      "measurement": "pressure",
+      "unit": "m",
+      "role": "observed",
+      "description": "junction J1 discharge pressure"
+    },
+    {
+      "tag": "PT_J2",
+      "target_type": "NODE",
+      "target_id": 1,
+      "measurement": "pressure",
+      "unit": "m",
+      "role": "observed",
+      "description": "junction J2 discharge pressure"
+    },
+    {
+      "tag": "FT_P1",
+      "target_type": "EDGE",
+      "target_id": 0,
+      "measurement": "flow",
+      "unit": "m3/s",
+      "role": "observed",
+      "description": "pipe P1 flow"
+    },
+    {
+      "tag": "FT_P2",
+      "target_type": "EDGE",
+      "target_id": 1,
+      "measurement": "flow",
+      "unit": "m3/s",
+      "role": "observed",
+      "description": "pipe P2 flow"
+    }
+  ]
+}
