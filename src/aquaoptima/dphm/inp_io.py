@@ -119,6 +119,30 @@ fallback-authoritative; ``control_rule_rows`` is left empty when
 EPANET rule blocks — an EPANET multi-line ``RULE`` /
 ``IF`` / ``THEN`` … block surfaces as one record per line.
 
+Sprint 28 extends the same container with an ``emitter_demand_rows``
+field that records the tokenised rows declared inside ``[EMITTERS]``
+and ``[DEMANDS]``. Each row produces one read-only
+:class:`EpanetEmitterDemandDiagnostic` (``section``, ``row_index``,
+``tokens``, ``text``, ``message``) in source order. The three per-row
+channels are complementary: ``control_rule_rows`` carries
+``[CONTROLS]`` / ``[RULES]`` content (Sprint 25, with the Sprint 27
+``kind`` classification on top), ``pattern_energy_rows`` carries
+``[PATTERNS]`` / ``[ENERGY]`` content (Sprint 26), and
+``emitter_demand_rows`` carries ``[EMITTERS]`` / ``[DEMANDS]`` content
+(Sprint 28). Every other member of :data:`IGNORED_SECTIONS` continues
+to surface only at the section level through ``ignored_sections``.
+Sprint 28 does NOT activate any emitter / leakage or demand-category
+semantics — the rows remain dropped on the floor at parse time, the
+loaded :class:`Network` is byte-for-byte identical to one loaded from
+a fixture with no ``[EMITTERS]`` / ``[DEMANDS]`` block, and the
+Sprint 22 ``[STATUS]`` rejection behaviour is preserved. The WNTR
+back-end is documented as fallback-authoritative;
+``emitter_demand_rows`` is left empty when ``parser="wntr"``. Records
+are *tokenised parser rows*, not semantic EPANET emitter / demand
+evaluation — an EPANET ``DEMANDS`` row with multiple optional columns
+(``junction_id``, ``base_demand``, ``pattern_id``, ``category``)
+surfaces as one record with the file's exact token order preserved.
+
 Sprint 22 narrows the Sprint 21 contract for ``[STATUS]``. Through
 Sprint 21 the section was a global no-op; from Sprint 22 onwards the
 fallback parser actively validates ``[STATUS]`` rows so EPANET-exported
@@ -964,6 +988,17 @@ _PATTERN_ENERGY_ROW_NOOP_MESSAGE: str = (
 )
 
 
+# Sprint 28: human-readable message attached to every
+# ``EpanetEmitterDemandDiagnostic`` record. Pinned to a single module-level
+# string so the surface stays stable and so two diagnostic records do not
+# surface spurious string variation. Identical wording to the Sprint 25 /
+# Sprint 26 row-level messages so the analyst-facing visibility surface
+# reads uniformly across channels.
+_EMITTER_DEMAND_ROW_NOOP_MESSAGE: str = (
+    "Row present but ignored by the steady-state dPHM importer."
+)
+
+
 @dataclass(frozen=True)
 class EpanetPatternEnergyDiagnostic:
     """Read-only record of one ``[PATTERNS]`` or ``[ENERGY]`` parser row.
@@ -1022,6 +1057,66 @@ class EpanetPatternEnergyDiagnostic:
 
 
 @dataclass(frozen=True)
+class EpanetEmitterDemandDiagnostic:
+    """Read-only record of one ``[EMITTERS]`` or ``[DEMANDS]`` parser row.
+
+    Sprint 28 narrows the Sprint 24 ignored-section visibility surface
+    for two further ignored sections — ``[EMITTERS]`` and ``[DEMANDS]``
+    — by emitting one record per *tokenised parser row* inside those
+    sections. Analysts can see the exact unsupported emitter (pressure-
+    dependent leakage coefficient) and demand-category rows declared in
+    an imported ``.inp`` file without changing any hydraulic field on
+    the loaded :class:`Network`.
+
+    Records are deliberately read-only and hydraulically inert. The
+    Sprint 21 ignored-section no-op contract is unchanged: every
+    ``[EMITTERS]`` / ``[DEMANDS]`` row is still dropped on the floor at
+    parse time. Sprint 28 only makes the *content* of those rows
+    visible. Active pressure-dependent emitter / leakage modelling and
+    multi-category / pattern-keyed demand parsing remain deferred.
+
+    Important: a record represents a single parser row as produced by
+    :func:`_split_sections`, **not** a semantic EPANET emitter or
+    demand-category evaluation. EPANET ``EMITTERS`` rows declare a
+    junction emitter coefficient (``junction_id``, ``coefficient``) and
+    ``DEMANDS`` rows declare per-category demand entries
+    (``junction_id``, ``base_demand``, optional ``pattern_id``,
+    optional ``category``); this module does not interpret that
+    structure and surfaces one record per tokenised parser row.
+
+    Attributes
+    ----------
+    section
+        The canonical (upper-case) section name, always one of
+        ``"EMITTERS"`` or ``"DEMANDS"``.
+    row_index
+        Zero-based row index within the section bucket
+        :func:`_split_sections` produced. Resets per section; preserves
+        source-file row order within each section.
+    tokens
+        The exact tokens :func:`_split_sections` extracted for the row,
+        as a tuple of strings. Token order matches the source row.
+        Comments (``; ...``) are stripped before tokenisation by the
+        underlying tokeniser; blank rows are dropped (and therefore not
+        surfaced).
+    text
+        Reconstructed single-space-joined row text, derived from
+        ``tokens``. Comments are not preserved (the underlying
+        tokeniser strips them before any record can be emitted).
+    message
+        Human-readable explanation of the ignored / no-op contract.
+        Pinned to a single module-level string so the surface stays
+        stable.
+    """
+
+    section: str
+    row_index: int
+    tokens: tuple[str, ...]
+    text: str
+    message: str = _EMITTER_DEMAND_ROW_NOOP_MESSAGE
+
+
+@dataclass(frozen=True)
 class EpanetImportDiagnostics:
     """Read-only container for EPANET ``.inp`` import diagnostics.
 
@@ -1030,9 +1125,11 @@ class EpanetImportDiagnostics:
     record per :data:`IGNORED_SECTIONS` entry that was actually present
     in the file, in source order). Sprint 25 added ``control_rule_rows``
     (one record per tokenised row inside a ``[CONTROLS]`` or
-    ``[RULES]`` section, in source order). Sprint 26 adds
+    ``[RULES]`` section, in source order). Sprint 26 added
     ``pattern_energy_rows`` (one record per tokenised row inside a
-    ``[PATTERNS]`` or ``[ENERGY]`` section, in source order). Future
+    ``[PATTERNS]`` or ``[ENERGY]`` section, in source order). Sprint 28
+    adds ``emitter_demand_rows`` (one record per tokenised row inside an
+    ``[EMITTERS]`` or ``[DEMANDS]`` section, in source order). Future
     sprints may grow additional fields — adding a new optional field
     with a default value is backwards-compatible for keyword-only
     callers.
@@ -1047,6 +1144,7 @@ class EpanetImportDiagnostics:
     ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()
     control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()
     pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()
+    emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()
 
 
 # Status tokens the Sprint 22 ``[STATUS]`` validator accepts as no-ops.
@@ -1429,6 +1527,71 @@ def _collect_pattern_energy_row_diagnostics(
             tokens = tuple(row)
             records.append(
                 EpanetPatternEnergyDiagnostic(
+                    section=name,
+                    row_index=idx,
+                    tokens=tokens,
+                    text=" ".join(tokens),
+                )
+            )
+    return tuple(records)
+
+
+# Sprint 28: the only two ignored sections that surface per-row through
+# :class:`EpanetEmitterDemandDiagnostic`. All other members of
+# :data:`IGNORED_SECTIONS` (``[TIMES]``, ``[REPORT]``, …) still surface
+# only at the section level through
+# :class:`EpanetIgnoredSectionDiagnostic`. ``[CONTROLS]`` / ``[RULES]``
+# remain in their dedicated Sprint 25 channel; ``[PATTERNS]`` /
+# ``[ENERGY]`` remain in their dedicated Sprint 26 channel.
+_EMITTER_DEMAND_SECTIONS: tuple[str, ...] = ("EMITTERS", "DEMANDS")
+
+
+def _collect_emitter_demand_row_diagnostics(
+    sections: dict[str, list[list[str]]],
+) -> tuple[EpanetEmitterDemandDiagnostic, ...]:
+    """Surface every tokenised row inside ``[EMITTERS]`` / ``[DEMANDS]``.
+
+    Sprint 28 — read-only visibility surface for the contents of the two
+    ignored sections that most often carry per-row content alongside
+    ``[CONTROLS]`` / ``[RULES]`` and ``[PATTERNS]`` / ``[ENERGY]`` in
+    EPANET-exported fixtures.
+
+    Walks the per-section tokenised rows produced by
+    :func:`_split_sections` and emits one
+    :class:`EpanetEmitterDemandDiagnostic` for every row inside an
+    ``[EMITTERS]`` or ``[DEMANDS]`` section. Records appear in
+    source-file order: section ordering follows :func:`_split_sections`'
+    dict iteration order (which preserves first-appearance source
+    order), and within each section ``row_index`` is the 0-based index
+    into the section's accumulated row list.
+
+    The helper deliberately excludes every other ignored section
+    (``[CONTROLS]``, ``[RULES]``, ``[PATTERNS]``, ``[ENERGY]``,
+    ``[TIMES]``, ``[REPORT]``, ``[QUALITY]``, ``[SOURCES]``,
+    ``[REACTIONS]``, ``[MIXING]``, and the inert layout sections). Those
+    remain visible only through :class:`EpanetIgnoredSectionDiagnostic`,
+    ``[CONTROLS]`` / ``[RULES]`` remain visible per-row through
+    :class:`EpanetControlRuleDiagnostic`, and ``[PATTERNS]`` /
+    ``[ENERGY]`` remain visible per-row through
+    :class:`EpanetPatternEnergyDiagnostic`.
+
+    ``[STATUS]`` is also excluded — Sprint 22 removed it from
+    :data:`IGNORED_SECTIONS` entirely, and accepted ``OPEN`` rows flow
+    through the Sprint 23 ``status_rows`` channel instead.
+
+    The helper is read-only: it never mutates the ``sections`` mapping
+    and never affects parsing outcomes. Blank rows and inline ``;``
+    comments are not surfaced because :func:`_split_sections` already
+    strips them before any row enters the per-section bucket.
+    """
+    records: list[EpanetEmitterDemandDiagnostic] = []
+    for name, rows in sections.items():
+        if name not in _EMITTER_DEMAND_SECTIONS:
+            continue
+        for idx, row in enumerate(rows):
+            tokens = tuple(row)
+            records.append(
+                EpanetEmitterDemandDiagnostic(
                     section=name,
                     row_index=idx,
                     tokens=tokens,
@@ -2894,6 +3057,20 @@ def _fallback_parse(
         sections
     )
 
+    # Sprint 28: surface every tokenised row inside [EMITTERS] / [DEMANDS]
+    # so analysts can inspect the unsupported pressure-dependent emitter /
+    # demand-category rows the parser dropped on the floor. Read-only /
+    # no-op — the records carry the parsed tokens and text only; the
+    # parser still consumes nothing from those sections, and the loaded
+    # Network's junction demand vector remains driven exclusively by the
+    # [JUNCTIONS] base-demand column (with [OPTIONS] Demand Multiplier
+    # applied) as in earlier sprints. The remaining ignored sections
+    # continue to surface only at the section level via
+    # ``ignored_section_diagnostics``.
+    emitter_demand_row_diagnostics = _collect_emitter_demand_row_diagnostics(
+        sections
+    )
+
     # Re-balance demand so the network is mass-consistent at parse time:
     # any drift (e.g. demands declared on junctions but no matching supply
     # row) is absorbed by the fixed-head boundaries. The mass term for
@@ -2930,6 +3107,7 @@ def _fallback_parse(
         ignored_sections=ignored_section_diagnostics,
         control_rule_rows=control_rule_row_diagnostics,
         pattern_energy_rows=pattern_energy_row_diagnostics,
+        emitter_demand_rows=emitter_demand_row_diagnostics,
     )
     return network, diagnostics
 
@@ -3560,15 +3738,16 @@ def _wntr_parse(
         fixed_head_mask=torch.tensor(fixed_mask, dtype=torch.bool),
         fixed_head_values=torch.tensor(fixed_vals, dtype=torch.get_default_dtype()),
     )
-    # Sprint 23/24/25/26: the WNTR back-end is documented as
+    # Sprint 23/24/25/26/28: the WNTR back-end is documented as
     # fallback-authoritative for every diagnostics channel. WNTR has its
     # own ``[STATUS]`` parser, its own per-section handling, its own
-    # ``[CONTROLS]`` / ``[RULES]`` interpretation, and its own
-    # ``[PATTERNS]`` / ``[ENERGY]`` handling; the dPHM WNTR adapter does
-    # not re-emit any of those as diagnostics. The container is returned
-    # empty so the public API surface is uniform across back-ends and so
-    # callers can branch on parser explicitly if they need WNTR-side
-    # records (none are surfaced today).
+    # ``[CONTROLS]`` / ``[RULES]`` interpretation, its own
+    # ``[PATTERNS]`` / ``[ENERGY]`` handling, and its own
+    # ``[EMITTERS]`` / ``[DEMANDS]`` handling; the dPHM WNTR adapter
+    # does not re-emit any of those as diagnostics. The container is
+    # returned empty so the public API surface is uniform across
+    # back-ends and so callers can branch on parser explicitly if they
+    # need WNTR-side records (none are surfaced today).
     diagnostics = EpanetImportDiagnostics()
     return network, diagnostics
 
@@ -3716,25 +3895,30 @@ def load_inp_diagnostics(
     Sprint 23 surfaces accepted ``[STATUS] OPEN`` rows as a read-only
     diagnostics container so analysts can see what status declarations
     were present in an imported file without changing any hydraulic
-    field on the loaded :class:`Network`. Sprint 24 extends the same
+    field on the loaded :class:`Network`. Sprint 24 extended the same
     container with an ``ignored_sections`` field carrying one record
     per :data:`IGNORED_SECTIONS` member that was actually declared in
-    the file (``CONTROLS``, ``RULES``, ``PATTERNS``, ``ENERGY``, …).
+    the file. Sprint 25 added a ``control_rule_rows`` channel for
+    per-row ``[CONTROLS]`` / ``[RULES]`` visibility; Sprint 26 added a
+    ``pattern_energy_rows`` channel for per-row ``[PATTERNS]`` /
+    ``[ENERGY]`` visibility; Sprint 28 adds an
+    ``emitter_demand_rows`` channel for per-row ``[EMITTERS]`` /
+    ``[DEMANDS]`` visibility.
 
     The returned :class:`EpanetImportDiagnostics` is structurally
     immutable: the container is a frozen :class:`dataclasses.dataclass`,
-    ``status_rows`` is a :class:`tuple` of frozen
-    :class:`EpanetStatusDiagnostic` records, and ``ignored_sections``
-    is a :class:`tuple` of frozen
-    :class:`EpanetIgnoredSectionDiagnostic` records.
+    and each row-list field is a :class:`tuple` of frozen record
+    dataclasses.
 
-    The fallback parser is authoritative for both diagnostic
-    channels — the optional WNTR back-end has its own ``[STATUS]``
+    The fallback parser is authoritative for every diagnostic
+    channel — the optional WNTR back-end has its own ``[STATUS]``
     parser and its own per-section handling, and the dPHM WNTR adapter
-    does not re-emit either diagnostic channel. Calling this function
-    with ``parser="wntr"`` returns an empty
+    does not re-emit any of those diagnostic channels. Calling this
+    function with ``parser="wntr"`` returns an empty
     :class:`EpanetImportDiagnostics` even on files that declare
-    ``[STATUS] OPEN`` rows or ignored sections. See
+    ``[STATUS] OPEN`` rows, ignored sections, ``[CONTROLS]`` /
+    ``[RULES]`` rows, ``[PATTERNS]`` / ``[ENERGY]`` rows, or
+    ``[EMITTERS]`` / ``[DEMANDS]`` rows. See
     ``docs/epanet-inp-import.md``.
 
     Parameters mirror :func:`load_network_from_inp`. The same
@@ -3755,6 +3939,7 @@ def load_inp_diagnostics(
 __all__ = [
     "EpanetControlKind",
     "EpanetControlRuleDiagnostic",
+    "EpanetEmitterDemandDiagnostic",
     "EpanetIgnoredSectionDiagnostic",
     "EpanetImportDiagnostics",
     "EpanetPatternEnergyDiagnostic",

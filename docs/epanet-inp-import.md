@@ -93,6 +93,20 @@ logic — unknown `[CONTROLS]` rows are diagnosed (not rejected), the
 loaded `Network` is byte-for-byte identical to a fixture without
 `[CONTROLS]` / `[RULES]`, and every earlier-sprint contract holds
 (see "Read-only [CONTROLS] row classification (Sprint 27)" below).
+Sprint 28 extends the per-row visibility model to a third pair of
+ignored sections — `[EMITTERS]` and `[DEMANDS]` — by adding an
+`emitter_demand_rows` field on the same `EpanetImportDiagnostics`
+container. Each row inside those two sections produces one read-only
+`EpanetEmitterDemandDiagnostic` (`section`, `row_index`, `tokens`,
+`text`, `message`) in source order. Sprint 28 still does NOT activate
+pressure-dependent emitter / leakage modelling, multi-category demand
+parsing, or pattern-keyed demand support — rows remain dropped on
+the floor at parse time, the loaded `Network` is byte-for-byte
+identical to one loaded from a fixture with no `[EMITTERS]` /
+`[DEMANDS]` block, and every earlier-sprint contract (`[STATUS]`
+rejection, `[CONTROLS]` / `[RULES]` no-op, `[PATTERNS]` / `[ENERGY]`
+no-op, etc.) is preserved (see "Read-only [EMITTERS] / [DEMANDS] row
+diagnostics (Sprint 28)" below).
 The public entry point is one function:
 
 ```python
@@ -2233,6 +2247,213 @@ invariance.
   (`pytest.importorskip("wntr")`) — the WNTR back-end returns an
   `EpanetImportDiagnostics` with an empty `control_rule_rows` tuple;
   classification parity is **not** required.
+
+## Read-only [EMITTERS] / [DEMANDS] row diagnostics (Sprint 28)
+
+Sprint 25 surfaced per-row content for `[CONTROLS]` / `[RULES]`,
+Sprint 26 added the same for `[PATTERNS]` / `[ENERGY]`, and Sprint 28
+extends the pattern to a third pair of ignored sections — `[EMITTERS]`
+and `[DEMANDS]` — through a new `emitter_demand_rows` field on the
+same `EpanetImportDiagnostics` container. Analysts can inspect the
+exact unsupported emitter (pressure-dependent leakage coefficient) and
+demand-category rows the parser dropped on the floor, without
+changing any hydraulic field on the loaded `Network`. Sprint 28 still
+does NOT activate any pressure-dependent emitter / leakage modelling
+or multi-category / pattern-keyed demand parsing — the rows remain
+dropped on the floor, and the loaded `Network` is byte-for-byte
+identical to one loaded from a fixture with no `[EMITTERS]` /
+`[DEMANDS]` block.
+
+```python
+from aquaoptima.dphm import (
+    EpanetEmitterDemandDiagnostic,
+    EpanetImportDiagnostics,
+    load_inp_diagnostics,
+)
+
+diagnostics: EpanetImportDiagnostics = load_inp_diagnostics(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="fallback",
+)
+
+for rec in diagnostics.emitter_demand_rows:
+    print(rec.section, rec.row_index, rec.tokens, rec.message)
+    # e.g. "EMITTERS 0 ('J1', '0.5') Row present but ignored ..."
+
+# Split per section if you only care about one of them:
+emitters = [r for r in diagnostics.emitter_demand_rows if r.section == "EMITTERS"]
+demands = [r for r in diagnostics.emitter_demand_rows if r.section == "DEMANDS"]
+```
+
+The record and the extended container:
+
+```python
+@dataclass(frozen=True)
+class EpanetEmitterDemandDiagnostic:
+    section: str            # always "EMITTERS" or "DEMANDS"
+    row_index: int          # 0-based within the section bucket
+    tokens: tuple[str, ...] # exact parser tokens (comments stripped)
+    text: str               # single-space-joined token text
+    message: str            # human-readable no-op explanation
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()                  # Sprint 23
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()     # Sprint 24
+    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()       # Sprint 25 (+ Sprint 27 `kind` classification)
+    pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()   # Sprint 26
+    emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()   # Sprint 28
+```
+
+Both dataclasses are `frozen=True`. `emitter_demand_rows` is a `tuple`
+of `EpanetEmitterDemandDiagnostic` instances. Field reassignment on
+either type raises `dataclasses.FrozenInstanceError`.
+
+### What the fallback parser emits
+
+The fallback parser emits **one `EpanetEmitterDemandDiagnostic` per
+tokenised parser row** inside every `[EMITTERS]` and `[DEMANDS]`
+section that appears in the source file. Rules:
+
+- Section ordering: rows appear in the order the corresponding
+  section header first appeared in the source file
+  (`_split_sections` is built on a regular `dict`, which preserves
+  insertion order on Python 3.7+).
+- `row_index` resets per section and is the 0-based index into the
+  per-section accumulated row list.
+- `tokens` is a `tuple` (not a list) so the record is structurally
+  immutable. Token order matches the source row.
+- Inline `; ...` comments and blank lines are dropped by
+  `_split_sections` **before** any row enters `emitter_demand_rows`.
+- A bare `[EMITTERS]` or `[DEMANDS]` header with no body produces no
+  per-row diagnostic (there are no rows to surface), but the section
+  itself still shows up in `ignored_sections` via Sprint 24.
+
+A record represents a *tokenised parser row*, **not** a semantic
+EPANET emitter or demand-category evaluation. EPANET `EMITTERS` rows
+declare `(junction_id, coefficient)`; `DEMANDS` rows declare
+`(junction_id, base_demand, optional pattern_id, optional category)`.
+Sprint 28 does not interpret any of those fields — the goal is row
+visibility, not semantic resolution.
+
+### Disjoint with the other diagnostic channels
+
+- `[CONTROLS]` and `[RULES]` — never appear in `emitter_demand_rows`.
+  They surface per-row through `control_rule_rows` (Sprint 25, plus
+  Sprint 27 `kind` classification). The two channels are disjoint by
+  construction.
+- `[PATTERNS]` and `[ENERGY]` — never appear in
+  `emitter_demand_rows`. They surface per-row through
+  `pattern_energy_rows` (Sprint 26). Disjoint by construction.
+- `[STATUS]` — never appears in `emitter_demand_rows`. Sprint 22
+  removed it from `IGNORED_SECTIONS` entirely, so it cannot be
+  recorded as an emitter/demand row either.
+- Active hydraulic sections (`[JUNCTIONS]`, `[PIPES]`, `[OPTIONS]`,
+  `[CURVES]`, …) — never appear in `emitter_demand_rows`. The two
+  channels are disjoint by construction.
+- Other ignored sections (`[TIMES]`, `[REPORT]`, `[QUALITY]`,
+  `[SOURCES]`, `[REACTIONS]`, `[MIXING]`, plus the inert layout
+  sections) — only surface at the **section** level through
+  `ignored_sections` (Sprint 24), but **not** per-row through
+  `emitter_demand_rows`.
+
+### Hydraulic invariance
+
+The diagnostics are **read-only and hydraulically inert**. The
+Sprint 21 ignored-section no-op contract is unchanged: every
+`[EMITTERS]` / `[DEMANDS]` row is still dropped on the floor at parse
+time. `emitter_demand_rows` is a side channel only. Adding `[EMITTERS]`
+or `[DEMANDS]` content to a fixture leaves:
+
+- the `Network` dataclass byte-for-byte identical (same `edge_index`,
+  `pipe_mask`, `pump_mask`, `demands`, `lengths`, `diameters`,
+  `c_factors`, `pump_coeffs`, `pump_speeds`, `fixed_head_mask`,
+  `fixed_head_values`); junction demands continue to come exclusively
+  from the `[JUNCTIONS]` base-demand column (with `[OPTIONS] Demand
+  Multiplier` applied);
+- Newton-solver heads / flows identical to the un-perturbed baseline;
+- Sprint 22 `[STATUS]` rejection behaviour unchanged — `CLOSED` /
+  `CV` / numeric pump speed / unknown link id / arbitrary token still
+  raise `ValueError` even on files that also carry `[EMITTERS]` /
+  `[DEMANDS]` rows; no partial diagnostics leak out.
+
+### What Sprint 28 does NOT do
+
+Sprint 28 deliberately does **not**:
+
+- model pressure-dependent emitter outflow (`Q_emitter = C * P^gamma`)
+  on any junction;
+- model background leakage / pressure-dependent demand;
+- model multi-category demands or pattern-keyed demands. The
+  `[OPTIONS] Demand Multiplier` directive (Sprint 18) remains the
+  single steady-state demand scalar honoured by the importer.
+- change the loaded `Network` in any way, ever.
+- reject any `[EMITTERS]` or `[DEMANDS]` row. They are diagnosed, not
+  validated. A row with malformed numerics still shows up as a
+  diagnostic with the offending tokens — the importer does not
+  interpret them.
+- make the WNTR back-end emit `emitter_demand_rows`. The fallback
+  parser is authoritative for Sprint 28 diagnostics. The WNTR adapter
+  acknowledges the new channel and returns an **empty**
+  `emitter_demand_rows` tuple when `parser="wntr"`, matching the
+  Sprint 23 / 24 / 25 / 26 / 27 documented asymmetry.
+
+### Tests
+
+`tests/dphm/test_inp_emitter_demand_row_diagnostics.py` — Sprint 28:
+
+- public-surface checks: `EpanetEmitterDemandDiagnostic` is a frozen
+  dataclass with `section`, `row_index`, `tokens`, `text`, `message`,
+  and `EpanetImportDiagnostics.emitter_demand_rows` defaults to `()`
+  and is a tuple;
+- empty `emitter_demand_rows` for fixtures without `[EMITTERS]` /
+  `[DEMANDS]`, and for bare headers with no body (the section still
+  shows up in `ignored_sections` via Sprint 24);
+- one-row fixtures for `[EMITTERS]` and `[DEMANDS]` produce one
+  record each, with the expected `section`, `row_index`, `tokens`,
+  `text`;
+- multi-row fixtures preserve `row_index` (`[0, 1, 2, ...]`) and
+  source-file order;
+- mixed `[EMITTERS]` + `[DEMANDS]` fixtures preserve source-section
+  order: `[EMITTERS]` first / `[DEMANDS]` first both round-trip;
+- inline `; ...` comments are stripped before tokenisation; blank
+  rows are dropped;
+- every other section — `[CONTROLS]`, `[RULES]`, `[PATTERNS]`,
+  `[ENERGY]`, `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]`,
+  `[TIMES]`, `[REPORT]`, and active hydraulic sections — never
+  appears in `emitter_demand_rows` (the section still surfaces at
+  the section level through `ignored_sections`);
+- `[STATUS]` is never surfaced through `emitter_demand_rows` or
+  `ignored_sections`; Sprint 23 `status_rows` still captures `OPEN`;
+- the Sprint 25 `control_rule_rows` channel never includes
+  `[EMITTERS]` / `[DEMANDS]` rows;
+- the Sprint 26 `pattern_energy_rows` channel never includes
+  `[EMITTERS]` / `[DEMANDS]` rows;
+- hydraulic-inertness proofs: `_assert_networks_identical` against
+  the baseline fixture; Newton-solve heads / flows match the
+  baseline to 1e-9 / 1e-12;
+- combined Sprint 23 + 24 + 25 + 26 + 28 coexistence on a fixture
+  carrying `[STATUS]`, `[CONTROLS]`, `[RULES]`, `[PATTERNS]`,
+  `[ENERGY]`, `[EMITTERS]`, `[DEMANDS]` rows — all five channels
+  populated, with the new `emitter_demand_rows` carrying exactly the
+  expected source order;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` return
+  identical `emitter_demand_rows`, identical `pattern_energy_rows`,
+  identical `control_rule_rows`, identical `status_rows`, and
+  identical `ignored_sections`;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network` even when `[EMITTERS]` /
+  `[DEMANDS]` rows are present;
+- Sprint 22 rejection paths still raise (`CLOSED`, `CV`, numeric
+  pump-status, unknown link id, arbitrary token) when `[EMITTERS]`
+  / `[DEMANDS]` rows are present; no partial diagnostics leak out;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`) — the WNTR back-end returns an
+  `EpanetImportDiagnostics` with an empty `emitter_demand_rows`
+  tuple; diagnostic parity with the fallback parser is **not**
+  required.
 
 ## Mass balancing
 

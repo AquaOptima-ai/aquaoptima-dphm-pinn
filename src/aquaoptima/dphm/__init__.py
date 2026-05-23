@@ -14,6 +14,7 @@ from .incidence import cached_incidence_matrix, incidence_matrix, node_flow_bala
 from .inp_io import (
     EpanetControlKind,
     EpanetControlRuleDiagnostic,
+    EpanetEmitterDemandDiagnostic,
     EpanetIgnoredSectionDiagnostic,
     EpanetImportDiagnostics,
     EpanetPatternEnergyDiagnostic,
@@ -47,6 +48,7 @@ __all__ = [
     "classify_failure",
     "EpanetControlKind",
     "EpanetControlRuleDiagnostic",
+    "EpanetEmitterDemandDiagnostic",
     "EpanetIgnoredSectionDiagnostic",
     "EpanetImportDiagnostics",
     "EpanetPatternEnergyDiagnostic",
