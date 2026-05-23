@@ -317,6 +317,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Union
 
@@ -841,6 +842,52 @@ _CONTROL_RULE_ROW_NOOP_MESSAGE: str = (
 )
 
 
+class EpanetControlKind(str, Enum):
+    """Conservative, deterministic classification for a ``[CONTROLS]`` row.
+
+    Sprint 27 adds a syntactic / link-type-aware tagging surface on top
+    of the Sprint 25 per-row :class:`EpanetControlRuleDiagnostic`
+    visibility channel. The four categories are intentionally narrow:
+    they let analysts triage how many ``[CONTROLS]`` rows would target
+    pumps, valves, or generic pipe links if the dPHM core ever modelled
+    them, without claiming that the rows are interpreted or activated.
+
+    Members
+    -------
+    LINK_SETTING
+        The leading tokens are ``LINK <link_id> ...`` where ``link_id``
+        resolves to a known **pipe** link in the parsed network. EPANET
+        pipe ``[CONTROLS]`` rows (e.g. ``LINK P1 CLOSED IF NODE J1
+        BELOW 10``) fall here.
+    PUMP_SETTING
+        The leading tokens are ``LINK <link_id> ...`` where ``link_id``
+        resolves to a known **pump** link. Pump-targeting rows that
+        would change pump speed or open/close a pump (e.g.
+        ``LINK PU1 1.2 IF NODE J2 BELOW 5``) fall here.
+    VALVE_SETTING
+        The leading tokens are ``LINK <link_id> ...`` where ``link_id``
+        resolves to a known **valve** link. Valve-targeting rows
+        (e.g. ``LINK V1 OPEN IF NODE J3 BELOW 4``) fall here.
+    UNKNOWN
+        Anything else: ``[RULES]`` rows (always ``UNKNOWN`` because the
+        importer does not interpret rule structure), ``[CONTROLS]`` rows
+        whose leading token is not ``LINK``, ``[CONTROLS]`` rows whose
+        link id is not declared anywhere in ``[PIPES]`` / ``[PUMPS]`` /
+        ``[VALVES]``, and any short / malformed row that does not match
+        the recognised syntactic shape. ``UNKNOWN`` rows are still
+        accepted by the parser — the classification is diagnostic only,
+        never a rejection trigger.
+
+    The enum is a :class:`str` subclass, so ``rec.kind == "PUMP_SETTING"``
+    and ``rec.kind == EpanetControlKind.PUMP_SETTING`` both succeed.
+    """
+
+    LINK_SETTING = "LINK_SETTING"
+    PUMP_SETTING = "PUMP_SETTING"
+    VALVE_SETTING = "VALVE_SETTING"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass(frozen=True)
 class EpanetControlRuleDiagnostic:
     """Read-only record of one ``[CONTROLS]`` or ``[RULES]`` parser row.
@@ -887,6 +934,17 @@ class EpanetControlRuleDiagnostic:
         Human-readable explanation of the ignored / no-op contract.
         Pinned to a single module-level string so the surface stays
         stable.
+    kind
+        Sprint 27 conservative classification of the row's leading
+        tokens. One of the :class:`EpanetControlKind` values
+        (``LINK_SETTING`` / ``PUMP_SETTING`` / ``VALVE_SETTING`` /
+        ``UNKNOWN``) stored as a plain string for backwards-compatible
+        ``str`` equality. Defaults to ``"UNKNOWN"`` so every Sprint
+        25 / 26 caller that constructs a record without the keyword
+        continues to work unchanged. The classification is diagnostic
+        only — it never gates rejection and never mutates the loaded
+        :class:`Network`. ``[RULES]`` rows always carry ``"UNKNOWN"``
+        because the importer does not interpret rule structure.
     """
 
     section: str
@@ -894,6 +952,7 @@ class EpanetControlRuleDiagnostic:
     tokens: tuple[str, ...]
     text: str
     message: str = _CONTROL_RULE_ROW_NOOP_MESSAGE
+    kind: str = EpanetControlKind.UNKNOWN.value
 
 
 # Sprint 26: human-readable message attached to every
@@ -1174,8 +1233,68 @@ def _collect_ignored_section_diagnostics(
 _CONTROL_RULE_SECTIONS: tuple[str, ...] = ("CONTROLS", "RULES")
 
 
+def _classify_control_row(
+    tokens: tuple[str, ...],
+    *,
+    pipe_ids: frozenset[str],
+    pump_ids: frozenset[str],
+    valve_ids: frozenset[str],
+) -> EpanetControlKind:
+    """Classify one ``[CONTROLS]`` row by leading tokens + link-type context.
+
+    Sprint 27 syntactic / link-type-aware classifier. Conservative and
+    deterministic: any row that does not match the recognised
+    ``LINK <link_id> ...`` shape, or whose link id is not declared in
+    the parsed network's pipes / pumps / valves, falls back to
+    :data:`EpanetControlKind.UNKNOWN`. Classification never raises and
+    never has hydraulic side effects.
+
+    The classifier intentionally does **not** evaluate EPANET conditions
+    (``IF NODE ... BELOW``, ``IF TIME``, ``AT TIME``, ``AT CLOCKTIME``)
+    or interpret setting values. Two ``LINK PU1 ...`` rows that differ
+    only in their condition body classify identically as
+    ``PUMP_SETTING`` because they target the same pump.
+
+    Parameters
+    ----------
+    tokens
+        Parser tokens for the row, with comments stripped. May be empty
+        — the classifier handles every malformed shape conservatively.
+    pipe_ids
+        Set of pipe ids declared in ``[PIPES]``.
+    pump_ids
+        Set of pump ids declared in ``[PUMPS]``.
+    valve_ids
+        Set of valve ids declared in ``[VALVES]``.
+
+    Returns
+    -------
+    EpanetControlKind
+        The classification.
+    """
+    if len(tokens) < 2:
+        return EpanetControlKind.UNKNOWN
+    if tokens[0].upper() != "LINK":
+        return EpanetControlKind.UNKNOWN
+    link_id = tokens[1]
+    # Pump / valve / pipe lookups are case-sensitive: EPANET link ids
+    # are case-sensitive in the dPHM fallback parser and the registered
+    # id sets are built from the same source tokens.
+    if link_id in pump_ids:
+        return EpanetControlKind.PUMP_SETTING
+    if link_id in valve_ids:
+        return EpanetControlKind.VALVE_SETTING
+    if link_id in pipe_ids:
+        return EpanetControlKind.LINK_SETTING
+    return EpanetControlKind.UNKNOWN
+
+
 def _collect_control_rule_row_diagnostics(
     sections: dict[str, list[list[str]]],
+    *,
+    pipe_ids: frozenset[str] = frozenset(),
+    pump_ids: frozenset[str] = frozenset(),
+    valve_ids: frozenset[str] = frozenset(),
 ) -> tuple[EpanetControlRuleDiagnostic, ...]:
     """Surface every tokenised row inside ``[CONTROLS]`` / ``[RULES]``.
 
@@ -1191,6 +1310,15 @@ def _collect_control_rule_row_diagnostics(
     and within each section ``row_index`` is the 0-based index into the
     section's accumulated row list.
 
+    Sprint 27 extends the helper with a conservative ``kind``
+    classification on each emitted record. The classification is
+    syntactic and link-type-aware: ``[CONTROLS]`` rows are tagged via
+    :func:`_classify_control_row` against the declared pipe / pump /
+    valve id sets; ``[RULES]`` rows always classify as
+    :data:`EpanetControlKind.UNKNOWN` because the importer does not
+    interpret rule structure beyond per-row visibility. The
+    classification is diagnostic only; it never gates rejection.
+
     The helper deliberately excludes every other ignored section
     (``[PATTERNS]``, ``[ENERGY]``, ``[TIMES]``, ``[REPORT]``,
     ``[EMITTERS]``, ``[QUALITY]``, ``[SOURCES]``, ``[REACTIONS]``,
@@ -1205,6 +1333,17 @@ def _collect_control_rule_row_diagnostics(
     and never affects parsing outcomes. Blank rows and inline ``;``
     comments are not surfaced because :func:`_split_sections` already
     strips them before any row enters the per-section bucket.
+
+    Parameters
+    ----------
+    sections
+        Per-section tokenised rows from :func:`_split_sections`.
+    pipe_ids, pump_ids, valve_ids
+        Sprint 27 link-type context. When omitted (empty
+        :class:`frozenset` defaults) every ``[CONTROLS]`` row falls back
+        to :data:`EpanetControlKind.UNKNOWN`, which is the conservative
+        default for callers that do not have the parsed-network context
+        on hand.
     """
     records: list[EpanetControlRuleDiagnostic] = []
     for name, rows in sections.items():
@@ -1212,12 +1351,26 @@ def _collect_control_rule_row_diagnostics(
             continue
         for idx, row in enumerate(rows):
             tokens = tuple(row)
+            if name == "CONTROLS":
+                kind = _classify_control_row(
+                    tokens,
+                    pipe_ids=pipe_ids,
+                    pump_ids=pump_ids,
+                    valve_ids=valve_ids,
+                )
+            else:
+                # [RULES] rows are never semantically classified —
+                # multi-line EPANET rules carry semantics across lines
+                # and the dPHM importer does not interpret that
+                # structure. Stay conservative.
+                kind = EpanetControlKind.UNKNOWN
             records.append(
                 EpanetControlRuleDiagnostic(
                     section=name,
                     row_index=idx,
                     tokens=tokens,
                     text=" ".join(tokens),
+                    kind=kind.value,
                 )
             )
     return tuple(records)
@@ -2711,8 +2864,23 @@ def _fallback_parse(
     # and text only; the parser still consumes nothing from those
     # sections. Other ignored sections remain visible at the section
     # level via ``ignored_section_diagnostics``.
+    # Sprint 27: classify each [CONTROLS] row by leading tokens + link
+    # type using the parsed pipe / pump / valve id sets so analysts can
+    # triage how many rows would target each link kind if the dPHM core
+    # ever modelled them. Classification is diagnostic only; [RULES]
+    # rows always classify as UNKNOWN because the importer does not
+    # interpret rule structure beyond per-row visibility. The id sets
+    # are sourced from the section rows themselves (token 0 is the link
+    # id in each of [PIPES], [PUMPS], [VALVES]) so the classifier sees
+    # every link the parser registered.
+    pipe_ids_set = frozenset(row[0] for row in sections.get("PIPES", []) if row)
+    pump_ids_set = frozenset(row[0] for row in sections.get("PUMPS", []) if row)
+    valve_ids_set = frozenset(row[0] for row in sections.get("VALVES", []) if row)
     control_rule_row_diagnostics = _collect_control_rule_row_diagnostics(
-        sections
+        sections,
+        pipe_ids=pipe_ids_set,
+        pump_ids=pump_ids_set,
+        valve_ids=valve_ids_set,
     )
 
     # Sprint 26: surface every tokenised row inside [PATTERNS] / [ENERGY]
@@ -3585,6 +3753,7 @@ def load_inp_diagnostics(
 
 
 __all__ = [
+    "EpanetControlKind",
     "EpanetControlRuleDiagnostic",
     "EpanetIgnoredSectionDiagnostic",
     "EpanetImportDiagnostics",

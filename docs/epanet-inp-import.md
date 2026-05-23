@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–26)
+# EPANET `.inp` Topology Import (Sprint 11–27)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -80,6 +80,19 @@ is byte-for-byte identical to one loaded from a fixture with no
 (`[STATUS]` rejection, `[CONTROLS]` / `[RULES]` no-op, etc.) is
 preserved (see "Read-only [PATTERNS] / [ENERGY] row diagnostics
 (Sprint 26)" below).
+Sprint 27 tags each `[CONTROLS]` row with a conservative,
+deterministic classification (`LINK_SETTING`, `PUMP_SETTING`,
+`VALVE_SETTING`, or `UNKNOWN`) on top of the Sprint 25 per-row
+`control_rule_rows` channel. Classification is link-type-aware: the
+fallback parser uses the declared `[PIPES]` / `[PUMPS]` / `[VALVES]`
+ids to distinguish what kind of link a control row would target, but
+it never evaluates conditions or settings. `[RULES]` rows always
+classify as `UNKNOWN` because the importer does not interpret rule
+structure. Sprint 27 still does NOT activate any control or rule
+logic — unknown `[CONTROLS]` rows are diagnosed (not rejected), the
+loaded `Network` is byte-for-byte identical to a fixture without
+`[CONTROLS]` / `[RULES]`, and every earlier-sprint contract holds
+(see "Read-only [CONTROLS] row classification (Sprint 27)" below).
 The public entry point is one function:
 
 ```python
@@ -2044,6 +2057,182 @@ invariance.
   — the WNTR back-end returns an `EpanetImportDiagnostics` with an
   empty `pattern_energy_rows` tuple; diagnostic parity with the
   fallback parser is **not** required.
+
+## Read-only [CONTROLS] row classification (Sprint 27)
+
+Sprint 25 surfaced one record per tokenised parser row inside
+`[CONTROLS]` / `[RULES]`. Sprint 27 layers a conservative,
+deterministic **classification** on top of that surface. Each emitted
+`EpanetControlRuleDiagnostic` now carries a `kind` field that tags
+the row by its leading tokens *and* by the parsed network's
+link-type context, without changing any hydraulic field on the
+loaded `Network` and without rejecting any unfamiliar control row.
+Sprint 27 still does NOT activate control semantics, evaluate
+conditions / settings, or interpret EPANET rule structure — the
+classification is visibility only.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetControlKind,
+    EpanetControlRuleDiagnostic,
+    EpanetImportDiagnostics,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+for rec in diagnostics.control_rule_rows:
+    print(rec.section, rec.row_index, rec.kind, rec.text)
+
+# Filter by classification.
+pump_rows = [
+    r for r in diagnostics.control_rule_rows
+    if r.kind == EpanetControlKind.PUMP_SETTING
+]
+valve_rows = [
+    r for r in diagnostics.control_rule_rows
+    if r.kind == EpanetControlKind.VALVE_SETTING
+]
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–26 caller works unchanged.
+
+### Shape
+
+```python
+class EpanetControlKind(str, Enum):
+    LINK_SETTING = "LINK_SETTING"     # known pipe id
+    PUMP_SETTING = "PUMP_SETTING"     # known pump id
+    VALVE_SETTING = "VALVE_SETTING"   # known valve id
+    UNKNOWN = "UNKNOWN"               # anything else
+
+
+@dataclass(frozen=True)
+class EpanetControlRuleDiagnostic:
+    section: str                   # "CONTROLS" or "RULES"
+    row_index: int                 # 0-based, resets per section
+    tokens: tuple[str, ...]        # parser-tokenised row
+    text: str                      # tokens joined by a single space
+    message: str = "Row present but ignored by the steady-state dPHM importer."
+    kind: str = "UNKNOWN"          # Sprint 27 — defaults to UNKNOWN
+```
+
+`EpanetControlKind` is a `str` subclass, so `rec.kind == "PUMP_SETTING"`
+and `rec.kind == EpanetControlKind.PUMP_SETTING` are both true. The
+`kind` field has a default of `"UNKNOWN"`, so the Sprint 25
+constructor call (no `kind` kwarg) keeps working — the field is
+backwards-compatible by default.
+
+### Classification rules
+
+The fallback parser applies one deterministic rule per section:
+
+- `[RULES]` rows **always** classify as `UNKNOWN`. The dPHM importer
+  does not interpret multi-line EPANET rule structure, so even a
+  `THEN LINK <known_id> ...` line inside `[RULES]` does not become
+  a semantic classification. Per-row visibility is preserved; the
+  classification simply is not narrowed.
+- `[CONTROLS]` rows are classified by their first two tokens against
+  the declared pipe / pump / valve id sets:
+  - `LINK <id> ...` with `<id>` in `[PUMPS]` → `PUMP_SETTING`
+  - `LINK <id> ...` with `<id>` in `[VALVES]` → `VALVE_SETTING`
+  - `LINK <id> ...` with `<id>` in `[PIPES]` → `LINK_SETTING`
+  - Anything else → `UNKNOWN` (unknown link id, non-`LINK` leading
+    token, short row, malformed shape).
+
+The leading `LINK` keyword is matched case-insensitively (EPANET's
+convention); the link id itself is matched case-sensitively (dPHM
+link ids are case-sensitive).
+
+**Unknown rows are not rejected.** A `[CONTROLS]` row that targets a
+link the file never declared in `[PIPES]` / `[PUMPS]` / `[VALVES]`
+still surfaces as an ignored diagnostic with `kind = UNKNOWN`. The
+Sprint 22 `[STATUS]` rejection contract is unaffected.
+
+### Hydraulic inertness
+
+The classification is a side channel only. Adding any combination of
+`[CONTROLS]` / `[RULES]` rows (including rows that target known pumps
+or valves) leaves every `Network` field byte-for-byte identical to
+the Sprint 21 baseline: `edge_index`, `pipe_mask`, `pump_mask`,
+`demands`, `fixed_head_values`, `lengths`, `diameters`, `c_factors`,
+`pump_coeffs`, and `pump_speeds`. Newton-solving the perturbed
+network reproduces the baseline heads / flows to 1e-9 / 1e-12.
+`tests/dphm/test_inp_control_row_classification.py` pins this
+invariance.
+
+### What Sprint 27 does NOT do
+
+- It does **not** evaluate EPANET conditions. `IF NODE <id> BELOW
+  <value>`, `IF TIME <t>`, `AT TIME <t>`, `AT CLOCKTIME <t>` are all
+  ignored — two rows that differ only in their condition body
+  classify identically.
+- It does **not** evaluate or apply settings. `LINK PU1 1.2 ...` and
+  `LINK PU1 OPEN ...` both classify as `PUMP_SETTING`; no pump speed
+  is changed.
+- It does **not** activate any `[CONTROLS]` semantics. Closed-link
+  modelling, pump speed changes, check valves, and active-status
+  physics remain deferred.
+- It does **not** activate `[RULES]` semantics. Multi-line rule
+  blocks remain per-row visibility only; the `kind` is always
+  `UNKNOWN` for `[RULES]`.
+- It does **not** add new hydraulic physics. No Darcy-Weisbach, no
+  time-varying demand, no closed-link / pump-speed modelling, no
+  energy-cost modelling, no rule engine.
+- It does **not** reject unfamiliar control rows. `UNKNOWN` is a
+  diagnostic tag, never a rejection trigger.
+- It does **not** attach diagnostic state to `Network`. The `Network`
+  dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit classified
+  `control_rule_rows`. The fallback parser is authoritative for
+  Sprint 25 / 27 control-row diagnostics. WNTR has its own
+  `[CONTROLS]` / `[RULES]` parser and interprets some of those rows
+  internally; the dPHM WNTR adapter does not re-emit any rows and
+  returns an **empty** `control_rule_rows` tuple when `parser="wntr"`
+  is requested. The asymmetry mirrors Sprint 23 / 24 / 25 / 26 —
+  fallback authoritative, WNTR documented rather than papered over.
+
+### Tests
+
+`tests/dphm/test_inp_control_row_classification.py` — Sprint 27:
+
+- public-surface checks: `EpanetControlKind` exists with the four
+  expected members and is a `str` subclass; the `kind` field is
+  present on `EpanetControlRuleDiagnostic` with a default of
+  `"UNKNOWN"`; the field participates in dataclass freezing;
+  Sprint 25 constructor calls without a `kind` kwarg still work;
+- classification: `LINK <pipe_id>` → `LINK_SETTING`,
+  `LINK <pump_id>` → `PUMP_SETTING`, `LINK <valve_id>` →
+  `VALVE_SETTING`, unknown link id → `UNKNOWN`, non-`LINK` leading
+  token → `UNKNOWN`, short row → `UNKNOWN`;
+- case-insensitive leading `LINK` keyword;
+- `[RULES]` rows always classify as `UNKNOWN`, even when the row
+  body would otherwise match a known link;
+- classification preserves Sprint 25 `tokens`, `text`, `row_index`,
+  and section ordering;
+- classification is hydraulically inert — `Network` byte-for-byte
+  invariance with classified `[CONTROLS]` / `[RULES]` rows added,
+  Newton-solve heads / flows match the baseline to 1e-9 / 1e-12;
+- pump fixture: classified `[CONTROLS]` rows that target the pump do
+  not mutate `demands` / `pump_coeffs`;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` return the
+  same `kind` per row;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- coexistence: Sprint 23 `status_rows`, Sprint 24
+  `ignored_sections`, and Sprint 26 `pattern_energy_rows` channels
+  remain populated when classification fires;
+- Sprint 22 rejection paths still raise when classified
+  `[CONTROLS]` rows are also present; no partial diagnostics leak out;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`) — the WNTR back-end returns an
+  `EpanetImportDiagnostics` with an empty `control_rule_rows` tuple;
+  classification parity is **not** required.
 
 ## Mass balancing
 
