@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–27)
+# EPANET `.inp` Topology Import (Sprint 11–33)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -3257,6 +3257,186 @@ the existing diagnostics channels.
   (`pytest.importorskip("wntr")`): `edge_surrogates` is empty and
   every accessor returns `()` / `{}`.
 
+## Import-quality report (Sprint 33)
+
+Sprints 23-32 grew `EpanetImportDiagnostics` into a multi-channel
+read-only container with per-channel ergonomics helpers
+(`row_count_by_section()`, `ignored_section_names()`, `summary()`,
+`rows_for_section(name)`, `surrogate_edges()`,
+`surrogate_count_by_kind()`, `surrogates_for_link(...)`,
+`surrogate_for_edge(...)`). Sprint 33 composes those surfaces into a
+single typed, immutable import-quality report a UI / API / shadow-mode
+caller can render verbatim — without changing any forward-model
+behaviour, without activating any deferred EPANET semantics, and
+without mutating the loaded `Network`.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportQualityReport,
+    EpanetImportQualitySectionReport,
+    EpanetImportQualitySurrogateReport,
+    build_import_quality_report,
+    load_inp_import_quality_report,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# Convenience loader: parse INP + build report in one call.
+report = load_inp_import_quality_report("net.inp", parser="fallback")
+
+# Manual composition (e.g. when the caller already has the diagnostics).
+diagnostics = load_inp_diagnostics("net.inp", parser="fallback")
+report = build_import_quality_report(diagnostics)
+
+# With Network for surrogate edge-index range validation.
+net, diagnostics = load_network_from_inp(
+    "net.inp", parser="fallback", return_diagnostics=True
+)
+report = build_import_quality_report(diagnostics, net, parser="fallback")
+```
+
+### `EpanetImportQualityReport` fields
+
+| Field                       | Meaning                                                                                                  |
+|-----------------------------|----------------------------------------------------------------------------------------------------------|
+| `parser`                    | Which parser produced the source diagnostics (`"fallback"` or `"wntr"`).                                |
+| `total_diagnostic_rows`     | Sum across every row diagnostic channel — mirrors `summary().total_diagnostic_rows`.                    |
+| `ignored_section_count`     | Number of ignored-section presence records.                                                              |
+| `row_count_by_section`      | Fresh mapping mirroring `EpanetImportDiagnostics.row_count_by_section()`.                                |
+| `ignored_sections`          | Tuple mirroring `EpanetImportDiagnostics.ignored_section_names()`.                                       |
+| `sections`                  | Tuple of per-section entries (row-only, ignored-only, or both — never double-counted).                  |
+| `surrogates`                | Tuple of per-edge surrogate entries (mirrors Sprint 32 `edge_surrogates` verbatim).                     |
+| `surrogate_count_by_kind`   | Fresh mapping mirroring `EpanetImportDiagnostics.surrogate_count_by_kind()`.                            |
+| `warnings`                  | Deterministic tuple — e.g. empty WNTR diagnostics, surrogate edge-index out of range.                   |
+| `limitations`               | Deterministic tuple — STATUS open-only, ignored-sections-dropped, WNTR asymmetry, surrogate limits.     |
+
+All three dataclasses (`EpanetImportQualityReport`,
+`EpanetImportQualitySectionReport`,
+`EpanetImportQualitySurrogateReport`) are `frozen=True`. Every tuple
+field is a `tuple`; every mapping field is a freshly-allocated `dict`
+per build call (so mutation by one caller cannot leak into another's
+report).
+
+### Composition behaviour
+
+The builder reads the Sprint 23-32 surfaces only — it never re-tokenises
+the source `.inp` file and never re-derives counts from the underlying
+row tuples. Specifically:
+
+- `row_count_by_section` and `total_diagnostic_rows` are taken straight
+  from `diagnostics.summary()`.
+- `ignored_sections` is `diagnostics.ignored_section_names()`.
+- `sections` walks the union of `row_count_by_section.keys()` and
+  `ignored_sections` in a canonical EPANET-section order (`STATUS`,
+  `CONTROLS`, `RULES`, `PATTERNS`, `ENERGY`, `EMITTERS`, `DEMANDS`,
+  `QUALITY`, `SOURCES`, `REACTIONS`, `MIXING`, then `TITLE`, `END`,
+  `TIMES`, `REPORT`, `COORDINATES`, `VERTICES`, `LABELS`, `BACKDROP`,
+  `TAGS`, then any unknown name in alphabetical order). A section that
+  appears in both surfaces (e.g. `[CONTROLS]` with row diagnostics) is
+  emitted **once** with `ignored_present=True` and `row_count > 0`.
+- `surrogates` mirrors `diagnostics.edge_surrogates` 1:1.
+- `surrogate_count_by_kind` is `diagnostics.surrogate_count_by_kind()`.
+
+When a `Network` is supplied, the builder additionally checks every
+surrogate's `edge_index` against `network.edge_index.shape[1]` and adds
+a deterministic warning string for any index outside `[0, edge_count)`.
+The diagnostic record itself is preserved verbatim — the warning is the
+only side effect, and `network` is never mutated.
+
+### Fallback vs WNTR asymmetry
+
+The Sprint 23-32 contract leaves `EpanetImportDiagnostics` empty when
+`parser="wntr"` (the optional WNTR back-end emits no diagnostics).
+Sprint 33 treats that as a documented asymmetry, not a bug:
+
+- `parser="fallback"` is the authoritative path — full per-row /
+  per-section / per-surrogate visibility.
+- `parser="wntr"` produces an empty / minimal report — no sections, no
+  surrogates, no row counts — plus a stable WNTR-asymmetry entry in
+  `limitations`. When every channel is empty under `parser="wntr"`, the
+  builder additionally surfaces an empty-diagnostics warning so
+  downstream UIs can flag the asymmetry without re-deriving it from
+  field-level inspection.
+
+`load_inp_import_quality_report(...)` deliberately rejects
+`parser="auto"` (the dispatcher's default) — the WNTR-asymmetry surface
+needs to track the back-end explicitly. Callers that want WNTR pass
+`parser="wntr"`; everyone else passes `parser="fallback"` (also the
+report-loader default).
+
+### Shadow-mode relevance
+
+The report is the smallest stable shape a shadow-mode operator needs to
+answer:
+
+- *What did the importer accept?* — `total_diagnostic_rows`,
+  `row_count_by_section`, `sections`.
+- *Which sections produced diagnostics?* — `sections` with
+  `row_count > 0`.
+- *Which ignored sections are present?* — `ignored_sections` /
+  `sections` with `ignored_present=True`.
+- *Which unsupported / deferred row semantics exist?* — every section
+  with `ignored_present=True` and `row_count > 0` carries unsupported
+  rows.
+- *Which dPHM edges are surrogate approximations?* — `surrogates`,
+  `surrogate_count_by_kind`.
+- *What limitations and warnings should a shadow-mode operator see?* —
+  `warnings`, `limitations`.
+
+The report is hydraulically inert. Building or surfacing it never
+changes a `Network` field, never activates EPANET semantics, and never
+binds a SCADA / PLC / PAC tag — the safety boundary documented in
+`docs/safety-boundary.md` is unchanged.
+
+### Safety boundary — diagnostics composition only
+
+Sprint 33 ships **only** the composition / reporting surface.
+Specifically, this sprint does not:
+
+- introduce a new EPANET parser, dispatch path, or fixture;
+- alter the loaded `Network` (every field is byte-for-byte identical
+  to a Sprint 23-32 load of the same fixture);
+- activate `[CONTROLS]` / `[RULES]` / `[PATTERNS]` / `[ENERGY]` /
+  `[EMITTERS]` / `[DEMANDS]` / water-quality semantics — every row
+  remains dropped on the floor and the diagnostics surface stays
+  read-only;
+- expand valve or pump physics — the Sprint 15 PRV / TCV surrogates
+  and the Sprint 12 / 14 pump translators are unchanged;
+- emit WNTR-side diagnostics — the WNTR back-end still produces an
+  empty `EpanetImportDiagnostics`;
+- introduce telemetry tag-mapping, dataset replay, or any write /
+  control / SCADA path.
+
+### Tests
+
+`tests/dphm/test_inp_import_quality_report.py` proves the contract:
+
+- frozen dataclass surface for all three report types;
+- empty diagnostics produce an empty / minimal report;
+- row counts mirror `summary()` and `row_count_by_section()`;
+- ignored-section presence mirrors `ignored_section_names()`;
+- per-section entries cover row-only, ignored-only, and row+ignored
+  states without double-counting;
+- Sprint 32 edge surrogates flow through verbatim;
+- `surrogate_count_by_kind` mirrors the diagnostics helper and is a
+  fresh dict per build call;
+- supplying a `Network` validates surrogate edge indexes and surfaces
+  a deterministic out-of-range warning without raising or mutating
+  the network;
+- the builder is deterministic across calls and never mutates the
+  diagnostics or the network;
+- the convenience loader agrees with the explicit
+  `load_network_from_inp(..., return_diagnostics=True)` +
+  `build_import_quality_report` pair;
+- default `load_network_from_inp(path)` still returns only the
+  `Network`;
+- the WNTR back-end (optional, gated on `importorskip("wntr")`)
+  produces an empty / minimal report with the documented asymmetry
+  limitation;
+- Sprint 23-32 helpers still function alongside the new report.
+
 ## Mass balancing
 
 EPANET INP files often declare junction demands without a matching
@@ -3360,6 +3540,15 @@ Tests:
 - `tests/dataio/test_inp_power_pump_telemetry.py` — Sprint 14
   analytic-Newton solve and physics-consistent telemetry on the
   POWER pump fixture.
+- `tests/dphm/test_inp_import_quality_report.py` — Sprint 33
+  import-quality report composition: frozen dataclass surfaces, empty
+  diagnostics, row-count and ignored-section parity with the
+  diagnostics helpers, per-section row-only / ignored-only / both
+  states without double counting, edge surrogate flow-through,
+  surrogate-kind counts, network-supplied edge-index range warning,
+  deterministic builds, convenience loader parity, default
+  `load_network_from_inp(path)` preservation, and the optional WNTR
+  asymmetry path (`pytest.importorskip("wntr")`).
 
 ## What this loader is **not**
 

@@ -11,6 +11,13 @@ from .fixtures import (
 from .hazen_williams import hazen_williams_head_loss
 from .large_fixtures import make_grid_network
 from .incidence import cached_incidence_matrix, incidence_matrix, node_flow_balance
+from .inp_import_quality_report import (
+    EpanetImportQualityReport,
+    EpanetImportQualitySectionReport,
+    EpanetImportQualitySurrogateReport,
+    build_import_quality_report,
+    load_inp_import_quality_report,
+)
 from .inp_io import (
     EDGE_SURROGATE_KIND_PRV_FIXED_HEAD,
     EDGE_SURROGATE_KIND_TCV_MINOR_LOSS,
@@ -66,10 +73,14 @@ __all__ = [
     "EpanetIgnoredSectionDiagnostic",
     "EpanetImportDiagnostics",
     "EpanetImportDiagnosticsSummary",
+    "EpanetImportQualityReport",
+    "EpanetImportQualitySectionReport",
+    "EpanetImportQualitySurrogateReport",
     "EpanetPatternEnergyDiagnostic",
     "EpanetStatusDiagnostic",
     "EpanetWaterQualityDiagnostic",
     "FeasibilityResult",
+    "build_import_quality_report",
     "check_feasibility",
     "hazen_williams_head_loss",
     "fit_power_pump_surrogate",
@@ -78,6 +89,7 @@ __all__ = [
     "incidence_matrix",
     "initial_guess",
     "load_inp_diagnostics",
+    "load_inp_import_quality_report",
     "load_network_from_inp",
     "load_network_from_json",
     "make_branch_network",
