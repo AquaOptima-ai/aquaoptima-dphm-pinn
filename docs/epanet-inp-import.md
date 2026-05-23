@@ -2909,6 +2909,181 @@ between the two back-ends is **not** a Sprint 30 goal.
   (`pytest.importorskip("wntr")`): every Sprint 30 helper returns
   the empty / zero value on a WNTR-parseable fixture.
 
+## Section-keyed row retrieval (Sprint 31)
+
+Sprint 30 gave UI / API / report consumers a per-section row-count
+view. Sprint 31 closes the matching retrieval ergonomics gap by
+adding `rows_for_section(name)` on `EpanetImportDiagnostics`: a
+single accessor that returns the row diagnostics for an EPANET
+section without callers needing to know which internal channel
+(`status_rows`, `control_rule_rows`, …) owns it.
+
+Like every Sprint 23–30 surface, the accessor adds **no new EPANET
+semantics**, does not activate any deferred section, does not
+mutate the diagnostics object or any contained tuple, and does not
+change the loaded `Network` in any way.
+
+### Public API
+
+```python
+from aquaoptima.dphm import load_inp_diagnostics
+
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+
+# Canonical upper-case section name.
+status_rows = diagnostics.rows_for_section("STATUS")
+
+# Case-insensitive lookup.
+controls = diagnostics.rows_for_section("controls")
+
+# Leading / trailing whitespace is stripped.
+rules = diagnostics.rows_for_section(" Rules ")
+
+# EPANET bracket notation is accepted.
+patterns = diagnostics.rows_for_section("[PATTERNS]")
+
+# Unknown / empty / whitespace-only section → empty tuple (no exception).
+diagnostics.rows_for_section("NOPE")    # ()
+diagnostics.rows_for_section("")        # ()
+diagnostics.rows_for_section("   ")     # ()
+```
+
+### Section → channel mapping
+
+The accessor reads only the row diagnostic channels and routes
+based on the canonical EPANET section name:
+
+| Section      | Channel               | Notes                                                |
+|--------------|-----------------------|------------------------------------------------------|
+| `STATUS`     | `status_rows`         | One record per accepted `[STATUS] OPEN` row.         |
+| `CONTROLS`   | `control_rule_rows`   | Filtered by `record.section == "CONTROLS"`.          |
+| `RULES`      | `control_rule_rows`   | Filtered by `record.section == "RULES"`.             |
+| `PATTERNS`   | `pattern_energy_rows` | Filtered by `record.section == "PATTERNS"`.          |
+| `ENERGY`     | `pattern_energy_rows` | Filtered by `record.section == "ENERGY"`.            |
+| `EMITTERS`   | `emitter_demand_rows` | Filtered by `record.section == "EMITTERS"`.          |
+| `DEMANDS`    | `emitter_demand_rows` | Filtered by `record.section == "DEMANDS"`.           |
+| `QUALITY`    | `water_quality_rows`  | Filtered by `record.section == "QUALITY"`.           |
+| `SOURCES`    | `water_quality_rows`  | Filtered by `record.section == "SOURCES"`.           |
+| `REACTIONS`  | `water_quality_rows`  | Filtered by `record.section == "REACTIONS"`.         |
+| `MIXING`     | `water_quality_rows`  | Filtered by `record.section == "MIXING"`.            |
+
+Source-file order within each channel is preserved (the channels
+themselves are populated in source order by the fallback parser).
+
+Every call returns a freshly-allocated `tuple`; the accessor never
+mutates the diagnostics container. The Sprint 30
+`row_count_by_section()` and `summary()` helpers continue to satisfy
+`row_count_by_section()[section] == len(rows_for_section(section))`
+for every row-channel section.
+
+### Name normalisation
+
+`rows_for_section` is intentionally forgiving so it is safe to call
+from UI / API / report code with arbitrary user input:
+
+1. leading and trailing whitespace are stripped,
+2. a single leading `[` and trailing `]` (EPANET bracket notation)
+   are stripped,
+3. whitespace is stripped again,
+4. the result is upper-cased and looked up.
+
+Empty input — `""`, `"   "`, `"[]"`, `"[  ]"` — returns `()`. The
+accessor never raises on lookup; an unknown section simply yields an
+empty tuple. This matches the read-only / UI-lookup spirit of the
+diagnostics surface.
+
+### Row diagnostics only — no ignored-section presence
+
+`rows_for_section` reads **row diagnostics only**. It never
+returns `EpanetIgnoredSectionDiagnostic` records: those represent
+section-level *presence*, not parsed rows, and are surfaced
+separately through `ignored_section_names()`.
+
+So a fixture that declares only `[TITLE]` or `[REPORT]` (sections
+that never emit per-row diagnostics) returns `()` from
+`rows_for_section("TITLE")` / `rows_for_section("REPORT")` even
+though both names appear in `ignored_section_names()`. A fixture
+that declares both an `ignored_sections=[CONTROLS]` presence record
+*and* `control_rule_rows` for `[CONTROLS]` returns only the row
+diagnostics — never the presence record — and so cannot
+double-count.
+
+### Hydraulic inertness / no new semantics
+
+Sprint 31 ships **only** the accessor. Specifically, this sprint
+does not:
+
+- activate `[STATUS]` closed-link / check-valve semantics (Sprint 22
+  rejection of `CLOSED` / `CV` / numeric pump-status / unknown
+  tokens is preserved unchanged);
+- interpret `[CONTROLS]` or `[RULES]` (no link state changes);
+- evaluate `[PATTERNS]` time-varying demands or `[ENERGY]` cost
+  calculations;
+- evaluate `[EMITTERS]` pressure-dependent leakage or `[DEMANDS]`
+  multi-category pattern-keyed demands;
+- simulate `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, or `[MIXING]`
+  water-quality transport;
+- change the `Network` dataclass — the same fixture loaded with or
+  without diagnostic-row sections produces an identical network
+  (node count, edge count, demands, fixed heads, pipe / pump masks,
+  geometry, pump coefficients).
+
+### WNTR back-end behaviour / asymmetry
+
+When diagnostics come from `parser="wntr"` the WNTR adapter does
+not populate any row diagnostic channels, so
+`rows_for_section(name)` returns `()` for **every** section. This
+mirrors the Sprint 23–30 WNTR asymmetry: full diagnostic parity
+between the two back-ends is **not** a Sprint 31 goal.
+
+### Tests
+
+`tests/dphm/test_inp_rows_for_section.py` proves the contract:
+
+- public surface: `rows_for_section` is a callable method on
+  `EpanetImportDiagnostics`;
+- empty container: every lookup returns `()`;
+- per-channel routing: dedicated tests for `STATUS`,
+  `CONTROLS` / `RULES`, `PATTERNS` / `ENERGY`,
+  `EMITTERS` / `DEMANDS`, and `QUALITY` / `SOURCES` /
+  `REACTIONS` / `MIXING`;
+- name normalisation: case-insensitive lookup, whitespace
+  stripping, EPANET bracket notation (`"[STATUS]"`);
+- unknown / empty / whitespace-only / bare-bracket input returns
+  `()` (no exception);
+- ignored-section presence is never surfaced: a fixture with
+  `ignored_sections=[CONTROLS, TITLE, REPORT]` and one
+  `control_rule_rows` row returns one row for `CONTROLS` and `()`
+  for `TITLE` / `REPORT`;
+- no double-counting:
+  `len(rows_for_section(s)) == row_count_by_section()[s]` for
+  every row-channel section in a fixture exercising every Sprint
+  23–29 channel;
+- source-file order is preserved within the returned tuple;
+- the return value is a `tuple` (immutable); copying it to a
+  list and clearing the copy does not affect the diagnostics
+  container;
+- read-only contract: invoking the accessor with every canonical
+  section name plus unknown / empty input leaves every underlying
+  tuple identity unchanged; the dataclass is still
+  `frozen=True`;
+- parser integration: a fixture exercising every Sprint 23–29
+  channel produces `rows_for_section` results equal to the
+  channel-filtered tuples;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` produce
+  identical `rows_for_section` results;
+- backwards compatibility: default
+  `load_network_from_inp(path)` still returns only a `Network`;
+- hydraulic inertness: the `Network` loaded from the all-channels
+  fixture matches the network loaded from the baseline fixture on
+  every field the dPHM core consumes;
+- Sprint 22 rejection path: `[STATUS] CLOSED` still raises;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`): `rows_for_section(name)`
+  returns `()` for every canonical section on a WNTR-parseable
+  fixture.
+
 ## Mass balancing
 
 EPANET INP files often declare junction demands without a matching

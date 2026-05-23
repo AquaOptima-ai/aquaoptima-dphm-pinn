@@ -1235,6 +1235,27 @@ _CANONICAL_ROW_COUNT_SECTION_ORDER: tuple[str, ...] = (
 )
 
 
+# Sprint 31: section names that resolve to a row diagnostics channel.
+# Frozen so the lookup table is auditable in one place and so reassigning
+# is impossible. The mapping is to the channel attribute name on
+# :class:`EpanetImportDiagnostics`; the resolver in ``rows_for_section``
+# additionally filters records by ``.section`` for channels that carry
+# more than one EPANET section.
+_ROWS_FOR_SECTION_CHANNEL: dict[str, str] = {
+    "STATUS": "status_rows",
+    "CONTROLS": "control_rule_rows",
+    "RULES": "control_rule_rows",
+    "PATTERNS": "pattern_energy_rows",
+    "ENERGY": "pattern_energy_rows",
+    "EMITTERS": "emitter_demand_rows",
+    "DEMANDS": "emitter_demand_rows",
+    "QUALITY": "water_quality_rows",
+    "SOURCES": "water_quality_rows",
+    "REACTIONS": "water_quality_rows",
+    "MIXING": "water_quality_rows",
+}
+
+
 @dataclass(frozen=True)
 class EpanetImportDiagnostics:
     """Read-only container for EPANET ``.inp`` import diagnostics.
@@ -1255,6 +1276,10 @@ class EpanetImportDiagnostics:
     read-only ergonomics helpers on top of those channels —
     :meth:`row_count_by_section`, :meth:`ignored_section_names`, and
     :meth:`summary` — without introducing any new EPANET semantics.
+    Sprint 31 adds :meth:`rows_for_section` — a section-keyed
+    retrieval accessor that returns the row diagnostics for a named
+    EPANET section without callers needing to know which internal
+    channel owns it.
     Future sprints may grow additional fields — adding a new optional
     field with a default value is backwards-compatible for keyword-only
     callers.
@@ -1371,6 +1396,85 @@ class EpanetImportDiagnostics:
             emitter_demand_row_count=len(self.emitter_demand_rows),
             water_quality_row_count=len(self.water_quality_rows),
         )
+
+    def rows_for_section(self, name: str) -> tuple:
+        """Return the row diagnostics emitted for an EPANET section.
+
+        Sprint 31 read-only ergonomics helper. Looks ``name`` up in the
+        row diagnostic channels and returns the matching records as a
+        fresh tuple, preserving the source-file order of the underlying
+        channel. The accessor is a read-only convenience over the
+        Sprint 23–29 channels and never activates EPANET semantics.
+
+        Name normalisation
+        ------------------
+        ``name`` is normalised before lookup by:
+
+        1. stripping leading and trailing whitespace,
+        2. stripping a single leading ``[`` and trailing ``]`` (EPANET
+           bracket notation),
+        3. stripping whitespace again,
+        4. upper-casing the result.
+
+        Empty / whitespace-only input — including bare ``"[]"`` or
+        ``"[ ]"`` — returns ``()``. The accessor is deliberately
+        non-throwing so it is safe to call from UI / API / report code
+        with arbitrary user input.
+
+        Section → channel mapping
+        -------------------------
+        * ``STATUS`` → ``status_rows``
+        * ``CONTROLS`` / ``RULES`` → ``control_rule_rows`` (filtered
+          by ``.section``)
+        * ``PATTERNS`` / ``ENERGY`` → ``pattern_energy_rows`` (filtered
+          by ``.section``)
+        * ``EMITTERS`` / ``DEMANDS`` → ``emitter_demand_rows`` (filtered
+          by ``.section``)
+        * ``QUALITY`` / ``SOURCES`` / ``REACTIONS`` / ``MIXING`` →
+          ``water_quality_rows`` (filtered by ``.section``)
+
+        Unknown section names return ``()``.
+
+        Presence vs row diagnostics
+        ---------------------------
+        ``rows_for_section`` reads **row diagnostics only**. It never
+        returns :class:`EpanetIgnoredSectionDiagnostic` records: those
+        are a separate presence channel, exposed via
+        :meth:`ignored_section_names`. A section like ``[TITLE]`` that
+        only ever produces a presence record therefore returns ``()``
+        from this accessor.
+
+        Determinism / read-only
+        -----------------------
+        Each call returns a freshly-allocated :class:`tuple`. The
+        accessor never mutates the diagnostics container; mutating the
+        returned tuple is structurally impossible (tuples are immutable)
+        and copying it to a list and mutating the copy cannot affect
+        the container either. The Sprint 30
+        :meth:`row_count_by_section` and :meth:`summary` helpers
+        continue to satisfy
+        ``row_count_by_section()[section] == len(rows_for_section(section))``
+        for every row-channel section.
+
+        The WNTR adapter does not emit diagnostics — every section
+        returns ``()`` when the source diagnostics came from
+        ``parser="wntr"``.
+        """
+        if not isinstance(name, str):
+            return ()
+        canonical = name.strip()
+        if canonical.startswith("[") and canonical.endswith("]"):
+            canonical = canonical[1:-1].strip()
+        if not canonical:
+            return ()
+        canonical = canonical.upper()
+        channel = _ROWS_FOR_SECTION_CHANNEL.get(canonical)
+        if channel is None:
+            return ()
+        if channel == "status_rows":
+            return tuple(self.status_rows)
+        rows = getattr(self, channel)
+        return tuple(rec for rec in rows if rec.section == canonical)
 
 
 @dataclass(frozen=True)
