@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–25)
+# EPANET `.inp` Topology Import (Sprint 11–26)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -67,6 +67,19 @@ identical to one loaded from a fixture with no `[CONTROLS]` /
 `[RULES]` block, and the Sprint 22 `[STATUS]` rejection behaviour is
 preserved (see "Read-only [CONTROLS] / [RULES] row diagnostics
 (Sprint 25)" below).
+Sprint 26 extends the same per-row visibility model to two more
+ignored sections — `[PATTERNS]` and `[ENERGY]` — by adding a
+`pattern_energy_rows` field on the same `EpanetImportDiagnostics`
+container. Each row inside those two sections produces one read-only
+`EpanetPatternEnergyDiagnostic` (`section`, `row_index`, `tokens`,
+`text`, `message`) in source order. Sprint 26 still does NOT
+activate time-varying demand support or energy-cost modelling —
+rows remain dropped on the floor at parse time, the loaded `Network`
+is byte-for-byte identical to one loaded from a fixture with no
+`[PATTERNS]` / `[ENERGY]` block, and every earlier-sprint contract
+(`[STATUS]` rejection, `[CONTROLS]` / `[RULES]` no-op, etc.) is
+preserved (see "Read-only [PATTERNS] / [ENERGY] row diagnostics
+(Sprint 26)" below).
 The public entry point is one function:
 
 ```python
@@ -1809,6 +1822,227 @@ invariance.
 - optional WNTR back-end smoke check (`pytest.importorskip("wntr")`)
   — the WNTR back-end returns an `EpanetImportDiagnostics` with an
   empty `control_rule_rows` tuple; diagnostic parity with the
+  fallback parser is **not** required.
+
+## Read-only [PATTERNS] / [ENERGY] row diagnostics (Sprint 26)
+
+Sprint 25 surfaced one record per tokenised parser row inside
+`[CONTROLS]` and `[RULES]`. Sprint 26 extends that pattern to two more
+ignored sections — `[PATTERNS]` and `[ENERGY]` — by adding a
+`pattern_energy_rows` field on the same `EpanetImportDiagnostics`
+container. Analysts can inspect the exact unsupported pattern /
+energy rows declared in an imported `.inp` file without changing any
+hydraulic field on the loaded `Network`. Sprint 26 still does NOT
+activate `[PATTERNS]` time-varying demand support or `[ENERGY]`
+energy-cost modelling — the rows remain dropped on the floor at parse
+time, the Sprint 21 byte-for-byte invariance contract still holds,
+and every earlier-sprint behaviour (`[STATUS]` rejection,
+`[CONTROLS]` / `[RULES]` no-op) is preserved.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportDiagnostics,
+    EpanetPatternEnergyDiagnostic,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# Option A — explicit, read-only diagnostics accessor.
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+for rec in diagnostics.pattern_energy_rows:
+    print(rec.section, rec.row_index, rec.tokens, rec.text)
+
+# Option B — fetch the Network and the diagnostics together.
+network, diagnostics = load_network_from_inp(
+    path, parser="fallback", return_diagnostics=True,
+)
+patterns = [r for r in diagnostics.pattern_energy_rows if r.section == "PATTERNS"]
+energy = [r for r in diagnostics.pattern_energy_rows if r.section == "ENERGY"]
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–25 caller works unchanged.
+
+### Shape
+
+```python
+@dataclass(frozen=True)
+class EpanetPatternEnergyDiagnostic:
+    section: str                   # "PATTERNS" or "ENERGY"
+    row_index: int                 # 0-based, resets per section
+    tokens: tuple[str, ...]        # parser-tokenised row, single-space split
+    text: str                      # tokens joined by a single space
+    message: str = "Row present but ignored by the steady-state dPHM importer."
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()
+    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()
+    pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()
+```
+
+Both dataclasses are `frozen=True`. `pattern_energy_rows` is a `tuple`
+(not a list) and its `tokens` field is also a tuple, so the
+diagnostics surface is structurally read-only — reassigning a field
+raises `dataclasses.FrozenInstanceError`.
+
+### What gets recorded
+
+The fallback parser emits **one `EpanetPatternEnergyDiagnostic` per
+row inside a `[PATTERNS]` or `[ENERGY]` section**:
+
+- the `section` is `"PATTERNS"` or `"ENERGY"` (upper-case);
+- the `row_index` is the 0-based index into the section bucket
+  `_split_sections` produced; it resets per section and preserves
+  source-file row order within each section;
+- the `tokens` field carries the exact parser tokens for the row
+  (a tuple of strings), preserving token order;
+- the `text` field is the tokens joined by a single space — useful
+  for logging / display;
+- the `message` field is a pinned module-level constant explaining
+  the read-only / no-op contract.
+
+Section ordering follows the source file: whichever of
+`[PATTERNS]` / `[ENERGY]` is declared first appears first in
+`pattern_energy_rows`.
+
+Records are **tokenised parser rows**, not semantic EPANET pattern /
+energy evaluations. EPANET `[PATTERNS]` rows can carry multiple
+multipliers per line, and `[ENERGY]` rows take several forms
+(`GLOBAL PRICE`, `GLOBAL EFFIC`, `PUMP <id> PRICE`, …). Sprint 26
+records each tokenised parser line as one record — the helper does
+**not** attempt to reconstruct semantic pattern profiles or
+energy-cost structures.
+
+Inline `; …` comments are stripped before tokenisation (the
+underlying `_strip_comment` runs first), so they never appear in
+`tokens` or `text`. Blank rows are dropped by `_split_sections` and
+therefore not surfaced as records.
+
+### Sections explicitly excluded
+
+- `[STATUS]` — never appears in `pattern_energy_rows`. Sprint 22
+  removed it from `IGNORED_SECTIONS`; accepted `OPEN` rows go through
+  `status_rows`, rejected rows raise.
+- `[CONTROLS]` and `[RULES]` — surface per-row through their
+  dedicated Sprint 25 channel `control_rule_rows`, **not** through
+  `pattern_energy_rows`. The two channels are disjoint by
+  construction.
+- `[EMITTERS]`, `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]`,
+  `[DEMANDS]`, `[TIMES]`, `[REPORT]`, and the inert layout sections
+  — still surfaced at the section level via `ignored_sections`
+  (Sprint 24), but **not** per-row through `pattern_energy_rows`.
+  The dPHM importer has no use for their row content, so the
+  diagnostics surface is kept narrow.
+- `[JUNCTIONS]`, `[RESERVOIRS]`, `[TANKS]`, `[PIPES]`, `[PUMPS]`,
+  `[VALVES]`, `[OPTIONS]`, `[CURVES]` — hydraulically active and
+  consumed by the parser; never surfaced as diagnostics.
+
+### Hydraulic inertness
+
+`pattern_energy_rows` is a side channel only. Adding `[PATTERNS]` or
+`[ENERGY]` blocks to a fixture leaves every `Network` field
+(`edge_index`, `pipe_mask`, `pump_mask`, `demands`,
+`fixed_head_values`, `lengths`, `diameters`, `c_factors`,
+`pump_coeffs`, `pump_speeds`) byte-for-byte identical to the
+Sprint 21 baseline. Newton-solving the perturbed network reproduces
+the baseline heads / flows to 1e-9 / 1e-12.
+`tests/dphm/test_inp_pattern_energy_row_diagnostics.py` pins this
+invariance.
+
+### What Sprint 26 does NOT do
+
+- It does **not** activate `[PATTERNS]` time-varying demand support.
+  The dPHM core remains steady-state; the Sprint 18 `[OPTIONS] Demand
+  Multiplier` scalar is still the only honoured demand-scaling axis.
+  Pattern-multiplier rows are recorded as visibility only; the
+  loaded `Network` and its Newton solve are unchanged.
+- It does **not** activate `[ENERGY]` parsing or energy-cost
+  modelling. `GLOBAL PRICE`, `GLOBAL EFFIC`, and `PUMP <id> PRICE`
+  rows are recorded but never propagated into the surrogate pump
+  models, fluid-density calculations, or any other hydraulic field.
+- It does **not** interpret EPANET pattern / energy structure. A
+  multi-row `PAT1` declaration surfaces as one record per source
+  line, not one record per semantic profile.
+- It does **not** surface per-row content for any other ignored
+  section. `[EMITTERS]`, `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`,
+  `[MIXING]`, `[DEMANDS]`, `[TIMES]`, `[REPORT]` remain visible only
+  at the section level via `ignored_sections` (Sprint 24).
+- It does **not** add new hydraulic physics. No Darcy-Weisbach, no
+  time-varying demand, no closed-link / pump-speed modelling, no
+  energy-cost modelling, no rule engine, no PLC / PAC / SCADA
+  adapter, no write/control path.
+- It does **not** attach diagnostic state to `Network`. The
+  `Network` dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit `pattern_energy_rows`.
+  The fallback parser is authoritative for Sprint 26 diagnostics.
+  WNTR has its own `[PATTERNS]` / `[ENERGY]` parser and stores those
+  declarations internally; the dPHM WNTR adapter does not re-emit any
+  rows and returns an **empty** `pattern_energy_rows` tuple when
+  `parser="wntr"` is requested. The asymmetry mirrors Sprints 23 /
+  24 / 25 — fallback authoritative, WNTR documented rather than
+  papered over.
+
+### Tests
+
+`tests/dphm/test_inp_pattern_energy_row_diagnostics.py` — Sprint 26:
+
+- public-surface checks: `EpanetPatternEnergyDiagnostic` is a frozen
+  dataclass with the expected fields; `tokens` is a tuple;
+  `EpanetImportDiagnostics.pattern_energy_rows` defaults to `()` and
+  is tuple-backed and frozen;
+- empty `pattern_energy_rows` for fixtures without `[PATTERNS]` /
+  `[ENERGY]`;
+- bare `[PATTERNS]` / `[ENERGY]` header (no body) yields no per-row
+  records (the section still appears in `ignored_sections`);
+- single `[PATTERNS]` and `[ENERGY]` rows each produce one record
+  with the expected `tokens` and reconstructed `text`;
+- multiple `[PATTERNS]` rows preserve source order and `row_index`
+  resets correctly per section;
+- multiple `[ENERGY]` rows preserve source order and `row_index`
+  resets correctly per section;
+- mixed `[PATTERNS]` + `[ENERGY]` blocks preserve source order in
+  both directions (patterns-first and energy-first);
+- inline `; comment` is stripped from `tokens` (the underlying
+  tokeniser strips it before records can be emitted);
+- blank rows inside `[ENERGY]` are dropped;
+- other ignored sections (`CONTROLS`, `RULES`, `EMITTERS`, `QUALITY`,
+  `SOURCES`, `REACTIONS`, `MIXING`, `TIMES`, `REPORT`, `DEMANDS`)
+  never appear in `pattern_energy_rows` — they still surface at the
+  section level via `ignored_sections`;
+- `[STATUS]` is never surfaced through `pattern_energy_rows` or
+  `ignored_sections`;
+- hydraulically active sections never surface through
+  `pattern_energy_rows`;
+- Sprint 25 `control_rule_rows` still excludes `[PATTERNS]` /
+  `[ENERGY]`;
+- `ignored_sections` still lists `PATTERNS` / `ENERGY` when those
+  sections are present;
+- `Network` byte-for-byte invariance against the Sprint 21 baseline
+  with `[PATTERNS]` / `[ENERGY]` rows added;
+- Newton-solve heads / flows match the baseline to 1e-9 / 1e-12 with
+  `[PATTERNS]` and `[ENERGY]` present;
+- `return_diagnostics=True` returns the same `Network` as the
+  default `load_network_from_inp(path)` call, with
+  `pattern_energy_rows` populated;
+- backward compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- `load_inp_diagnostics(path)` and `load_network_from_inp(path,
+  return_diagnostics=True)` return identical `pattern_energy_rows`,
+  `control_rule_rows`, `status_rows`, and `ignored_sections`;
+- Sprint 23 + 24 + 25 + 26 diagnostics coexist on a single file (with
+  `[STATUS] OPEN`, `[CONTROLS]`, `[RULES]`, `[PATTERNS]`, `[ENERGY]`
+  all present);
+- Sprint 22 rejection paths still raise when `[PATTERNS]` / `[ENERGY]`
+  are also present in the file; no partial diagnostics leak out;
+- optional WNTR back-end smoke check (`pytest.importorskip("wntr")`)
+  — the WNTR back-end returns an `EpanetImportDiagnostics` with an
+  empty `pattern_energy_rows` tuple; diagnostic parity with the
   fallback parser is **not** required.
 
 ## Mass balancing
