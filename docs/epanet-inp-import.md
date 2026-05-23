@@ -1,8 +1,10 @@
-# EPANET `.inp` Topology Import (Sprint 11)
+# EPANET `.inp` Topology Import (Sprint 11–12)
 
 Sprint 11 extends the dPHM topology loader stack with optional
-EPANET-style `.inp` import, alongside the Sprint 8 JSON loader. The
-public entry point is one function:
+EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
+Sprint 12 adds HEAD-curve pump translation on top of that surface
+(see "Pump HEAD curves" below). The public entry point is one
+function:
 
 ```python
 from aquaoptima.dphm import load_network_from_inp
@@ -66,19 +68,103 @@ needed to load steady-state reference fixtures.
 | `[TANKS]`        | id, elevation, init-level → mapped to a fixed-head boundary at `elev + init_level`. Curves ignored.       |
 | `[PIPES]`        | id, node1, node2, length, diameter, roughness, optional minor-loss (ignored), optional status (`OPEN`).  |
 | `[OPTIONS]`      | `Units` (flow-unit family) and `Headloss` (must be `H-W`).                                               |
+| `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate into a dPHM pump edge via least-squares curve fit.       |
+| `[CURVES]`       | Sprint 12: pump HEAD curves are parsed into `(Q, H)` points. The X column is converted to m³/s using the file's flow-unit factor. Unused curves are tolerated. |
 | `[TITLE]`, `[COORDINATES]`, `[PATTERNS]`, `[REPORT]`, `[TIMES]`, `[END]`, ... | Silently ignored.                                  |
 
 ### Sections that fail loudly
 
 | Section          | Reason                                                                                                                                |
 |------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| `[PUMPS]`        | Raises `ValueError`. The fallback parser does not yet translate EPANET pump curves into the dPHM pump-affinity representation.        |
+| `[PUMPS]` (non-HEAD form) | Raises `ValueError`. The fallback parser only supports `HEAD curve_id` pump rows. `POWER`, `SPEED`, and other forms are out of scope. |
 | `[VALVES]`       | Raises `ValueError`. The dPHM steady-state core does not model valves.                                                                |
 
-For pump fixtures, prefer the JSON loader
-(`load_network_from_json`, see `docs/topology-json-schema.md`) or
-install WNTR. The WNTR back-end currently also refuses INP files that
-declare pumps or valves — same scope boundary, different error site.
+The Sprint 11 WNTR back-end still refuses INP files that declare
+pumps or valves; Sprint 12 only updates the fallback parser. The
+WNTR-backed pump path is deferred.
+
+## Pump HEAD curves (Sprint 12)
+
+EPANET pump rows can specify their characteristic as a `HEAD` curve:
+
+```text
+[PUMPS]
+;ID    Node1   Node2   Parameters
+ PU1   R1      J1      HEAD   PUMPCURVE1
+
+[CURVES]
+;ID          X-Value   Y-Value
+ PUMPCURVE1   0.0      45.00
+ PUMPCURVE1  20.0      44.68
+ PUMPCURVE1  50.0      43.00
+```
+
+The Sprint 12 fallback parser translates each such pump into a
+single dPHM pump edge via the helper
+`aquaoptima.dphm.fit_pump_head_curve`. The fit is a 3-parameter
+least-squares solve against the dPHM affinity quadratic at the
+static nominal speed `s = 1`:
+
+```
+H(Q) = a0 + a1·Q + a2·Q²
+```
+
+The X-column of the curve is converted from the file-declared
+flow unit (e.g. L/s under `LPS`) to m³/s **before** fitting, so the
+resulting `[a0, a1, a2]` are directly compatible with the dPHM
+pump-affinity API (which consumes flows in m³/s).
+
+`fit_pump_head_curve` returns the coefficients together with a
+diagnostics dict:
+
+| key              | meaning                                                                  |
+|------------------|--------------------------------------------------------------------------|
+| `a0`, `a1`, `a2` | Fitted dPHM quadratic coefficients (at `s = 1`).                         |
+| `rmse`           | Root-mean-square residual of the fit against the input points (m).      |
+| `max_abs_error`  | Maximum absolute residual of the fit (m).                                |
+| `num_points`     | Number of `(Q, H)` points consumed.                                      |
+| `q_min`, `q_max` | Flow domain spanned by the input points (m³/s).                          |
+| `droop_ok`       | `1.0` iff `a2 ≤ 0` (physically sensible centrifugal-pump droop).         |
+
+### Constraints and failure modes
+
+The fitter and pump-row parser fail loudly on input that cannot
+sustain a credible dPHM pump model:
+
+- Fewer than 3 curve points → `ValueError` (quadratic fit is
+  under-determined).
+- Negative or non-finite flow values → `ValueError`.
+- Non-positive or non-finite head values → `ValueError`.
+- Fitted shut-off head `a0 ≤ 0` → `ValueError` (no curve EPANET
+  considers valid would produce this; the data is almost certainly
+  mislabeled).
+- Pump row references a curve id not declared under `[CURVES]` →
+  `ValueError`.
+- Pump row uses any keyword other than `HEAD` (e.g. `POWER`,
+  `SPEED`) → `ValueError`.
+- Duplicate pump id (with another pump or with a pipe) → `ValueError`.
+
+The fitter additionally records `droop_ok = 0` when the fit produces
+`a2 > 0` (head rises with flow). Sprint 12 *accepts* such fits — the
+solver does not require `a2 ≤ 0` — but the diagnostic is exposed so
+downstream code can warn on physically suspicious curves.
+
+### Edge ordering
+
+Pipes come first, then pumps, in file order within each section.
+A file with `[PIPES]` rows `P1, P2` followed by `[PUMPS]` rows
+`PU1, PU2` produces an edge index `[P1, P2, PU1, PU2]`. The
+`pipe_mask` / `pump_mask` partition is preserved exactly.
+
+### Shipped pump fixture
+
+`docs/examples/epanet_reference_pump.inp` is a tiny three-node
+topology (one reservoir, one pump, one pipe, two junctions) with a
+6-point HEAD curve. The curve points lie exactly on
+`H = 45 − 800·Q²` so the fit recovers `[a0, a1, a2] = [45, 0, −800]`
+to float-precision tolerances. The network solves with
+`newton_solve(..., jacobian_mode="analytic")` to a residual norm at
+or below the working tolerance.
 
 ## Unit conventions
 
@@ -144,10 +230,14 @@ Tests:
 
 - `tests/dphm/test_inp_network_io.py` — fallback parser, full error
   surface, solver compatibility, batched residual compatibility.
+- `tests/dphm/test_inp_pump_curves.py` — Sprint 12 pump-curve parser
+  and `fit_pump_head_curve` helper, including malformed inputs.
 - `tests/dphm/test_wntr_optional_import.py` — optional WNTR
   comparison, skipped when WNTR is not installed.
 - `tests/dataio/test_inp_physics_telemetry.py` — physics-consistent
-  telemetry round-trip on the INP-loaded network.
+  telemetry round-trip on the INP-loaded loop network.
+- `tests/dataio/test_inp_pump_telemetry.py` — Sprint 12 analytic-Newton
+  solve and physics-consistent telemetry on the pump fixture.
 
 ## What this loader is **not**
 
@@ -165,8 +255,10 @@ Tests:
 Deferred to a future sprint:
 
 - US-customary flow units (`GPM`, `CFS`, …) on the fallback parser.
-- Pump curve translation (LINEAR / HEAD / POWER → dPHM pump
-  affinity).
+- Pump curve translation for the `POWER` / `SPEED` / `LINEAR` /
+  multi-point efficiency forms (HEAD-curve form shipped in Sprint 12).
+- WNTR-backed pump translation (the Sprint 12 update only widens the
+  fallback parser; the WNTR adapter still refuses pumps).
 - Larger reference fixtures (e.g. the EPANET `Net1` / `Net3` shipped
   examples) routed through the WNTR back-end.
 

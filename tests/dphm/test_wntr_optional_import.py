@@ -62,6 +62,27 @@ def test_wntr_loaded_network_solves() -> None:
     assert result.residual_norm < 1e-8
 
 
+def test_wntr_loader_still_refuses_pump_fixture_in_sprint12() -> None:
+    """Sprint 12 widens only the fallback parser; WNTR still refuses pumps.
+
+    The WNTR adapter is scoped to the same topology subset as Sprint 11
+    (pipes + reservoirs + tanks + junctions). It raises a clear
+    :class:`ValueError` when the WNTR-loaded model declares pumps,
+    pointing users at the fallback parser for the Sprint 12 path. This
+    test runs only when WNTR is installed; otherwise it skips cleanly.
+    """
+    pytest.importorskip("wntr")
+
+    pump_fixture = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "examples"
+        / "epanet_reference_pump.inp"
+    )
+    with pytest.raises(ValueError, match="pumps"):
+        load_network_from_inp(pump_fixture, parser="wntr")
+
+
 def test_wntr_parser_explicit_raises_importerror_when_missing() -> None:
     """If WNTR is *not* installed and parser='wntr' is forced, raise ImportError.
 

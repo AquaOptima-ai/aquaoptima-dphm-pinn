@@ -297,7 +297,15 @@ def test_nonpositive_pipe_roughness_raises(tmp_path: Path) -> None:
         load_network_from_inp(path, parser="fallback")
 
 
-def test_pumps_section_raises_in_fallback(tmp_path: Path) -> None:
+def test_pumps_section_without_curve_raises_in_fallback(tmp_path: Path) -> None:
+    """Sprint 12: pump rows that reference an *undefined* HEAD curve still raise.
+
+    The Sprint 11 contract was "any [PUMPS] section raises". Sprint 12
+    softens that — well-formed ``HEAD curve_id`` rows are translated into
+    a dPHM pump edge when the referenced curve is declared in
+    ``[CURVES]``. The error path therefore moves from "any pump" to
+    "pump references undefined HEAD curve".
+    """
     inp = """[JUNCTIONS]
  J1  0.0  0.0
  J2  0.0  5.0
@@ -312,7 +320,7 @@ def test_pumps_section_raises_in_fallback(tmp_path: Path) -> None:
 """
     path = tmp_path / "with_pump.inp"
     path.write_text(inp)
-    with pytest.raises(ValueError, match=r"\[PUMPS\]"):
+    with pytest.raises(ValueError, match="undefined HEAD curve"):
         load_network_from_inp(path, parser="fallback")
 
 

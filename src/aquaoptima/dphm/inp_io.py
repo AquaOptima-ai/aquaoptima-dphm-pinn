@@ -8,6 +8,13 @@ adapter. The public surface is one function,
 :class:`aquaoptima.dphm.Network` dataclass every other loader and
 fixture in the project produces.
 
+Sprint 12 extends the fallback parser to additionally translate
+EPANET ``HEAD``-curve pumps into dPHM pump-affinity quadratic
+coefficients. The translation fits the EPANET curve points to the
+dPHM quadratic ``H(Q, s) = a0 s^2 + a1 s Q + a2 Q^2`` at the static
+nominal speed ``s = 1`` via least squares; see
+:func:`fit_pump_head_curve` for the public helper.
+
 Two parser back-ends are available:
 
 * ``parser="fallback"`` (default of ``parser="auto"`` when ``wntr`` is
@@ -48,14 +55,21 @@ Sections honoured:
   ``[BACKDROP]``, ``[TAGS]``, ``[ENERGY]``, ``[STATUS]``,
   ``[CONTROLS]``, ``[RULES]``, ``[EMITTERS]``,
   ``[DEMANDS]``, ``[QUALITY]``, ``[SOURCES]``, ``[REACTIONS]``,
-  ``[MIXING]``, ``[CURVES]`` — silently ignored (steady-state
-  hydraulic topology only).
+  ``[MIXING]`` — silently ignored (steady-state hydraulic topology
+  only).
+* ``[CURVES]`` — Sprint 12: parsed into per-curve ``(Q, H)`` point
+  lists in the file-declared flow unit. Only consumed when a
+  ``[PUMPS]`` row references the curve via ``HEAD curve_id``; unused
+  curves are accepted but otherwise ignored.
 
 Sections that intentionally **fail loudly**:
 
-* ``[PUMPS]`` — raises :class:`ValueError`. The Sprint 11 fallback
-  parser does not implement EPANET pump curve resolution. Use the
-  JSON loader for pump fixtures, or upgrade to WNTR.
+* ``[PUMPS]`` — Sprint 12: pump rows of the form
+  ``id n1 n2 HEAD curve_id`` are translated into a dPHM pump edge by
+  fitting the referenced ``[CURVES]`` rows to the quadratic pump
+  characteristic ``H(Q) = a0 + a1*Q + a2*Q^2`` at ``s = 1``. Any
+  other pump form (``POWER``, ``SPEED``, etc.) still raises
+  :class:`ValueError`.
 * ``[VALVES]`` — raises :class:`ValueError`. The dPHM core does not
   model valves.
 
@@ -110,7 +124,10 @@ _DEMAND_TO_CMS: dict[str, float] = {
 
 
 # Sections we silently skip — they carry no information the
-# steady-state Hazen-Williams core depends on.
+# steady-state Hazen-Williams core depends on. ``CURVES`` is *not*
+# in this list because Sprint 12 consumes HEAD-type curves when a
+# ``[PUMPS]`` row references one; unused curves are still tolerated
+# (the parser just never reads them).
 _IGNORED_SECTIONS = frozenset(
     {
         "TITLE",
@@ -133,7 +150,6 @@ _IGNORED_SECTIONS = frozenset(
         "SOURCES",
         "REACTIONS",
         "MIXING",
-        "CURVES",
     }
 )
 
@@ -243,6 +259,150 @@ def _parse_node_rows(
     return out
 
 
+# --- pump-curve parsing & fitting (Sprint 12) ------------------------------
+
+
+PumpCurvePoint = tuple[float, float]
+
+
+def _parse_curves(
+    rows: list[list[str]], *, demand_factor: float
+) -> dict[str, list[PumpCurvePoint]]:
+    """Group ``[CURVES]`` rows by curve id, preserving file order.
+
+    Each accepted row has at least three tokens:
+    ``curve_id``, ``X-value`` (flow, in the file's flow unit), and
+    ``Y-value`` (head, in metres for SI flow units). The X column
+    is converted to m^3/s by ``demand_factor`` so the resulting
+    coefficients are directly compatible with
+    :func:`aquaoptima.dphm.pump_head_gain`, which consumes flows in
+    m^3/s.
+
+    EPANET allows curves of several types (HEAD / EFFICIENCY /
+    VOLUME / HEADLOSS). The ``[CURVES]`` section itself does not
+    declare the type — only the consumer (a ``[PUMPS]`` row, in
+    our case) does. We therefore parse every curve uniformly here
+    and let the pump-row resolver decide which curve is meaningful.
+    """
+    grouped: dict[str, list[PumpCurvePoint]] = {}
+    for row in rows:
+        if len(row) < 3:
+            raise ValueError(
+                f"[CURVES] row needs at least 3 tokens (id, X, Y), got {row!r}"
+            )
+        curve_id = row[0]
+        try:
+            x_val = float(row[1])
+            y_val = float(row[2])
+        except ValueError as exc:
+            raise ValueError(
+                f"[CURVES] row {row!r} has non-numeric X/Y column"
+            ) from exc
+        if not math.isfinite(x_val) or not math.isfinite(y_val):
+            raise ValueError(f"[CURVES] row {row!r} has non-finite X/Y value")
+        if x_val < 0.0:
+            raise ValueError(
+                f"[CURVES] curve {curve_id!r} has negative flow value {x_val}"
+            )
+        grouped.setdefault(curve_id, []).append((x_val * demand_factor, y_val))
+    return grouped
+
+
+def fit_pump_head_curve(
+    points: list[PumpCurvePoint] | tuple[PumpCurvePoint, ...],
+) -> tuple[list[float], dict[str, float]]:
+    """Fit ``(Q, H)`` points to the dPHM pump quadratic at ``s = 1``.
+
+    The dPHM pump-affinity model is
+    ``H(Q, s) = a0 * s^2 + a1 * s * Q + a2 * Q^2``. EPANET pump
+    HEAD curves are static (no speed information), so we fit at
+    ``s = 1`` against the reduced form ``H(Q) = a0 + a1*Q + a2*Q^2``.
+
+    The fit is a 3-column ordinary least-squares solve via
+    :func:`torch.linalg.lstsq` against the rows
+    ``[1, Q, Q^2]``; the solver is stable for any rank-3 input.
+
+    Parameters
+    ----------
+    points
+        Sequence of ``(Q, H)`` pairs in **m^3/s** and **metres**.
+        At least 3 points are required for a quadratic fit.
+
+    Returns
+    -------
+    tuple
+        ``([a0, a1, a2], diagnostics)`` where ``diagnostics`` is a
+        small dict carrying ``a0``, ``a1``, ``a2``, ``rmse``,
+        ``max_abs_error``, ``num_points``, ``q_min``, ``q_max``,
+        and a boolean ``droop_ok`` flag (``True`` iff ``a2 <= 0``,
+        i.e. head decreases with increasing flow as a physically
+        sensible centrifugal-pump curve does).
+
+    Raises
+    ------
+    ValueError
+        If fewer than 3 points are supplied, if any Q is negative,
+        if any H is non-positive or non-finite, or if the fitted
+        shut-off head ``a0`` is non-positive (which would imply a
+        physically nonsensical curve or pathological input data).
+    """
+    pts = list(points)
+    if len(pts) < 3:
+        raise ValueError(
+            f"pump HEAD curve needs at least 3 points for a quadratic fit, "
+            f"got {len(pts)}"
+        )
+
+    Q = torch.tensor([p[0] for p in pts], dtype=torch.float64)
+    H = torch.tensor([p[1] for p in pts], dtype=torch.float64)
+
+    if not torch.isfinite(Q).all() or (Q < 0).any():
+        raise ValueError(
+            f"pump curve flow values must be finite and non-negative, got {Q.tolist()}"
+        )
+    if not torch.isfinite(H).all() or (H <= 0).any():
+        raise ValueError(
+            f"pump curve head values must be finite and positive, got {H.tolist()}"
+        )
+
+    # Design matrix [1, Q, Q^2]; lstsq is stable for any rank-3 input.
+    X = torch.stack([torch.ones_like(Q), Q, Q * Q], dim=1)  # [N, 3]
+    sol = torch.linalg.lstsq(X, H.unsqueeze(1))
+    coeffs = sol.solution.squeeze(1)
+    a0 = float(coeffs[0].item())
+    a1 = float(coeffs[1].item())
+    a2 = float(coeffs[2].item())
+
+    if not (math.isfinite(a0) and math.isfinite(a1) and math.isfinite(a2)):
+        raise ValueError(
+            f"pump curve fit produced non-finite coefficients: a0={a0}, a1={a1}, a2={a2}"
+        )
+    if a0 <= 0.0:
+        raise ValueError(
+            f"fitted shut-off head a0={a0} must be strictly positive; "
+            "EPANET HEAD curves are expected to have positive head at Q=0"
+        )
+
+    H_pred = X @ coeffs
+    residual = H_pred - H
+    rmse = float(torch.sqrt((residual * residual).mean()).item())
+    max_abs = float(residual.abs().max().item())
+
+    diagnostics: dict[str, float] = {
+        "a0": a0,
+        "a1": a1,
+        "a2": a2,
+        "rmse": rmse,
+        "max_abs_error": max_abs,
+        "num_points": float(len(pts)),
+        "q_min": float(Q.min().item()),
+        "q_max": float(Q.max().item()),
+        "droop_ok": 1.0 if a2 <= 0.0 else 0.0,
+    }
+
+    return [a0, a1, a2], diagnostics
+
+
 # --- the fallback parser ----------------------------------------------------
 
 
@@ -264,13 +424,7 @@ def _fallback_parse(
             "INP file is missing [PIPES]; the dPHM core requires at least one pipe"
         )
 
-    # Pumps / valves: refuse rather than guess.
-    if "PUMPS" in sections and sections["PUMPS"]:
-        raise ValueError(
-            "[PUMPS] sections are not supported by the fallback INP parser; "
-            "use the JSON loader for pump fixtures or install WNTR and pass "
-            "parser='wntr'"
-        )
+    # Valves: refuse rather than guess.
     if "VALVES" in sections and sections["VALVES"]:
         raise ValueError(
             "[VALVES] are not modelled by the dPHM steady-state core; "
@@ -281,6 +435,12 @@ def _fallback_parse(
     opts = _parse_options(sections.get("OPTIONS", []))
     flow_unit = opts.get("UNITS", "LPS")
     demand_factor = _resolve_demand_factor(flow_unit)
+
+    # Sprint 12: parse pump curves up-front so [PUMPS] rows can
+    # resolve their curve_id against the file's declared CURVES.
+    curves = _parse_curves(
+        sections.get("CURVES", []), demand_factor=demand_factor
+    )
 
     headloss = opts.get("HEADLOSS", "H-W").upper()
     if headloss not in ("H-W", "HW"):
@@ -434,6 +594,54 @@ def _fallback_parse(
 
     if not src_idx:
         raise ValueError("INP file declared no pipes after parsing [PIPES]")
+
+    # Sprint 12: [PUMPS] -> dPHM pump edges via HEAD curve fitting.
+    # Pump rows are appended after pipe rows so the edge ordering is
+    # ``[pipes..., pumps...]`` in file order within each section.
+    for row in sections.get("PUMPS", []):
+        if len(row) < 5:
+            raise ValueError(
+                f"[PUMPS] row needs at least 5 tokens (id, node1, node2, "
+                f"keyword, value), got {row!r}"
+            )
+        pump_id, node1, node2, keyword = row[0], row[1], row[2], row[3].upper()
+        if pump_id in seen_edge_ids:
+            raise ValueError(f"duplicate edge id {pump_id!r} in [PUMPS]")
+        seen_edge_ids.add(pump_id)
+        if node1 not in id_to_index:
+            raise ValueError(
+                f"pump {pump_id!r} references unknown source node {node1!r}"
+            )
+        if node2 not in id_to_index:
+            raise ValueError(
+                f"pump {pump_id!r} references unknown target node {node2!r}"
+            )
+        if keyword != "HEAD":
+            raise ValueError(
+                f"pump {pump_id!r} uses unsupported keyword {row[3]!r}; the "
+                "fallback parser only supports 'HEAD curve_id' pump rows"
+            )
+        curve_id = row[4]
+        if curve_id not in curves:
+            raise ValueError(
+                f"pump {pump_id!r} references undefined HEAD curve "
+                f"{curve_id!r}; available curves: {sorted(curves)}"
+            )
+        coeffs, _diag = fit_pump_head_curve(curves[curve_id])
+
+        src_idx.append(id_to_index[node1])
+        dst_idx.append(id_to_index[node2])
+        pipe_mask.append(False)
+        pump_mask.append(True)
+        # Benign positive placeholders for pipe-only fields on a pump row.
+        # ``Network`` only enforces positivity on rows where ``pipe_mask``
+        # is True, but using sane values keeps the dataclass inspectable
+        # and matches the convention in ``make_pump_network``.
+        lengths.append(1.0)
+        diameters.append(0.1)
+        c_factors.append(130.0)
+        edge_pump_coeffs.append(coeffs)
+        edge_pump_speeds.append(1.0)
 
     # Re-balance demand so the network is mass-consistent at parse time:
     # any drift (e.g. demands declared on junctions but no matching supply
@@ -686,4 +894,4 @@ def load_network_from_inp(
     return _fallback_parse(text, default_c_factor=default_c_factor)
 
 
-__all__ = ["load_network_from_inp"]
+__all__ = ["fit_pump_head_curve", "load_network_from_inp"]
