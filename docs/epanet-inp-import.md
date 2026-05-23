@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–14)
+# EPANET `.inp` Topology Import (Sprint 11–15)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -7,6 +7,8 @@ Sprint 12 adds HEAD-curve pump translation to the fallback parser
 WNTR-backed parser into parity with the fallback parser for the same
 HEAD-curve pumps. Sprint 14 adds `POWER`-pump support to both
 back-ends via a bounded quadratic surrogate (see "POWER pumps"
+below). Sprint 15 adds conservative `[VALVES]` translation for the
+two steady-state-compatible forms `PRV` and `TCV` (see "Valves"
 below). The public entry point is one function:
 
 ```python
@@ -72,6 +74,7 @@ needed to load steady-state reference fixtures.
 | `[PIPES]`        | id, node1, node2, length, diameter, roughness, optional minor-loss (ignored), optional status (`OPEN`).  |
 | `[OPTIONS]`      | `Units` (flow-unit family) and `Headloss` (must be `H-W`).                                               |
 | `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate via least-squares curve fit. Sprint 14: `POWER value` pump rows translate via the constant-power surrogate. |
+| `[VALVES]`       | Sprint 15: `PRV` and `TCV` valve rows translate via the conservative pressure-boundary / resistance surrogates. See "Valves" below.   |
 | `[CURVES]`       | Sprint 12: pump HEAD curves are parsed into `(Q, H)` points. The X column is converted to m³/s using the file's flow-unit factor. Unused curves are tolerated. |
 | `[TITLE]`, `[COORDINATES]`, `[PATTERNS]`, `[REPORT]`, `[TIMES]`, `[END]`, ... | Silently ignored.                                  |
 
@@ -80,9 +83,12 @@ needed to load steady-state reference fixtures.
 | Section          | Reason                                                                                                                                |
 |------------------|---------------------------------------------------------------------------------------------------------------------------------------|
 | `[PUMPS]` (unsupported keyword) | Raises `ValueError`. The parser supports `HEAD curve_id` (Sprint 12) and `POWER value` (Sprint 14). `SPEED` and any custom keyword still raise. |
-| `[VALVES]`       | Raises `ValueError`. The dPHM steady-state core does not model valves.                                                                |
+| `[VALVES]` (unsupported type)   | Raises `ValueError` with the valve id. Sprint 15 supports `PRV` and `TCV` only; `FCV`, `PSV`, `PBV`, and `GPV` are deferred (they impose constraints — flow setpoints, pressure-sustaining / breaker, custom head-loss curves — that don't map cleanly onto the steady-state core). |
 
-The WNTR back-end still refuses `[VALVES]`. As of Sprint 14, the
+As of Sprint 15, the WNTR back-end mirrors the fallback parser's
+valve translation: `PRV` and `TCV` route through the same
+`translate_valve_to_surrogate` helper, and other valve types raise
+a clear `ValueError` referencing the valve id. As of Sprint 14, the
 WNTR back-end translates both HEAD-curve and POWER pumps; any
 remaining pump type (custom strings, future EPANET extensions)
 raises `ValueError` from the WNTR adapter, matching the fallback
@@ -286,6 +292,187 @@ The network solves with `newton_solve(jacobian_mode="analytic")` to a
 residual norm at or below the working tolerance, and round-trips
 through `generate_physics_consistent_telemetry`.
 
+## Valves (Sprint 15)
+
+EPANET valve rows live in a `[VALVES]` section:
+
+```text
+[VALVES]
+;ID  Node1  Node2  Diameter  Type  Setting  MinorLoss
+ V1  J1     J2     150       PRV   35       0
+ V2  J2     J3     150       TCV   2.5      0
+```
+
+The dPHM steady-state core does not model active valve-control
+state as a first-class hydraulic constraint. Sprint 15 therefore
+imports the two **conservative, steady-state-compatible** valve
+forms via a deliberately approximate translation:
+
+- `PRV` — pressure-reducing valve — translated as a **pressure-
+  boundary surrogate**.
+- `TCV` — throttle control valve — translated as a **resistance
+  surrogate** (an equivalent Hazen-Williams pipe edge).
+
+Other valve forms (`FCV` flow-control, `PSV` pressure-sustaining,
+`PBV` pressure-breaker, `GPV` general-purpose) raise a clear
+`ValueError` with the valve id.
+
+The public translator is `translate_valve_to_surrogate(...)`. The
+public TCV helper is `fit_tcv_resistance_surrogate(...)`. Both are
+re-exported from `aquaoptima.dphm`.
+
+### PRV — pressure-boundary surrogate
+
+For a `PRV` row `V1 N1 N2 D PRV setting K_minor`:
+
+1. The downstream node `N2` is pinned as a fixed-head boundary at
+   `head = elev(N2) + setting`. The setting is interpreted in
+   metres of pressure head (the EPANET SI convention).
+2. The valve edge itself becomes a short, permissive pipe-like
+   resistance edge (`length = max(2 * D, 1 m)`, file diameter,
+   `c_factor = 130`).
+3. The translation records `approximation =
+   "prv_pressure_boundary_surrogate"` in the helper's diagnostics.
+
+Hard constraints:
+
+- `N2` must not already be a fixed-head boundary (reservoir or
+  tank). Overwriting an existing boundary would silently change
+  the network's physics, so the parser refuses with a clear error
+  referencing the valve id.
+- `setting` must be strictly positive and finite.
+- `diameter` must be strictly positive and finite.
+
+**What the PRV surrogate is NOT:**
+
+- It does **not** enforce active flow / pressure regulation. Mass
+  balance on the now-fixed downstream node is dropped from the
+  residual, so the flow through the PRV edge is determined by the
+  upstream pressure budget, *not* by downstream demand. The two
+  may differ.
+- It does **not** model the EPANET active-control state machine
+  (active / open / closed branches).
+- The shipped fixture `epanet_reference_prv.inp` deliberately uses
+  a long, narrow upstream pipe so the upstream pressure budget
+  caps the through-valve flow close to the downstream demand —
+  this is the recommended pattern when building hand-crafted PRV
+  fixtures.
+
+### TCV — resistance surrogate
+
+For a `TCV` row `V1 N1 N2 D TCV K K_minor`:
+
+1. `K_total = K + K_minor`.
+2. Anchor flow `Q_nom` = network's total positive demand (or 1 L/s
+   default if the network has no positive demand; the diagnostic
+   field `nominal_flow_m3s` records the actual value used).
+3. Minor-loss head loss at anchor:
+   `h_minor = K_total * Q_nom² / (2 g A²)`, where `A = π D² / 4`.
+4. Equivalent Hazen-Williams pipe length so the HW head loss at
+   `Q_nom` matches `h_minor`:
+   `L_eff = h_minor / (10.67 * Q_nom^1.852 / (C^1.852 * D^4.87))`.
+5. The surrogate edge has `length = L_eff` (floored at 1e-6 m to
+   keep the `Network` invariants intact), the file diameter, and
+   the default `c_factor = 130`.
+6. The translation records `approximation =
+   "tcv_resistance_surrogate"` and the chosen anchor in the
+   helper's diagnostics.
+
+Hard constraints:
+
+- `setting` (K) must be non-negative and finite.
+- `K_minor` must be non-negative and finite.
+- `diameter` must be strictly positive and finite.
+
+**What the TCV surrogate is NOT:**
+
+- HW scales as `|Q|^1.852` while the true minor-loss term scales
+  as `K * Q²`. The two match exactly at `Q_nom` and diverge as
+  `Q` moves away from the anchor. The surrogate is therefore a
+  *single-anchor* approximation, not a faithful valve model.
+- It does not model the valve as an active control element. The
+  effective length is fixed at parse time and the dPHM solver
+  treats the edge as an ordinary pipe.
+
+### `fit_tcv_resistance_surrogate` diagnostics
+
+| key                  | meaning                                                  |
+|----------------------|----------------------------------------------------------|
+| `approximation`      | Always `"tcv_resistance_surrogate"`.                     |
+| `valve_type`         | Always `"TCV"`.                                          |
+| `diameter_m`         | Input diameter in metres.                                |
+| `setting`            | Input minor-loss coefficient `K`.                        |
+| `minor_loss`         | Input `K_minor` column.                                  |
+| `nominal_flow_m3s`   | Anchor flow used for `L_eff`.                            |
+| `effective_length_m` | Resulting `L_eff` (after the 1e-6 m floor).              |
+| `effective_c_factor` | Roughness used for the surrogate pipe.                   |
+| `head_loss_at_nominal_m` | `K_total * V_nom² / (2 g)` at the anchor.             |
+| `limitations`        | Free-text reminder of the off-design divergence.         |
+
+### `translate_valve_to_surrogate` failure modes
+
+- Unsupported valve types (`FCV`, `PSV`, `PBV`, `GPV`): `ValueError`
+  tagged with the valve id and the list of supported types.
+- Unknown valve type string: `ValueError` tagged with the valve id
+  and the literal token from the file.
+- Non-positive / non-finite `diameter_m`: `ValueError`.
+- Non-positive / non-finite PRV `setting`: `ValueError`.
+- Negative / non-finite TCV `setting` or `minor_loss`: `ValueError`.
+- PRV `downstream_elev_m` is non-finite: `ValueError`.
+- TCV without a `nominal_flow_m3s`: `ValueError` (the parser always
+  supplies one — at worst the 1 L/s default).
+- PRV whose downstream is already a fixed-head boundary: the
+  *parser* raises before calling the translator, because that
+  state cannot be represented without overwriting an existing
+  reservoir / tank.
+
+### Shipped valve fixtures
+
+- `docs/examples/epanet_reference_tcv.inp` — three-node TCV
+  fixture: 50 m reservoir → TCV (K = 2.5, 150 mm) → J1 → 200 m
+  pipe → J2 (15 L/s consumer). Solves with analytic Newton; the
+  TCV head loss at the solved flow matches the closed-form
+  minor-loss head loss at `Q_nom = 15 L/s`.
+- `docs/examples/epanet_reference_prv.inp` — four-node PRV
+  fixture: 50 m reservoir → 2000 m / 80 mm pipe → J1 → PRV (setting
+  20 m, 80 mm) → J2 (pinned at 20 m) → 200 m / 80 mm pipe → J3
+  (2 L/s consumer). Solves with analytic Newton; J2's head equals
+  the PRV setting. The flow through the PRV does *not* equal the
+  downstream demand — that is the documented pressure-boundary
+  limitation, asserted explicitly in the test suite.
+
+### WNTR-side valve translation
+
+When `parser="wntr"` (or `parser="auto"` with WNTR installed), the
+adapter iterates `wn.valve_name_list` and routes each valve via
+`_wntr_translate_valve`, which calls the same
+`translate_valve_to_surrogate` helper the fallback parser uses.
+
+The adapter touches only the **stable** WNTR public surface:
+
+| WNTR attribute / method               | Use                                                     |
+|---------------------------------------|---------------------------------------------------------|
+| `wn.valve_name_list`                  | Iterate valves                                          |
+| `wn.get_link(name)`                   | Resolve a valve by name                                 |
+| `valve.start_node_name` / `.end_node_name` | Edge endpoints                                     |
+| `valve.valve_type`                    | `"PRV"` / `"TCV"` / unsupported discrimination          |
+| `valve.diameter`                      | SI metres                                               |
+| `valve.initial_setting` (preferred) / `valve.setting` (fallback) | Numeric setting (m of head for PRV, K for TCV) |
+| `valve.minor_loss`                    | Additional minor-loss coefficient                       |
+
+WNTR itself refuses `PRV` / `PSV` / `FCV` valves directly connected
+to a reservoir or tank (it requires a separating pipe). Author your
+fixtures with a buffer pipe upstream of those valve types, or use
+the fallback parser which has no such restriction.
+
+WNTR-side fixture parity:
+
+- The shipped TCV and PRV fixtures load identically through both
+  back-ends.
+- Solved heads and flows agree to 1e-5 absolute.
+- Unsupported valve types raise `ValueError` referencing the valve
+  id from both back-ends.
+
 ## WNTR-backed pump translation (Sprint 13)
 
 When `parser="wntr"` (or `parser="auto"` with WNTR installed), the
@@ -421,11 +608,17 @@ Tests:
   surrogate, fallback parser POWER row handling, shipped fixture
   load + solve + per-pump residual checks.
 - `tests/dphm/test_wntr_optional_import.py` — optional WNTR
-  comparison (loop + Sprint 13 HEAD pump + Sprint 14 POWER pump
-  fixtures), skipped when WNTR is not installed.
+  comparison (loop + Sprint 13 HEAD pump + Sprint 14 POWER pump +
+  Sprint 15 PRV / TCV fixtures), skipped when WNTR is not
+  installed.
 - `tests/dphm/test_wntr_pump_helpers.py` — Sprint 13/14 WNTR pump
   translation helpers (HEAD and POWER paths), exercised against
   duck-typed fakes (no WNTR dependency).
+- `tests/dphm/test_inp_valves.py` — Sprint 15 fallback parser for
+  PRV / TCV valves, fit helper, translator, shipped fixture load +
+  solve + diagnostic evidence, error surface.
+- `tests/dphm/test_wntr_valve_helpers.py` — Sprint 15 WNTR valve
+  helpers exercised against duck-typed fakes (no WNTR dependency).
 - `tests/dataio/test_inp_physics_telemetry.py` — physics-consistent
   telemetry round-trip on the INP-loaded loop network.
 - `tests/dataio/test_inp_pump_telemetry.py` — Sprint 12 analytic-Newton
@@ -456,6 +649,12 @@ Deferred to a future sprint:
 - A more faithful POWER-pump model (e.g. solving the implicit
   constant-power constraint inside Newton instead of an upfront
   surrogate).
+- A more faithful PRV / TCV model — e.g. an active-control
+  state machine (active / open / closed branches) and a
+  mass-balanced PRV that enforces the demand invariant
+  (Sprint 15 ships the conservative pressure-boundary surrogate
+  only).
+- The remaining EPANET valve forms `FCV`, `PSV`, `PBV`, `GPV`.
 - Larger reference fixtures (e.g. the EPANET `Net1` / `Net3` shipped
   examples) routed through the WNTR back-end.
 

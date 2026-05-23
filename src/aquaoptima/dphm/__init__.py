@@ -14,7 +14,9 @@ from .incidence import cached_incidence_matrix, incidence_matrix, node_flow_bala
 from .inp_io import (
     fit_power_pump_surrogate,
     fit_pump_head_curve,
+    fit_tcv_resistance_surrogate,
     load_network_from_inp,
+    translate_valve_to_surrogate,
 )
 from .network import Network
 from .network_io import load_network_from_json
@@ -41,6 +43,7 @@ __all__ = [
     "hazen_williams_head_loss",
     "fit_power_pump_surrogate",
     "fit_pump_head_curve",
+    "fit_tcv_resistance_surrogate",
     "incidence_matrix",
     "initial_guess",
     "load_network_from_inp",
@@ -59,4 +62,5 @@ __all__ = [
     "residual_norm",
     "SolveFailureReason",
     "SolveResult",
+    "translate_valve_to_surrogate",
 ]

@@ -324,21 +324,31 @@ def test_pumps_section_without_curve_raises_in_fallback(tmp_path: Path) -> None:
         load_network_from_inp(path, parser="fallback")
 
 
-def test_valves_section_raises(tmp_path: Path) -> None:
+def test_unsupported_valves_section_raises(tmp_path: Path) -> None:
+    """Sprint 15 supports PRV/TCV; unsupported valve types still raise.
+
+    Sprint 11–14 rejected the entire ``[VALVES]`` section. Sprint 15
+    softens that — ``PRV`` and ``TCV`` rows are translated through
+    the conservative surrogate. Active flow / pressure-sustaining /
+    pressure-breaker / general-purpose valves (``FCV``, ``PSV``,
+    ``PBV``, ``GPV``) still raise a clear ``ValueError`` with the
+    valve id.
+    """
     inp = """[JUNCTIONS]
  J1  0.0  0.0
+ J2  0.0  5.0
 [RESERVOIRS]
  R1  80.0
 [PIPES]
  P1  R1  J1  100  150  130  0  OPEN
 [VALVES]
- V1  J1  R1  150  PRV  50  0
+ V1  J1  J2  150  FCV  1.0  0
 [OPTIONS]
  Units  LPS
 """
     path = tmp_path / "with_valve.inp"
     path.write_text(inp)
-    with pytest.raises(ValueError, match=r"\[VALVES\]|valves"):
+    with pytest.raises(ValueError, match="unsupported valve type"):
         load_network_from_inp(path, parser="fallback")
 
 

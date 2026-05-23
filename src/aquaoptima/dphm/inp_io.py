@@ -33,6 +33,27 @@ constant-power conversion — see the helper docstring and
 limitations. Non-HEAD, non-POWER pump forms (``SPEED``, custom)
 still raise :class:`ValueError`.
 
+Sprint 15 adds a conservative ``[VALVES]`` translator for the two
+steady-state-compatible valve forms ``PRV`` (pressure-reducing
+valve) and ``TCV`` (throttle control valve). The dPHM core does not
+model active valve-control state as a first-class hydraulic
+constraint, so the Sprint 15 valve import is deliberately limited:
+
+* ``PRV`` rows pin the downstream node to a fixed-head boundary
+  equal to ``elev_downstream + setting`` (a *pressure-boundary*
+  surrogate). The PRV edge itself becomes a short, permissive,
+  pipe-like edge. This is NOT a faithful PRV — the demand /
+  pressure-regulation invariant is not enforced. See
+  :func:`translate_valve_to_surrogate` and
+  ``docs/epanet-inp-import.md`` for the explicit assumptions.
+* ``TCV`` rows become pipe-like resistance edges whose effective
+  Hazen-Williams length is sized to reproduce the minor-loss head
+  loss ``K * V^2 / (2 g)`` at one anchor flow. The helper
+  :func:`fit_tcv_resistance_surrogate` is exposed publicly.
+
+Unsupported valve forms (``FCV``, ``PSV``, ``PBV``, ``GPV``) still
+raise :class:`ValueError`, with the valve id in the message.
+
 Two parser back-ends are available:
 
 * ``parser="fallback"`` (default of ``parser="auto"`` when ``wntr`` is
@@ -87,8 +108,13 @@ Sections that intentionally **fail loudly**:
   ``POWER value`` form via the bounded surrogate
   :func:`fit_power_pump_surrogate`. Any other pump form
   (``SPEED``, custom) still raises :class:`ValueError`.
-* ``[VALVES]`` — raises :class:`ValueError`. The dPHM core does not
-  model valves.
+* ``[VALVES]`` — Sprint 15 supports the conservative ``PRV`` and
+  ``TCV`` forms via :func:`translate_valve_to_surrogate`. Any
+  other valve form (``FCV``, ``PSV``, ``PBV``, ``GPV``) raises
+  :class:`ValueError`. The translation is approximate (pressure
+  boundary for PRV, resistance surrogate for TCV) — see the
+  helper docstrings and ``docs/epanet-inp-import.md`` for the
+  documented limitations.
 
 Unit conversion
 ---------------
@@ -582,6 +608,392 @@ def _resolve_power_pump_nominal_flow(
     return _POWER_PUMP_DEFAULT_NOMINAL_FLOW, "default_fallback"
 
 
+# --- valve translation (Sprint 15) -----------------------------------------
+
+
+# EPANET valve types the Sprint 15 translator handles conservatively.
+_SUPPORTED_VALVE_TYPES = frozenset({"PRV", "TCV"})
+
+# EPANET valve types the dPHM steady-state core *cannot* represent at
+# all in Sprint 15. These raise a clear ValueError with the valve id.
+# ``FCV`` (flow-control) imposes an explicit flow setpoint, ``PSV``
+# (pressure-sustaining) and ``PBV`` (pressure-breaker) impose
+# pressure constraints in directions that don't map cleanly onto the
+# pressure-boundary surrogate, and ``GPV`` (general-purpose) requires
+# a per-valve head-loss curve. Each is deferred.
+_UNSUPPORTED_VALVE_TYPES = frozenset({"FCV", "PSV", "PBV", "GPV"})
+
+
+# Minimum effective length floored on the TCV resistance surrogate so
+# the resulting Network never violates the ``length > 0`` invariant
+# enforced by :class:`Network`. 1e-6 m is well below any physically
+# meaningful pipe length and corresponds to negligible head loss at
+# Hazen-Williams scale.
+_TCV_MIN_EFFECTIVE_LENGTH_M = 1.0e-6
+
+# Standard gravity used by the TCV surrogate to convert ``K * V^2/(2g)``
+# into a Hazen-Williams equivalent length. Mirrors the value used in
+# :func:`fit_power_pump_surrogate` for consistency across surrogates.
+_VALVE_G = 9.80665  # m/s^2
+
+
+def fit_tcv_resistance_surrogate(
+    *,
+    diameter_m: float,
+    setting_k: float,
+    nominal_flow_m3s: float,
+    minor_loss: float = 0.0,
+    c_factor: float = 130.0,
+) -> tuple[dict[str, float], dict[str, object]]:
+    """Translate a TCV setting into an equivalent pipe-like resistance.
+
+    A throttle-control valve (TCV) imposes a local minor-loss head
+    loss ``h_K = (K_setting + K_minor) * V^2 / (2 g)``. The dPHM
+    steady-state core only models distributed (Hazen-Williams) head
+    loss along a pipe, so the Sprint 15 surrogate maps the minor-loss
+    term onto an *equivalent* Hazen-Williams pipe edge by choosing an
+    effective length ``L_eff`` that reproduces the minor-loss head
+    loss at one anchor flow ``Q_nom``:
+
+    .. math::
+
+        h_K(Q_{nom}) = (K + K_{minor}) \\frac{Q_{nom}^2}{2 g A^2}
+
+        h_{HW}(Q_{nom}) = \\frac{10.67\\, L_{eff}}{C^{1.852}\\,
+            D^{4.87}} \\cdot Q_{nom}^{1.852}
+
+        L_{eff} = \\frac{(K + K_{minor}) Q_{nom}^{2}\\, C^{1.852}
+            D^{4.87}}{2 g A^{2}\\cdot 10.67\\, Q_{nom}^{1.852}}
+
+    where ``A = \\pi D^{2}/4`` is the pipe cross-section. The
+    resulting Hazen-Williams pipe matches the minor-loss head loss
+    *exactly at* ``Q_nom`` and approximates it elsewhere; because the
+    minor-loss term scales as ``Q^{2}`` and HW scales as
+    ``|Q|^{1.852}``, the two diverge as ``Q`` moves away from the
+    anchor. The surrogate is therefore **conservative and
+    approximate**, not a faithful valve model.
+
+    Parameters
+    ----------
+    diameter_m
+        Valve internal diameter in **metres**. Must be strictly
+        positive and finite.
+    setting_k
+        EPANET TCV setting — the minor-loss coefficient ``K``. Must
+        be non-negative and finite. ``K = 0`` represents a fully
+        open valve and produces a near-zero ``L_eff`` (floored at
+        ``1e-6 m`` to satisfy the :class:`Network` ``length > 0``
+        invariant).
+    nominal_flow_m3s
+        Anchor flow used to evaluate the head loss, in m^3/s. Must
+        be strictly positive and finite. The fallback INP parser
+        derives this from the network's total positive demand; if
+        none is available, callers should pass an explicit anchor
+        rather than letting the parser default to 1 L/s.
+    minor_loss
+        Additional minor-loss coefficient from the valve row's
+        ``MinorLoss`` column. Must be non-negative and finite.
+        Added to ``setting_k`` before computing ``L_eff``.
+    c_factor
+        Hazen-Williams roughness coefficient assigned to the
+        surrogate pipe edge. Defaults to 130 (matches the typical
+        valve-body friction class for cast iron / steel valves).
+
+    Returns
+    -------
+    tuple
+        ``(parameters, diagnostics)``. ``parameters`` carries the
+        three keys the surrogate edge needs:
+
+        * ``length_m`` — the effective length ``L_eff`` (or the
+          floor ``1e-6 m`` if ``K + K_minor`` is zero).
+        * ``diameter_m`` — the valve diameter, unchanged.
+        * ``c_factor`` — the chosen roughness coefficient.
+
+        ``diagnostics`` records the input setting, the chosen
+        anchor flow, the head loss at the anchor, the resulting
+        effective length, and a ``limitations`` string.
+
+    Raises
+    ------
+    ValueError
+        If ``diameter_m``, ``nominal_flow_m3s``, or ``c_factor`` is
+        non-positive or non-finite, or if ``setting_k`` /
+        ``minor_loss`` is negative or non-finite.
+    """
+    if not math.isfinite(diameter_m) or diameter_m <= 0.0:
+        raise ValueError(
+            f"diameter_m must be strictly positive and finite, got {diameter_m}"
+        )
+    if not math.isfinite(setting_k) or setting_k < 0.0:
+        raise ValueError(
+            f"setting_k must be non-negative and finite, got {setting_k}"
+        )
+    if not math.isfinite(minor_loss) or minor_loss < 0.0:
+        raise ValueError(
+            f"minor_loss must be non-negative and finite, got {minor_loss}"
+        )
+    if not math.isfinite(nominal_flow_m3s) or nominal_flow_m3s <= 0.0:
+        raise ValueError(
+            "nominal_flow_m3s must be strictly positive and finite, got "
+            f"{nominal_flow_m3s}"
+        )
+    if not math.isfinite(c_factor) or c_factor <= 0.0:
+        raise ValueError(
+            f"c_factor must be strictly positive and finite, got {c_factor}"
+        )
+
+    k_total = setting_k + minor_loss
+    area = math.pi * diameter_m * diameter_m / 4.0
+    h_minor = k_total * (nominal_flow_m3s * nominal_flow_m3s) / (
+        2.0 * _VALVE_G * area * area
+    )
+    hw_unit_per_metre = (
+        10.67 * (nominal_flow_m3s ** 1.852)
+        / ((c_factor ** 1.852) * (diameter_m ** 4.87))
+    )
+    if hw_unit_per_metre > 0.0:
+        length_m = h_minor / hw_unit_per_metre
+    else:
+        length_m = 0.0
+    length_m = max(length_m, _TCV_MIN_EFFECTIVE_LENGTH_M)
+
+    parameters = {
+        "length_m": float(length_m),
+        "diameter_m": float(diameter_m),
+        "c_factor": float(c_factor),
+    }
+    diagnostics: dict[str, object] = {
+        "approximation": "tcv_resistance_surrogate",
+        "valve_type": "TCV",
+        "diameter_m": float(diameter_m),
+        "setting": float(setting_k),
+        "minor_loss": float(minor_loss),
+        "nominal_flow_m3s": float(nominal_flow_m3s),
+        "effective_length_m": float(length_m),
+        "effective_c_factor": float(c_factor),
+        "head_loss_at_nominal_m": float(h_minor),
+        "limitations": (
+            "Hazen-Williams pipe matches the minor-loss head loss only at "
+            "the anchor flow; |Q|^1.852 vs K*Q^2 diverges off-design. The "
+            "TCV is not modelled as an active control element."
+        ),
+    }
+    return parameters, diagnostics
+
+
+def translate_valve_to_surrogate(
+    *,
+    valve_id: str,
+    valve_type: str,
+    diameter_m: float,
+    setting: float,
+    minor_loss: float = 0.0,
+    downstream_elev_m: float = 0.0,
+    nominal_flow_m3s: float | None = None,
+    c_factor: float = 130.0,
+) -> dict[str, object]:
+    """Translate one EPANET valve row into a dPHM-loadable description.
+
+    Returns a dict describing the per-edge surrogate parameters plus
+    optional adjustments to the downstream node (PRV pins downstream
+    as a fixed-head boundary). The returned dict is consumed by the
+    fallback / WNTR INP parsers, not by end users.
+
+    Supported valve types:
+
+    * ``PRV`` (pressure-reducing valve) — translated as a *pressure-
+      boundary* surrogate. The downstream node is pinned to a
+      fixed-head boundary at ``downstream_elev_m + setting``, and
+      the valve edge becomes a short, permissive pipe-like
+      resistance. The PRV does NOT enforce flow / pressure
+      regulation as an active control element; it only pins the
+      downstream boundary head.
+    * ``TCV`` (throttle control valve) — translated through
+      :func:`fit_tcv_resistance_surrogate` into an equivalent
+      Hazen-Williams pipe edge.
+
+    Parameters
+    ----------
+    valve_id
+        EPANET valve identifier. Used to tag diagnostics and error
+        messages.
+    valve_type
+        EPANET valve type token. Case-insensitive. ``PRV`` and
+        ``TCV`` are supported; other recognised types
+        (``FCV``, ``PSV``, ``PBV``, ``GPV``) raise
+        :class:`ValueError`.
+    diameter_m
+        Valve internal diameter in **metres**. Must be strictly
+        positive and finite.
+    setting
+        EPANET valve setting in the type's natural units:
+
+        * ``PRV`` — downstream pressure head in **metres of head**.
+          Must be strictly positive and finite.
+        * ``TCV`` — minor-loss coefficient ``K`` (dimensionless).
+          Must be non-negative and finite.
+    minor_loss
+        Additional minor-loss coefficient from the ``MinorLoss``
+        column. Non-negative and finite.
+    downstream_elev_m
+        Elevation of the downstream node. Only consumed by ``PRV``
+        (added to ``setting`` to compute the absolute fixed-head
+        boundary value). Default 0.0 — caller must pass a real
+        elevation for non-zero-datum networks.
+    nominal_flow_m3s
+        Anchor flow used by the ``TCV`` resistance surrogate. Must
+        be positive when ``valve_type == "TCV"``; ignored for
+        ``PRV``.
+    c_factor
+        Hazen-Williams roughness coefficient assigned to the
+        surrogate pipe edge. Defaults to 130.
+
+    Returns
+    -------
+    dict
+        A description with keys:
+
+        * ``valve_id`` — the EPANET id (unchanged).
+        * ``valve_type`` — ``"PRV"`` or ``"TCV"``.
+        * ``pipe_params`` — ``{length_m, diameter_m, c_factor}`` for
+          the surrogate pipe edge.
+        * ``downstream_fixed_head_m`` — ``None`` for TCV, the
+          absolute head value (``elev + setting``) for PRV.
+        * ``diagnostics`` — the surrogate diagnostics dict, including
+          ``approximation``, ``valve_type``, ``valve_id``,
+          ``diameter_m``, ``setting``, ``minor_loss``, and
+          ``limitations``.
+
+    Raises
+    ------
+    ValueError
+        For unsupported valve types, non-positive diameter,
+        non-positive PRV setting, negative TCV setting / minor
+        loss, missing TCV anchor flow, or non-finite values. The
+        valve id is included in every message.
+    """
+    vt = str(valve_type).upper()
+    if not math.isfinite(diameter_m) or diameter_m <= 0.0:
+        raise ValueError(
+            f"valve {valve_id!r} has non-positive or non-finite diameter "
+            f"{diameter_m}"
+        )
+    if not math.isfinite(minor_loss) or minor_loss < 0.0:
+        raise ValueError(
+            f"valve {valve_id!r} has negative or non-finite minor_loss {minor_loss}"
+        )
+
+    if vt == "PRV":
+        if not math.isfinite(setting) or setting <= 0.0:
+            raise ValueError(
+                f"valve {valve_id!r} (PRV) setting must be strictly positive "
+                f"and finite (downstream pressure head in metres), got {setting}"
+            )
+        if not math.isfinite(downstream_elev_m):
+            raise ValueError(
+                f"valve {valve_id!r} (PRV) downstream_elev_m must be finite, "
+                f"got {downstream_elev_m}"
+            )
+        # Conservative pipe-like edge for the PRV body: short length
+        # (2 * diameter, but at least 1 m so the HW residual is well
+        # conditioned), file diameter, default C. The PRV itself
+        # does not throttle here — the pressure boundary on the
+        # downstream node is what enforces the regulation surrogate.
+        length_m = max(2.0 * float(diameter_m), 1.0)
+        params = {
+            "length_m": length_m,
+            "diameter_m": float(diameter_m),
+            "c_factor": float(c_factor),
+        }
+        downstream_head = float(downstream_elev_m) + float(setting)
+        diagnostics: dict[str, object] = {
+            "approximation": "prv_pressure_boundary_surrogate",
+            "valve_type": "PRV",
+            "valve_id": valve_id,
+            "diameter_m": float(diameter_m),
+            "setting": float(setting),
+            "minor_loss": float(minor_loss),
+            "downstream_elev_m": float(downstream_elev_m),
+            "downstream_fixed_head_m": downstream_head,
+            "effective_length_m": float(length_m),
+            "effective_c_factor": float(c_factor),
+            "limitations": (
+                "PRV is imported as a pressure-boundary surrogate: the "
+                "downstream node is pinned to a fixed-head boundary at "
+                "elev + setting, and the valve edge is a short, permissive "
+                "pipe-like resistance. The PRV does NOT enforce active "
+                "flow / pressure regulation; mass balance on the now-fixed "
+                "downstream node is dropped from the residual."
+            ),
+        }
+        return {
+            "valve_id": valve_id,
+            "valve_type": "PRV",
+            "pipe_params": params,
+            "downstream_fixed_head_m": downstream_head,
+            "diagnostics": diagnostics,
+        }
+
+    if vt == "TCV":
+        if nominal_flow_m3s is None:
+            raise ValueError(
+                f"valve {valve_id!r} (TCV) requires a positive nominal "
+                "flow anchor (nominal_flow_m3s); none was supplied"
+            )
+        params, diag = fit_tcv_resistance_surrogate(
+            diameter_m=float(diameter_m),
+            setting_k=float(setting),
+            nominal_flow_m3s=float(nominal_flow_m3s),
+            minor_loss=float(minor_loss),
+            c_factor=float(c_factor),
+        )
+        diag = dict(diag)
+        diag["valve_id"] = valve_id
+        return {
+            "valve_id": valve_id,
+            "valve_type": "TCV",
+            "pipe_params": params,
+            "downstream_fixed_head_m": None,
+            "diagnostics": diag,
+        }
+
+    if vt in _UNSUPPORTED_VALVE_TYPES:
+        raise ValueError(
+            f"valve {valve_id!r} has unsupported valve type {vt!r}; the "
+            f"Sprint 15 importer supports only {sorted(_SUPPORTED_VALVE_TYPES)} "
+            "(active flow / pressure-sustaining / pressure-breaker / "
+            "general-purpose valves are deferred)"
+        )
+
+    raise ValueError(
+        f"valve {valve_id!r} has unknown valve type {vt!r}; supported "
+        f"types are {sorted(_SUPPORTED_VALVE_TYPES)}"
+    )
+
+
+def _resolve_valve_nominal_flow(
+    *, total_positive_demand: float
+) -> tuple[float, str]:
+    """Pick a nominal-flow anchor for the TCV surrogate.
+
+    The TCV surrogate (unlike POWER pumps) does not have a
+    downstream-demand concept — the valve is a *resistance* on a
+    pipe path, not a source feeding a specific consumer. We prefer
+    the network's total positive demand; failing that we fall back
+    to the same 1 L/s default the POWER pump surrogate uses, with a
+    diagnostic source label so callers can detect the branch.
+
+    Returns ``(Q_nom, source_label)``.
+    """
+    if (
+        math.isfinite(total_positive_demand)
+        and total_positive_demand > 0.0
+    ):
+        return float(total_positive_demand), "total_positive_demand"
+    return _POWER_PUMP_DEFAULT_NOMINAL_FLOW, "default_fallback"
+
+
 # --- the fallback parser ----------------------------------------------------
 
 
@@ -601,13 +1013,6 @@ def _fallback_parse(
     if "PIPES" not in sections or not sections["PIPES"]:
         raise ValueError(
             "INP file is missing [PIPES]; the dPHM core requires at least one pipe"
-        )
-
-    # Valves: refuse rather than guess.
-    if "VALVES" in sections and sections["VALVES"]:
-        raise ValueError(
-            "[VALVES] are not modelled by the dPHM steady-state core; "
-            "please remove valve rows or replace them with pipe segments"
         )
 
     # Options
@@ -634,6 +1039,12 @@ def _fallback_parse(
     demands: list[float] = []
     fixed_mask: list[bool] = []
     fixed_vals: list[float] = []
+    # Sprint 15: track per-node elevation so PRV valves can compute the
+    # absolute fixed-head boundary value as ``elev + setting``. Reservoirs
+    # report their elev as their declared head (their datum is implicit);
+    # tanks report their elev directly. Junctions parse the elev column
+    # but discard demand_pattern.
+    node_elev: list[float] = []
 
     seen_node_ids: set[str] = set()
 
@@ -642,6 +1053,7 @@ def _fallback_parse(
         demand_si: float,
         is_fixed: bool,
         head_value: float,
+        elev: float,
         section: str,
     ) -> None:
         if node_id in seen_node_ids:
@@ -651,16 +1063,18 @@ def _fallback_parse(
         demands.append(demand_si)
         fixed_mask.append(is_fixed)
         fixed_vals.append(head_value if is_fixed else 0.0)
+        node_elev.append(elev)
 
     for row in _parse_node_rows(
         sections.get("JUNCTIONS", []), section="JUNCTIONS", expected_min_cols=1
     ):
         node_id = row[0]
+        elev = float(row[1]) if len(row) >= 2 else 0.0
         demand_raw = float(row[2]) if len(row) >= 3 else 0.0
         demand_si = demand_raw * demand_factor
         _register_node(
             node_id, demand_si=demand_si, is_fixed=False, head_value=0.0,
-            section="JUNCTIONS",
+            elev=elev, section="JUNCTIONS",
         )
 
     for row in _parse_node_rows(
@@ -670,7 +1084,7 @@ def _fallback_parse(
         head_value = float(row[1])
         _register_node(
             node_id, demand_si=0.0, is_fixed=True, head_value=head_value,
-            section="RESERVOIRS",
+            elev=head_value, section="RESERVOIRS",
         )
 
     for row in _parse_node_rows(
@@ -687,6 +1101,7 @@ def _fallback_parse(
             demand_si=0.0,
             is_fixed=True,
             head_value=elev + init_level,
+            elev=elev,
             section="TANKS",
         )
 
@@ -855,6 +1270,114 @@ def _fallback_parse(
         c_factors.append(130.0)
         edge_pump_coeffs.append(coeffs)
         edge_pump_speeds.append(1.0)
+
+    # Sprint 15: [VALVES] -> conservative valve surrogate edges.
+    # Valve edges are appended after pipes and pumps so the edge ordering
+    # is ``[pipes..., pumps..., valves...]`` in file order within each
+    # section. PRV rows additionally pin their downstream node as a
+    # fixed-head boundary, evaluated using the snapshot of total positive
+    # demand BEFORE any PRV-driven fixed-head reassignment.
+    valve_rows = sections.get("VALVES", [])
+    if valve_rows:
+        # Snapshot total positive demand BEFORE PRV-driven fixed-head
+        # reassignment so the TCV nominal-flow anchor sees the network's
+        # original demand distribution.
+        valve_total_positive_demand = sum(d for d in demands if d > 0.0)
+        for row in valve_rows:
+            if len(row) < 6:
+                raise ValueError(
+                    f"[VALVES] row needs at least 6 tokens (id, node1, node2, "
+                    f"diameter, type, setting), got {row!r}"
+                )
+            valve_id = row[0]
+            node1, node2 = row[1], row[2]
+            if valve_id in seen_edge_ids:
+                raise ValueError(
+                    f"duplicate edge id {valve_id!r} in [VALVES]"
+                )
+            seen_edge_ids.add(valve_id)
+            if node1 not in id_to_index:
+                raise ValueError(
+                    f"valve {valve_id!r} references unknown source node "
+                    f"{node1!r}"
+                )
+            if node2 not in id_to_index:
+                raise ValueError(
+                    f"valve {valve_id!r} references unknown target node "
+                    f"{node2!r}"
+                )
+
+            try:
+                diameter_mm = float(row[3])
+            except ValueError as exc:
+                raise ValueError(
+                    f"valve {valve_id!r} diameter column {row[3]!r} is not "
+                    "numeric"
+                ) from exc
+            diameter_m = diameter_mm * 1.0e-3
+
+            valve_type = row[4].upper()
+            try:
+                setting_value = float(row[5])
+            except ValueError as exc:
+                raise ValueError(
+                    f"valve {valve_id!r} setting column {row[5]!r} is not "
+                    "numeric"
+                ) from exc
+
+            if len(row) >= 7:
+                try:
+                    minor_loss_raw = float(row[6])
+                except ValueError as exc:
+                    raise ValueError(
+                        f"valve {valve_id!r} minor-loss column {row[6]!r} is "
+                        "not numeric"
+                    ) from exc
+            else:
+                minor_loss_raw = 0.0
+
+            downstream_idx = id_to_index[node2]
+            downstream_elev = node_elev[downstream_idx]
+
+            q_nom, _q_nom_source = _resolve_valve_nominal_flow(
+                total_positive_demand=valve_total_positive_demand,
+            )
+
+            description = translate_valve_to_surrogate(
+                valve_id=valve_id,
+                valve_type=valve_type,
+                diameter_m=diameter_m,
+                setting=setting_value,
+                minor_loss=minor_loss_raw,
+                downstream_elev_m=downstream_elev,
+                nominal_flow_m3s=q_nom,
+                c_factor=default_c_factor,
+            )
+
+            if description["downstream_fixed_head_m"] is not None:
+                # PRV: pin the downstream node as a fixed-head boundary.
+                if fixed_mask[downstream_idx]:
+                    raise ValueError(
+                        f"valve {valve_id!r} ({description['valve_type']}): "
+                        f"downstream node {node2!r} is already a fixed-head "
+                        "boundary (reservoir or tank); PRV translation would "
+                        "overwrite that boundary"
+                    )
+                fixed_mask[downstream_idx] = True
+                fixed_vals[downstream_idx] = float(
+                    description["downstream_fixed_head_m"]
+                )
+
+            pipe_params = description["pipe_params"]
+            src_idx.append(id_to_index[node1])
+            dst_idx.append(id_to_index[node2])
+            pipe_mask.append(True)
+            pump_mask.append(False)
+            lengths.append(float(pipe_params["length_m"]))
+            diameters.append(float(pipe_params["diameter_m"]))
+            c_factors.append(float(pipe_params["c_factor"]))
+            edge_pump_coeffs.append([0.0, 0.0, 0.0])
+            edge_pump_speeds.append(0.0)
 
     # Re-balance demand so the network is mass-consistent at parse time:
     # any drift (e.g. demands declared on junctions but no matching supply
@@ -1081,6 +1604,153 @@ def _wntr_translate_pump(
     return coeffs, base_speed_f, diagnostics
 
 
+# --- WNTR valve helpers (Sprint 15) ----------------------------------------
+
+
+def _wntr_extract_valve_fields(valve: object) -> dict[str, object]:
+    """Pull defensive valve fields from a WNTR valve-like object.
+
+    Returns a dict with keys ``valve_type``, ``diameter_m``,
+    ``setting``, ``minor_loss``, ``start_node_name``,
+    ``end_node_name``. Each is extracted via ``getattr`` against the
+    stable WNTR public surface (``valve_type``, ``diameter``,
+    ``initial_setting`` / ``setting``, ``minor_loss``,
+    ``start_node_name`` / ``end_node_name``). The helper is
+    deliberately tolerant of attribute aliases so multiple WNTR
+    versions work.
+
+    Raises
+    ------
+    ValueError
+        If the valve has no ``valve_type``, a non-finite or
+        non-positive diameter, a non-numeric setting / minor_loss,
+        or a missing endpoint reference.
+    """
+    valve_type_raw = getattr(valve, "valve_type", None)
+    if valve_type_raw is None:
+        raise ValueError(
+            "WNTR valve object has no 'valve_type' attribute; cannot translate"
+        )
+    valve_type = str(valve_type_raw).upper()
+
+    # WNTR ``Valve.diameter`` is in SI metres (engine internal).
+    diameter_raw = getattr(valve, "diameter", None)
+    if diameter_raw is None:
+        raise ValueError(
+            "WNTR valve has no 'diameter' attribute; cannot translate"
+        )
+    try:
+        diameter_m = float(diameter_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"WNTR valve exposes non-numeric diameter={diameter_raw!r}: {exc}"
+        ) from exc
+    if not math.isfinite(diameter_m) or diameter_m <= 0.0:
+        raise ValueError(
+            f"WNTR valve has non-positive or non-finite diameter "
+            f"{diameter_m} m"
+        )
+
+    # ``initial_setting`` is the EPANET-loaded numeric setting; some
+    # older WNTR releases expose only ``setting`` (which can also be
+    # a callable/property). Try ``initial_setting`` first.
+    setting_raw = getattr(valve, "initial_setting", None)
+    if setting_raw is None:
+        setting_raw = getattr(valve, "setting", None)
+    if setting_raw is None:
+        raise ValueError(
+            "WNTR valve has no 'initial_setting' / 'setting' attribute; "
+            "cannot translate"
+        )
+    try:
+        setting = float(setting_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"WNTR valve exposes non-numeric setting={setting_raw!r}: {exc}"
+        ) from exc
+
+    minor_loss_raw = getattr(valve, "minor_loss", 0.0)
+    if minor_loss_raw is None:
+        minor_loss_raw = 0.0
+    try:
+        minor_loss = float(minor_loss_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"WNTR valve exposes non-numeric minor_loss={minor_loss_raw!r}: "
+            f"{exc}"
+        ) from exc
+
+    start_node_name = getattr(valve, "start_node_name", None)
+    end_node_name = getattr(valve, "end_node_name", None)
+    if start_node_name is None or end_node_name is None:
+        raise ValueError(
+            "WNTR valve missing start/end node names; cannot translate"
+        )
+
+    return {
+        "valve_type": valve_type,
+        "diameter_m": diameter_m,
+        "setting": setting,
+        "minor_loss": minor_loss,
+        "start_node_name": str(start_node_name),
+        "end_node_name": str(end_node_name),
+    }
+
+
+def _wntr_translate_valve(
+    valve: object,
+    *,
+    valve_id: str | None = None,
+    downstream_elev_m: float = 0.0,
+    total_positive_demand: float = 0.0,
+) -> dict[str, object]:
+    """Translate a WNTR valve-like object via the dPHM surrogate.
+
+    Returns the same dict shape :func:`translate_valve_to_surrogate`
+    returns, with an additional ``start_node_name`` /
+    ``end_node_name`` echo so the WNTR parser can resolve endpoint
+    indices. The helper does not import WNTR — it operates on
+    duck-typed objects exposing ``valve_type``, ``diameter``,
+    ``initial_setting`` (or ``setting``), ``minor_loss``,
+    ``start_node_name``, and ``end_node_name``.
+
+    Parameters
+    ----------
+    valve
+        WNTR valve-like object (real or duck-typed).
+    valve_id
+        Optional explicit id. If omitted the helper falls back to
+        ``getattr(valve, "name", "")``, matching WNTR's link-naming
+        convention.
+    downstream_elev_m
+        Elevation of the downstream node — needed by PRV to compute
+        the absolute fixed-head boundary.
+    total_positive_demand
+        Total positive demand snapshot from the surrounding network,
+        used as the TCV nominal-flow anchor.
+    """
+    fields = _wntr_extract_valve_fields(valve)
+    q_nom, _q_nom_source = _resolve_valve_nominal_flow(
+        total_positive_demand=total_positive_demand,
+    )
+    resolved_valve_id = (
+        valve_id if valve_id is not None else str(getattr(valve, "name", ""))
+    )
+    description = translate_valve_to_surrogate(
+        valve_id=resolved_valve_id,
+        valve_type=str(fields["valve_type"]),
+        diameter_m=float(fields["diameter_m"]),  # type: ignore[arg-type]
+        setting=float(fields["setting"]),  # type: ignore[arg-type]
+        minor_loss=float(fields["minor_loss"]),  # type: ignore[arg-type]
+        downstream_elev_m=downstream_elev_m,
+        nominal_flow_m3s=q_nom,
+    )
+    description = dict(description)
+    description["start_node_name"] = fields["start_node_name"]
+    description["end_node_name"] = fields["end_node_name"]
+    return description
+
+
 def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
     try:
         import wntr  # type: ignore
@@ -1099,6 +1769,11 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
     demands: list[float] = []
     fixed_mask: list[bool] = []
     fixed_vals: list[float] = []
+    # Sprint 15: per-node elevation for PRV downstream-fixed-head
+    # translation. Junctions expose ``elevation``; reservoirs expose
+    # ``base_head`` (their datum is implicit); tanks expose
+    # ``elevation``.
+    node_elev: list[float] = []
 
     # Junctions first
     for jid in wn.junction_name_list:
@@ -1106,10 +1781,12 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         # WNTR stores baseline demand in m^3/s already (the engine's
         # internal SI unit), regardless of the file's [OPTIONS] Units.
         base_demand = float(getattr(j, "base_demand", 0.0) or 0.0)
+        elev = float(getattr(j, "elevation", 0.0) or 0.0)
         node_ids.append(jid)
         demands.append(base_demand)
         fixed_mask.append(False)
         fixed_vals.append(0.0)
+        node_elev.append(elev)
 
     for rid in wn.reservoir_name_list:
         r = wn.get_node(rid)
@@ -1118,6 +1795,7 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         demands.append(0.0)
         fixed_mask.append(True)
         fixed_vals.append(head_value)
+        node_elev.append(head_value)
 
     for tid in wn.tank_name_list:
         t = wn.get_node(tid)
@@ -1127,6 +1805,7 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         demands.append(0.0)
         fixed_mask.append(True)
         fixed_vals.append(elev + init_level)
+        node_elev.append(elev)
 
     if not node_ids:
         raise ValueError("WNTR model declared no nodes")
@@ -1221,11 +1900,70 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         edge_pump_coeffs.append(coeffs)
         edge_pump_speeds.append(base_speed)
 
-    if hasattr(wn, "valve_name_list") and wn.valve_name_list:
-        raise ValueError(
-            "WNTR-loaded INP file contains valves; the dPHM steady-state "
-            "core does not model valves"
+    # Sprint 15: WNTR-side valve translation. Valve edges are appended
+    # after pumps so the edge ordering matches the fallback parser's
+    # ``[pipes..., pumps..., valves...]`` convention. PRV valves
+    # additionally pin their downstream node as a fixed-head boundary,
+    # evaluated using the snapshot of total positive demand BEFORE any
+    # PRV-driven fixed-head reassignment.
+    valve_names = getattr(wn, "valve_name_list", []) or []
+    if valve_names:
+        valve_total_positive_demand = sum(d for d in demands if d > 0.0)
+        seen_edge_ids = set(wn.pipe_name_list) | set(
+            getattr(wn, "pump_name_list", []) or []
         )
+        for vid in valve_names:
+            v = wn.get_link(vid)
+            if vid in seen_edge_ids - {vid}:
+                # WNTR enforces uniqueness across link types, but be
+                # defensive in case future versions relax that.
+                raise ValueError(
+                    f"WNTR valve {vid!r} duplicates a pipe/pump edge id"
+                )
+            n1 = getattr(v, "start_node_name", None)
+            n2 = getattr(v, "end_node_name", None)
+            if n1 not in id_to_index or n2 not in id_to_index:
+                raise ValueError(
+                    f"WNTR valve {vid!r} references nodes outside the "
+                    "supported set"
+                )
+            downstream_idx = id_to_index[n2]
+            downstream_elev = node_elev[downstream_idx]
+            try:
+                description = _wntr_translate_valve(
+                    v,
+                    valve_id=vid,
+                    downstream_elev_m=downstream_elev,
+                    total_positive_demand=valve_total_positive_demand,
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"WNTR valve {vid!r}: {exc}"
+                ) from exc
+
+            if description["downstream_fixed_head_m"] is not None:
+                if fixed_mask[downstream_idx]:
+                    raise ValueError(
+                        f"WNTR valve {vid!r} ({description['valve_type']}): "
+                        f"downstream node {n2!r} is already a fixed-head "
+                        "boundary (reservoir or tank); PRV translation would "
+                        "overwrite that boundary"
+                    )
+                fixed_mask[downstream_idx] = True
+                fixed_vals[downstream_idx] = float(
+                    description["downstream_fixed_head_m"]
+                )
+
+            pipe_params = description["pipe_params"]
+            src_idx.append(id_to_index[n1])
+            dst_idx.append(id_to_index[n2])
+            pipe_mask.append(True)
+            pump_mask.append(False)
+            lengths.append(float(pipe_params["length_m"]))
+            diameters.append(float(pipe_params["diameter_m"]))
+            c_factors.append(float(pipe_params["c_factor"]))
+            edge_pump_coeffs.append([0.0, 0.0, 0.0])
+            edge_pump_speeds.append(0.0)
 
     # Mirror the fallback parser's demand rebalancing so WNTR and
     # fallback networks have the same demand sum on the shipped
@@ -1345,5 +2083,7 @@ def load_network_from_inp(
 __all__ = [
     "fit_power_pump_surrogate",
     "fit_pump_head_curve",
+    "fit_tcv_resistance_surrogate",
     "load_network_from_inp",
+    "translate_valve_to_surrogate",
 ]

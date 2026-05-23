@@ -228,6 +228,128 @@ def test_wntr_and_fallback_power_pump_agree_on_shipped_fixture() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Sprint 15 — WNTR valve integration on shipped PRV / TCV fixtures
+# ---------------------------------------------------------------------------
+
+
+_TCV_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "examples"
+    / "epanet_reference_tcv.inp"
+)
+_PRV_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "examples"
+    / "epanet_reference_prv.inp"
+)
+
+
+def test_wntr_loads_shipped_tcv_fixture() -> None:
+    pytest.importorskip("wntr")
+
+    net = load_network_from_inp(_TCV_FIXTURE_PATH, parser="wntr")
+    assert net.num_nodes == 3
+    assert net.num_edges == 2
+    assert net.num_fixed_heads == 1
+    # Pipes + valves both have pipe_mask=True; no pumps.
+    assert int(net.pipe_mask.sum().item()) == 2
+    assert int(net.pump_mask.sum().item()) == 0
+
+
+def test_wntr_tcv_fixture_solves_with_analytic_newton() -> None:
+    pytest.importorskip("wntr")
+
+    net = load_network_from_inp(_TCV_FIXTURE_PATH, parser="wntr")
+    result = newton_solve(
+        net, max_iterations=200, tol=1e-9, jacobian_mode="analytic"
+    )
+    assert result.converged, f"TCV network did not solve: {result.reason}"
+    assert result.residual_norm < 1e-8
+
+
+def test_wntr_and_fallback_agree_on_tcv_solution() -> None:
+    pytest.importorskip("wntr")
+
+    net_fb = load_network_from_inp(_TCV_FIXTURE_PATH, parser="fallback")
+    net_wn = load_network_from_inp(_TCV_FIXTURE_PATH, parser="wntr")
+    r_fb = newton_solve(net_fb, max_iterations=200, tol=1e-9, jacobian_mode="analytic")
+    r_wn = newton_solve(net_wn, max_iterations=200, tol=1e-9, jacobian_mode="analytic")
+    assert r_fb.converged and r_wn.converged
+    assert torch.allclose(r_fb.heads, r_wn.heads, atol=1e-5, rtol=0.0)
+    assert torch.allclose(r_fb.flows, r_wn.flows, atol=1e-5, rtol=0.0)
+
+
+def test_wntr_loads_shipped_prv_fixture() -> None:
+    pytest.importorskip("wntr")
+
+    net = load_network_from_inp(_PRV_FIXTURE_PATH, parser="wntr")
+    assert net.num_nodes == 4
+    assert net.num_edges == 3
+    # Two fixed heads: R1 (reservoir) and the PRV-pinned downstream.
+    assert net.num_fixed_heads == 2
+
+
+def test_wntr_prv_fixture_solves_with_analytic_newton() -> None:
+    pytest.importorskip("wntr")
+
+    net = load_network_from_inp(_PRV_FIXTURE_PATH, parser="wntr")
+    result = newton_solve(
+        net, max_iterations=200, tol=1e-9, jacobian_mode="analytic"
+    )
+    assert result.converged, f"PRV network did not solve: {result.reason}"
+    assert result.residual_norm < 1e-8
+
+
+def test_wntr_prv_pins_downstream_to_setting() -> None:
+    """At the WNTR-solved state, the PRV downstream head equals setting + elev."""
+    pytest.importorskip("wntr")
+
+    net = load_network_from_inp(_PRV_FIXTURE_PATH, parser="wntr")
+    result = newton_solve(
+        net, max_iterations=200, tol=1e-9, jacobian_mode="analytic"
+    )
+    assert result.converged
+    # The fixture pins the PRV downstream to elev 0 + setting 20 = 20 m.
+    fixed_heads = result.heads[net.fixed_head_mask]
+    fixed_head_values = sorted(float(v) for v in fixed_heads.tolist())
+    assert fixed_head_values == pytest.approx([20.0, 50.0], abs=1e-6)
+
+
+def test_wntr_rejects_unsupported_valve_type_in_inp(tmp_path: Path) -> None:
+    """A WNTR-loaded INP with an FCV row must raise via the translator.
+
+    WNTR itself rejects ``PRV/PSV/FCV`` valves directly connected to
+    a reservoir / tank (it requires a separating pipe), so we route
+    the FCV between two junctions and let our adapter raise on the
+    valve type.
+    """
+    pytest.importorskip("wntr")
+
+    inp = """[JUNCTIONS]
+ J1   0.0   0.0
+ J2   0.0   0.0
+ J3   0.0   5.0
+[RESERVOIRS]
+ R1   80.0
+[PIPES]
+ P1   R1   J1   100   150   130   0   OPEN
+ P2   J2   J3   100   150   130   0   OPEN
+[VALVES]
+ V1   J1   J2   150   FCV   1.0   0
+[OPTIONS]
+ Units    LPS
+ Headloss H-W
+[END]
+"""
+    path = tmp_path / "fcv.inp"
+    path.write_text(inp)
+    with pytest.raises(ValueError, match="unsupported valve type"):
+        load_network_from_inp(path, parser="wntr")
+
+
+# ---------------------------------------------------------------------------
 # Sprint 11 — WNTR-absent ImportError path
 # ---------------------------------------------------------------------------
 
