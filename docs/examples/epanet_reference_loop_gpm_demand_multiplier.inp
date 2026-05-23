@@ -1,0 +1,46 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 18 — small reference EPANET .inp fixture
+in US-customary units WITH a [OPTIONS] Demand Multiplier directive.
+Five-node looped distribution sample: one reservoir + four junctions,
+five pipes. GPM flow units, Hazen-Williams head loss, Demand
+Multiplier 2.0.
+
+Mirrors epanet_reference_loop_gpm.inp exactly, except for the added
+``Demand Multiplier 2.0`` row. The fallback parser must scale every
+junction demand by 2.0 after the GPM -> m^3/s conversion, so the
+loaded Network's positive demand sum is exactly twice that of
+epanet_reference_loop_gpm.inp. Reservoir head, pipe length / diameter
+/ roughness are NOT affected.
+
+US-customary EPANET convention (per the EPANET 2.2 user manual):
+  - length in feet
+  - diameter in inches
+  - head/elevation in feet
+  - demand/flow in the [OPTIONS] Units value (here GPM)
+  - Demand Multiplier scales all junction demands at load time
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0    100.0    ;     ; 100 GPM consumer (scaled to 200 GPM)
+ J2   0.0    150.0    ;     ; 150 GPM consumer (scaled to 300 GPM)
+ J3   0.0    120.0    ;     ; 120 GPM consumer (scaled to 240 GPM)
+ J4   0.0     80.0    ;     ;  80 GPM consumer (scaled to 160 GPM)
+
+[RESERVOIRS]
+;ID   Head   Pattern
+ R1   300.0  ;          ; 300 ft fixed-head reservoir
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   R1      J1      1000.0   10.0       130.0       0.0         OPEN
+ P2   J1      J2       800.0    8.0       130.0       0.0         OPEN
+ P3   J2      J3       700.0    6.0       130.0       0.0         OPEN
+ P4   J3      J4       650.0    6.0       130.0       0.0         OPEN
+ P5   J1      J4       900.0    6.0       130.0       0.0         OPEN
+
+[OPTIONS]
+ Units                GPM
+ Headloss             H-W
+ Demand Multiplier    2.0
+
+[END]

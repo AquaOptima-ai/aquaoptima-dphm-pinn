@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–17)
+# EPANET `.inp` Topology Import (Sprint 11–18)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -14,7 +14,9 @@ US-customary EPANET flow-unit family (`GPM`, `CFS`, `MGD`, `IMGD`,
 `AFD`) on top of the SI family (see "Unit conventions" below).
 Sprint 17 adds explicit `[OPTIONS] Pressure` parsing so PRV settings
 can be declared in psi / kPa / bar / metres / feet independently of
-the flow-unit family (see "Pressure units" below).
+the flow-unit family (see "Pressure units" below). Sprint 18 adds
+fallback support for the `[OPTIONS] Demand Multiplier` directive
+(see "Demand multiplier" below).
 The public entry point is one function:
 
 ```python
@@ -78,7 +80,7 @@ needed to load steady-state reference fixtures.
 | `[RESERVOIRS]`   | id, head. Pattern column is ignored.                                                                     |
 | `[TANKS]`        | id, elevation, init-level → mapped to a fixed-head boundary at `elev + init_level`. Curves ignored.       |
 | `[PIPES]`        | id, node1, node2, length, diameter, roughness, optional minor-loss (ignored), optional status (`OPEN`).  |
-| `[OPTIONS]`      | `Units` (flow-unit family), `Headloss` (must be `H-W`), and `Pressure` (Sprint 17: optional pressure-display unit for PRV settings). |
+| `[OPTIONS]`      | `Units` (flow-unit family), `Headloss` (must be `H-W`), `Pressure` (Sprint 17: optional pressure-display unit for PRV settings), and `Demand Multiplier` (Sprint 18: optional non-negative scalar that scales every junction's baseline demand at load time). |
 | `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate via least-squares curve fit. Sprint 14: `POWER value` pump rows translate via the constant-power surrogate. |
 | `[VALVES]`       | Sprint 15: `PRV` and `TCV` valve rows translate via the conservative pressure-boundary / resistance surrogates. See "Valves" below.   |
 | `[CURVES]`       | Sprint 12: pump HEAD curves are parsed into `(Q, H)` points. The X column is converted to m³/s using the file's flow-unit factor. Unused curves are tolerated. |
@@ -703,6 +705,94 @@ table. The fallback parser remains the authoritative path for
 Sprint 17 behaviour and is exercised by both shipped and tmp-path
 test fixtures.
 
+## Demand multiplier (Sprint 18)
+
+EPANET's `[OPTIONS]` section accepts an optional `Demand Multiplier`
+directive — a single non-negative scalar that scales every junction's
+baseline demand at load time, regardless of the active flow-unit
+family. The directive's option key is the only shipped EPANET option
+whose canonical form spans two whitespace-separated tokens. The
+fallback parser collapses extra whitespace and accepts any
+case-insensitive spelling (`Demand Multiplier 2.0`,
+`DEMAND  MULTIPLIER 2.0`, `demand multiplier 2.0`).
+
+The public resolver is `resolve_demand_multiplier(opts)`:
+
+```python
+from aquaoptima.dphm.inp_io import resolve_demand_multiplier
+
+resolve_demand_multiplier({})                              # 1.0 (default)
+resolve_demand_multiplier({"DEMAND MULTIPLIER": "2.0"})    # 2.0
+resolve_demand_multiplier({"DEMAND MULTIPLIER": "0"})      # 0.0 (allowed)
+resolve_demand_multiplier({"DEMAND MULTIPLIER": "-1"})     # ValueError
+```
+
+### Parser semantics
+
+- When `[OPTIONS] Demand Multiplier` is **present**, every junction's
+  baseline demand is multiplied by the directive value **after** the
+  flow-unit conversion:
+
+  ```
+  base_demand_m3s = raw_demand * flow_to_m3s * demand_multiplier
+  ```
+
+- When the directive is **absent**, the EPANET default of `1.0`
+  applies; Sprint 11–17 behaviour on existing fixtures is preserved
+  byte-for-byte.
+- The multiplier scales **junction demands only**. Reservoir and tank
+  fixed-head boundaries, pipe / pump / valve dimensions, pump `HEAD`
+  curve points (`[CURVES]`), `TCV` settings (`K`), and the `MinorLoss`
+  column are **never** touched.
+- The POWER pump nominal-flow anchor sees the **multiplied** demand,
+  because the anchor is resolved from the parser's normalised
+  junction-demand list after the multiplier has been applied. A
+  multiplier of `2.0` therefore doubles `Q_nom`, which halves
+  `H_nom = P / (rho g Q_nom)` and halves the surrogate's shut-off
+  head `a0`. The TCV resistance surrogate is similarly anchored on
+  total positive demand and shifts accordingly.
+
+### Validation
+
+The resolver and the fallback parser fail loudly on:
+
+- Negative multipliers → `ValueError` ("must be non-negative").
+- Non-finite multipliers (NaN or Inf) → `ValueError` ("must be finite").
+- Non-numeric multipliers → `ValueError` ("is not numeric").
+
+`0.0` is **accepted**: the parser loads a network whose junctions all
+have zero baseline demand. Whether such a network solves depends on
+its topology — the parser will load it cleanly regardless.
+
+### Shipped fixture
+
+`docs/examples/epanet_reference_loop_gpm_demand_multiplier.inp` is a
+GPM/ft/in copy of the Sprint 16 loop fixture with the single added
+row `Demand Multiplier 2.0`. The fallback parser loads it with every
+junction demand exactly twice that of `epanet_reference_loop_gpm.inp`,
+while pipe and reservoir dimensions remain identical. The network
+solves with `newton_solve(..., jacobian_mode="analytic")` to a
+residual norm below the working tolerance.
+
+### WNTR adapter behaviour
+
+WNTR loads the `[OPTIONS] Demand Multiplier` directive into
+`wn.options.hydraulic.demand_multiplier` and stores it as a separate
+option; `Junction.base_demand` returns the **raw** baseline demand
+without the multiplier applied (WNTR's internal simulator multiplies
+later, but the dPHM core never invokes that simulator).
+
+Sprint 18 therefore extracts the multiplier from
+`wn.options.hydraulic.demand_multiplier` and applies it explicitly to
+each junction's `base_demand` in the WNTR adapter. The fallback parser
+and the WNTR adapter then produce identical demand sums on the shipped
+GPM-with-multiplier fixture (asserted in the optional WNTR parity
+test).
+
+Existing WNTR fixtures (Sprints 11–17) do not declare a
+`Demand Multiplier`, so WNTR defaults the option to `1.0` and the
+adapter is a no-op for them — pre-Sprint-18 parity is preserved.
+
 ## Mass balancing
 
 EPANET INP files often declare junction demands without a matching
@@ -716,19 +806,20 @@ hand-built fixtures.
 
 ## Shipped fixtures
 
-Nine small fixtures are shipped under `docs/examples/`:
+Ten small fixtures are shipped under `docs/examples/`:
 
-| Fixture                                | Family | Notes                                                  |
-|----------------------------------------|--------|--------------------------------------------------------|
-| `epanet_reference_loop.inp`            | SI     | Sprint 11 — five-node looped distribution, LPS units.  |
-| `epanet_reference_pump.inp`            | SI     | Sprint 12 — HEAD-curve pump.                           |
-| `epanet_reference_power_pump.inp`      | SI     | Sprint 14 — POWER pump (kW under SI).                  |
-| `epanet_reference_prv.inp`             | SI     | Sprint 15 — PRV pressure-boundary surrogate.           |
-| `epanet_reference_tcv.inp`             | SI     | Sprint 15 — TCV resistance surrogate.                  |
-| `epanet_reference_loop_gpm.inp`        | US     | Sprint 16 — looped distribution, GPM/ft/in.            |
-| `epanet_reference_pump_gpm.inp`        | US     | Sprint 16 — HEAD-curve pump, GPM/ft/in.                |
-| `epanet_reference_tcv_gpm.inp`         | US     | Sprint 16 — TCV surrogate, GPM/ft/in.                  |
-| `epanet_reference_prv_gpm_psi.inp`     | US     | Sprint 17 — PRV with explicit `[OPTIONS] Pressure PSI`. |
+| Fixture                                            | Family | Notes                                                  |
+|----------------------------------------------------|--------|--------------------------------------------------------|
+| `epanet_reference_loop.inp`                        | SI     | Sprint 11 — five-node looped distribution, LPS units.  |
+| `epanet_reference_pump.inp`                        | SI     | Sprint 12 — HEAD-curve pump.                           |
+| `epanet_reference_power_pump.inp`                  | SI     | Sprint 14 — POWER pump (kW under SI).                  |
+| `epanet_reference_prv.inp`                         | SI     | Sprint 15 — PRV pressure-boundary surrogate.           |
+| `epanet_reference_tcv.inp`                         | SI     | Sprint 15 — TCV resistance surrogate.                  |
+| `epanet_reference_loop_gpm.inp`                    | US     | Sprint 16 — looped distribution, GPM/ft/in.            |
+| `epanet_reference_pump_gpm.inp`                    | US     | Sprint 16 — HEAD-curve pump, GPM/ft/in.                |
+| `epanet_reference_tcv_gpm.inp`                     | US     | Sprint 16 — TCV surrogate, GPM/ft/in.                  |
+| `epanet_reference_prv_gpm_psi.inp`                 | US     | Sprint 17 — PRV with explicit `[OPTIONS] Pressure PSI`. |
+| `epanet_reference_loop_gpm_demand_multiplier.inp`  | US     | Sprint 18 — looped distribution with `Demand Multiplier 2.0`. |
 
 Each US fixture mirrors the structure of its SI counterpart but uses
 US-customary EPANET conventions (length in feet, diameter in inches,
@@ -792,6 +883,12 @@ Tests:
   case-insensitive lookup surface, GPM+PSI PRV fixture load + solve,
   tmp-path kPa / bar / metres / feet PRV conversion, TCV-not-affected
   invariant, and Sprint 16 default-behaviour preservation.
+- `tests/dphm/test_inp_demand_multiplier.py` — Sprint 18 demand
+  multiplier resolver (defaults, validation surface, case / whitespace
+  tolerance), fallback parser scaling under LPS / SI and GPM / US,
+  shipped GPM-with-multiplier fixture load + solve, POWER pump
+  nominal-flow anchor scaling, TCV / HEAD curve / reservoir / tank
+  invariants, and optional WNTR parity.
 - `tests/dataio/test_inp_physics_telemetry.py` — physics-consistent
   telemetry round-trip on the INP-loaded loop network.
 - `tests/dataio/test_inp_pump_telemetry.py` — Sprint 12 analytic-Newton
@@ -829,5 +926,9 @@ Deferred to a future sprint:
 - The remaining EPANET valve forms `FCV`, `PSV`, `PBV`, `GPV`.
 - Larger reference fixtures (e.g. the EPANET `Net1` / `Net3` shipped
   examples) routed through the WNTR back-end.
+- Time-varying demand support via the `[PATTERNS]` section. Sprint 18
+  honours the steady-state `[OPTIONS] Demand Multiplier` scalar only;
+  the dPHM core remains steady-state and pattern-aware demands are
+  out of scope.
 
 See `docs/sprint-roadmap.md` for the current ordering.

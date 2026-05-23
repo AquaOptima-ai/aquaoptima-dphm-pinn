@@ -29,6 +29,25 @@ loss coefficient ``K``) and the ``MinorLoss`` column remain
 dimensionless. See :func:`resolve_pressure_unit` and the shipped
 ``docs/examples/epanet_reference_prv_gpm_psi.inp`` fixture.
 
+Sprint 18 adds fallback support for the optional EPANET
+``[OPTIONS] Demand Multiplier`` directive. The directive declares a
+single non-negative scalar that scales every junction's baseline
+demand after the flow-unit conversion. The helper
+:func:`resolve_demand_multiplier` returns the validated multiplier
+(defaulting to ``1.0`` when absent). Both back-ends apply the
+multiplier consistently: the fallback parser multiplies junction
+demands inline; the WNTR adapter reads
+``wn.options.hydraulic.demand_multiplier`` (WNTR exposes it as a
+separate option and does not scale ``Junction.base_demand``) and
+applies it the same way. Reservoir / tank fixed-heads, pipe / pump /
+valve dimensions, pump HEAD curve points, TCV settings, and the
+``MinorLoss`` column are NOT scaled by the multiplier. The POWER
+pump nominal-flow anchor sees the multiplied demand because the
+anchor is resolved after junction-demand normalisation. See
+:func:`resolve_demand_multiplier` and the shipped
+``docs/examples/epanet_reference_loop_gpm_demand_multiplier.inp``
+fixture.
+
 Sprint 12 extends the fallback parser to additionally translate
 EPANET ``HEAD``-curve pumps into dPHM pump-affinity quadratic
 coefficients. The translation fits the EPANET curve points to the
@@ -373,6 +392,69 @@ def resolve_pressure_unit(unit_name: str) -> EpanetPressureUnit:
     )
 
 
+# --- demand multiplier handling (Sprint 18) --------------------------------
+
+
+# Canonical key used by the options parser to store the EPANET
+# ``[OPTIONS] Demand Multiplier`` directive. The directive's key is
+# unique among shipped EPANET options in carrying a space, so the
+# fallback options parser stores it under the same canonical token
+# the resolver consumes.
+_DEMAND_MULTIPLIER_KEY = "DEMAND MULTIPLIER"
+
+# EPANET's documented default for ``[OPTIONS] Demand Multiplier`` when
+# the directive is absent. Matches the EPANET 2.2 user manual.
+_DEFAULT_DEMAND_MULTIPLIER = 1.0
+
+
+def resolve_demand_multiplier(opts: dict[str, str]) -> float:
+    """Return the validated ``[OPTIONS] Demand Multiplier`` scalar.
+
+    The EPANET ``[OPTIONS] Demand Multiplier`` directive declares a
+    single non-negative scalar that scales every junction's baseline
+    demand at load time. When the directive is absent, the EPANET
+    default of ``1.0`` applies.
+
+    Parameters
+    ----------
+    opts
+        Normalised options map produced by the fallback parser's
+        ``_parse_options``. The map stores the directive under the
+        canonical key ``"DEMAND MULTIPLIER"`` (case-folded,
+        whitespace-normalised) when present.
+
+    Returns
+    -------
+    float
+        The resolved multiplier. ``1.0`` when the directive is absent.
+
+    Raises
+    ------
+    ValueError
+        If the directive's value is non-numeric, non-finite (NaN or
+        Inf), or strictly negative. ``0.0`` is accepted (loads a
+        network with all-zero junction demand).
+    """
+    raw = opts.get(_DEMAND_MULTIPLIER_KEY)
+    if raw is None or raw == "":
+        return _DEFAULT_DEMAND_MULTIPLIER
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"[OPTIONS] Demand Multiplier value {raw!r} is not numeric"
+        ) from exc
+    if not math.isfinite(value):
+        raise ValueError(
+            f"[OPTIONS] Demand Multiplier must be finite, got {value}"
+        )
+    if value < 0.0:
+        raise ValueError(
+            f"[OPTIONS] Demand Multiplier must be non-negative, got {value}"
+        )
+    return value
+
+
 # Sections we silently skip — they carry no information the
 # steady-state Hazen-Williams core depends on. ``CURVES`` is *not*
 # in this list because Sprint 12 consumes HEAD-type curves when a
@@ -464,10 +546,31 @@ def _split_sections(text: str) -> dict[str, list[list[str]]]:
 
 
 def _parse_options(rows: list[list[str]]) -> dict[str, str]:
-    """Return a normalised ``{KEY: VALUE}`` map from [OPTIONS] rows."""
+    """Return a normalised ``{KEY: VALUE}`` map from [OPTIONS] rows.
+
+    Most EPANET options are stored as single-token keys (e.g. ``Units``,
+    ``Headloss``, ``Pressure``). The ``Demand Multiplier`` directive
+    (Sprint 18) is the only shipped EPANET option whose canonical key
+    spans two whitespace-separated tokens. We detect that key
+    specifically and store its value under the canonical
+    ``"DEMAND MULTIPLIER"`` token, preserving the single-token storage
+    convention for every other directive.
+    """
     opts: dict[str, str] = {}
     for row in rows:
         if not row:
+            continue
+        # Multi-word ``Demand Multiplier`` key (Sprint 18). Detect the
+        # two leading tokens case-insensitively and pull the third token
+        # as the value. Extra whitespace between the tokens is already
+        # collapsed by the line-tokeniser.
+        if (
+            len(row) >= 2
+            and row[0].upper() == "DEMAND"
+            and row[1].upper() == "MULTIPLIER"
+        ):
+            value = row[2] if len(row) >= 3 else ""
+            opts[_DEMAND_MULTIPLIER_KEY] = value
             continue
         key = row[0].upper()
         val = row[1].upper() if len(row) >= 2 else ""
@@ -1234,6 +1337,15 @@ def _fallback_parse(
     unit_system = resolve_unit_system(flow_unit)
     demand_factor = unit_system.flow_to_m3s
 
+    # Sprint 18: [OPTIONS] Demand Multiplier scales every junction's
+    # baseline demand after the flow-unit conversion. Reservoirs, tanks,
+    # pipe / pump / valve dimensions, pump HEAD curve points, TCV
+    # settings, and MinorLoss columns are NOT scaled. The POWER pump
+    # nominal-flow anchor sees the multiplied demand because the anchor
+    # is resolved from ``demands[...]`` after junction-demand
+    # normalisation.
+    demand_multiplier = resolve_demand_multiplier(opts)
+
     # Sprint 17: [OPTIONS] Pressure overrides the PRV pressure-setting
     # conversion. When absent, the parser falls back to the flow-unit
     # family's pressure_setting_to_m (Sprint 16 contract). When present,
@@ -1301,7 +1413,9 @@ def _fallback_parse(
         elev_raw = float(row[1]) if len(row) >= 2 else 0.0
         demand_raw = float(row[2]) if len(row) >= 3 else 0.0
         elev = elev_raw * unit_system.head_to_m
-        demand_si = demand_raw * demand_factor
+        # Sprint 18: junction demand = raw * flow_to_m3s * multiplier.
+        # Multiplier defaults to 1.0 (Sprint 16/17 behaviour preserved).
+        demand_si = demand_raw * demand_factor * demand_multiplier
         _register_node(
             node_id, demand_si=demand_si, is_fixed=False, head_value=0.0,
             elev=elev, section="JUNCTIONS",
@@ -2002,6 +2116,38 @@ def _wntr_translate_valve(
     return description
 
 
+def _wntr_extract_demand_multiplier(wn: object) -> float:
+    """Pull ``[OPTIONS] Demand Multiplier`` from a WNTR network model.
+
+    WNTR exposes the directive at
+    ``wn.options.hydraulic.demand_multiplier`` and does not pre-scale
+    ``Junction.base_demand`` with it. Defaults to ``1.0`` whenever the
+    attribute chain is missing or non-numeric. Validation mirrors
+    :func:`resolve_demand_multiplier`.
+    """
+    options = getattr(wn, "options", None)
+    hydraulic = getattr(options, "hydraulic", None) if options is not None else None
+    raw = getattr(hydraulic, "demand_multiplier", None) if hydraulic is not None else None
+    if raw is None:
+        return _DEFAULT_DEMAND_MULTIPLIER
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"WNTR options.hydraulic.demand_multiplier {raw!r} is not numeric"
+        ) from exc
+    if not math.isfinite(value):
+        raise ValueError(
+            f"WNTR options.hydraulic.demand_multiplier must be finite, got {value}"
+        )
+    if value < 0.0:
+        raise ValueError(
+            f"WNTR options.hydraulic.demand_multiplier must be non-negative, "
+            f"got {value}"
+        )
+    return value
+
+
 def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
     try:
         import wntr  # type: ignore
@@ -2012,6 +2158,15 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         ) from exc
 
     wn = wntr.network.WaterNetworkModel(str(source))
+
+    # Sprint 18: WNTR exposes ``[OPTIONS] Demand Multiplier`` as a
+    # separate option (``wn.options.hydraulic.demand_multiplier``) and
+    # does NOT pre-scale ``Junction.base_demand`` with it — the
+    # multiplier is applied at simulation time by WNTR's internal
+    # engine. Since the dPHM core never invokes that engine, we apply
+    # the multiplier explicitly here so the WNTR back-end and the
+    # fallback parser produce identical demand sums.
+    demand_multiplier = _wntr_extract_demand_multiplier(wn)
 
     # Pull the same minimum subset the fallback parser supports, in a
     # WNTR-version-tolerant way. We never rely on attributes that have
@@ -2031,7 +2186,10 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         j = wn.get_node(jid)
         # WNTR stores baseline demand in m^3/s already (the engine's
         # internal SI unit), regardless of the file's [OPTIONS] Units.
+        # Sprint 18: apply the [OPTIONS] Demand Multiplier here so the
+        # WNTR back-end matches the fallback parser's scaled demand.
         base_demand = float(getattr(j, "base_demand", 0.0) or 0.0)
+        base_demand *= demand_multiplier
         elev = float(getattr(j, "elevation", 0.0) or 0.0)
         node_ids.append(jid)
         demands.append(base_demand)
@@ -2348,6 +2506,7 @@ __all__ = [
     "fit_pump_head_curve",
     "fit_tcv_resistance_surrogate",
     "load_network_from_inp",
+    "resolve_demand_multiplier",
     "resolve_pressure_unit",
     "resolve_unit_system",
     "translate_valve_to_surrogate",
