@@ -48,6 +48,19 @@ anchor is resolved after junction-demand normalisation. See
 ``docs/examples/epanet_reference_loop_gpm_demand_multiplier.inp``
 fixture.
 
+Sprint 20 adds fallback support for the optional EPANET
+``[OPTIONS] Viscosity`` directive as a **parser-only** compatibility
+feature. Viscosity is a kinematic-viscosity ratio relative to water at
+20 °C; in EPANET it matters only for Darcy-Weisbach / Reynolds-based
+friction models. The current dPHM core uses Hazen-Williams head loss,
+which carries **no viscosity term** in its residual, so the directive
+is parsed and validated but never propagated to any hydraulic output.
+The helper :func:`resolve_viscosity` returns the validated value
+(defaulting to ``1.0`` when absent); invalid values still raise
+``ValueError`` so EPANET-produced fixtures remain fail-fast.
+See :func:`resolve_viscosity` and ``docs/epanet-inp-import.md`` for
+the explicit boundary.
+
 Sprint 19 adds fallback support for the optional EPANET
 ``[OPTIONS] Specific Gravity`` directive. The directive declares a
 single strictly-positive scalar describing the ratio of fluid density
@@ -551,6 +564,78 @@ def resolve_specific_gravity(opts: dict[str, str]) -> float:
     if value <= 0.0:
         raise ValueError(
             f"[OPTIONS] Specific Gravity must be strictly positive, got {value}"
+        )
+    return value
+
+
+# --- viscosity handling (Sprint 20) ----------------------------------------
+
+
+# Canonical key used by the options parser to store the EPANET
+# ``[OPTIONS] Viscosity`` directive. Viscosity is a single-token option
+# key, so the standard ``_parse_options`` single-token branch handles
+# it without any multi-word special-casing.
+_VISCOSITY_KEY = "VISCOSITY"
+
+# EPANET's documented default for ``[OPTIONS] Viscosity`` when the
+# directive is absent. ``1.0`` corresponds to pure water at ~20 °C,
+# matching the kinematic-viscosity reference EPANET uses.
+_DEFAULT_VISCOSITY = 1.0
+
+
+def resolve_viscosity(opts: dict[str, str]) -> float:
+    """Return the validated ``[OPTIONS] Viscosity`` scalar.
+
+    The EPANET ``[OPTIONS] Viscosity`` directive declares a single
+    strictly-positive scalar describing the ratio of fluid kinematic
+    viscosity to that of water at 20 °C. When the directive is absent,
+    the EPANET default of ``1.0`` applies.
+
+    Sprint 20 is a **parser-only** sprint for this directive: the dPHM
+    core uses Hazen-Williams head loss, which has no viscosity term in
+    its residual, so the resolved value is validated but never
+    propagated to any hydraulic field. The resolver still raises on
+    invalid input so EPANET-produced fixtures fail fast (matching
+    Sprint 18 / 19 behaviour for Demand Multiplier / Specific Gravity).
+
+    Parameters
+    ----------
+    opts
+        Normalised options map produced by the fallback parser's
+        ``_parse_options``. The map stores the directive under the
+        canonical key ``"VISCOSITY"`` (upper-cased) when present.
+
+    Returns
+    -------
+    float
+        The resolved viscosity ratio. ``1.0`` when the directive is
+        absent.
+
+    Raises
+    ------
+    ValueError
+        If the directive's value is non-numeric, non-finite (NaN or
+        Inf), zero, or strictly negative. Viscosity must be strictly
+        positive — zero would imply an inviscid fluid (no friction in
+        a Darcy-Weisbach formulation) and would singularise a Reynolds
+        calculation if one were ever added.
+    """
+    raw = opts.get(_VISCOSITY_KEY)
+    if raw is None or raw == "":
+        return _DEFAULT_VISCOSITY
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"[OPTIONS] Viscosity value {raw!r} is not numeric"
+        ) from exc
+    if not math.isfinite(value):
+        raise ValueError(
+            f"[OPTIONS] Viscosity must be finite, got {value}"
+        )
+    if value <= 0.0:
+        raise ValueError(
+            f"[OPTIONS] Viscosity must be strictly positive, got {value}"
         )
     return value
 
@@ -1484,6 +1569,18 @@ def _fallback_parse(
     # pressure aliases (``METERS``, ``M``, ``FEET``, ``FT``) are length
     # units and are not scaled. Default is ``1.0`` (water).
     specific_gravity = resolve_specific_gravity(opts)
+
+    # Sprint 20: [OPTIONS] Viscosity is parsed and validated but NOT
+    # propagated to any hydraulic field. The dPHM core uses Hazen-
+    # Williams head loss, which has no viscosity term, so viscosity
+    # cannot scale demands, fixed heads, geometry, HEAD pump curves,
+    # POWER pump surrogates, PRV/TCV settings, or solver outputs. We
+    # still call the resolver so invalid directives (zero, negative,
+    # NaN, Inf, non-numeric) fail fast at parse time — matching the
+    # fail-fast contract EPANET-produced fixtures expect. If a future
+    # sprint adds a Darcy-Weisbach branch, that branch will be the
+    # first place viscosity propagates.
+    resolve_viscosity(opts)
 
     # Sprint 17: [OPTIONS] Pressure overrides the PRV pressure-setting
     # conversion. When absent, the parser falls back to the flow-unit
@@ -2662,5 +2759,6 @@ __all__ = [
     "resolve_pressure_unit",
     "resolve_specific_gravity",
     "resolve_unit_system",
+    "resolve_viscosity",
     "translate_valve_to_surrogate",
 ]

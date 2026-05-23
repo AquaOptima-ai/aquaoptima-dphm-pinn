@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–19)
+# EPANET `.inp` Topology Import (Sprint 11–20)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -20,6 +20,11 @@ fallback support for the `[OPTIONS] Demand Multiplier` directive
 the `[OPTIONS] Specific Gravity` directive and propagates the fluid
 density ratio to PRV pressure-unit conversions (for `PSI`/`KPA`/`BAR`)
 and to the POWER pump surrogate (see "Specific gravity" below).
+Sprint 20 adds fallback support for the `[OPTIONS] Viscosity`
+directive as a parser-only compatibility feature; the dPHM core uses
+Hazen-Williams head loss, which has no viscosity term, so the
+directive is parsed and validated but never propagated to any
+hydraulic field (see "Viscosity" below).
 The public entry point is one function:
 
 ```python
@@ -83,7 +88,7 @@ needed to load steady-state reference fixtures.
 | `[RESERVOIRS]`   | id, head. Pattern column is ignored.                                                                     |
 | `[TANKS]`        | id, elevation, init-level → mapped to a fixed-head boundary at `elev + init_level`. Curves ignored.       |
 | `[PIPES]`        | id, node1, node2, length, diameter, roughness, optional minor-loss (ignored), optional status (`OPEN`).  |
-| `[OPTIONS]`      | `Units` (flow-unit family), `Headloss` (must be `H-W`), `Pressure` (Sprint 17: optional pressure-display unit for PRV settings), `Demand Multiplier` (Sprint 18: optional non-negative scalar that scales every junction's baseline demand at load time), and `Specific Gravity` (Sprint 19: optional strictly-positive density ratio that scales PRV pressure conversions for `PSI`/`KPA`/`BAR` and the POWER pump surrogate's effective density). |
+| `[OPTIONS]`      | `Units` (flow-unit family), `Headloss` (must be `H-W`), `Pressure` (Sprint 17: optional pressure-display unit for PRV settings), `Demand Multiplier` (Sprint 18: optional non-negative scalar that scales every junction's baseline demand at load time), `Specific Gravity` (Sprint 19: optional strictly-positive density ratio that scales PRV pressure conversions for `PSI`/`KPA`/`BAR` and the POWER pump surrogate's effective density), and `Viscosity` (Sprint 20: optional strictly-positive kinematic-viscosity ratio — parsed and validated but NOT propagated to any hydraulic field because the dPHM core is Hazen-Williams). |
 | `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate via least-squares curve fit. Sprint 14: `POWER value` pump rows translate via the constant-power surrogate. |
 | `[VALVES]`       | Sprint 15: `PRV` and `TCV` valve rows translate via the conservative pressure-boundary / resistance surrogates. See "Valves" below.   |
 | `[CURVES]`       | Sprint 12: pump HEAD curves are parsed into `(Q, H)` points. The X column is converted to m³/s using the file's flow-unit factor. Unused curves are tolerated. |
@@ -898,6 +903,128 @@ release surface.
   parser), HEAD-curve / TCV / reservoir / tank / pipe-geometry /
   demand-multiplier invariants, and existing-fixture preservation.
 
+## Viscosity (Sprint 20)
+
+EPANET's `[OPTIONS]` section accepts an optional `Viscosity` directive
+— a single strictly-positive scalar describing the ratio of fluid
+kinematic viscosity to that of water at 20 °C. The directive's option
+key is a single token; the fallback parser's standard single-token
+`[OPTIONS]` branch handles it case-insensitively (`Viscosity 1.0`,
+`VISCOSITY 0.8`, `viscosity   2.0`).
+
+The public resolver is `resolve_viscosity(opts)`:
+
+```python
+from aquaoptima.dphm.inp_io import resolve_viscosity
+
+resolve_viscosity({})                       # 1.0 (default, water at 20 °C)
+resolve_viscosity({"VISCOSITY": "0.8"})     # 0.8 (warmer / less viscous)
+resolve_viscosity({"VISCOSITY": "2.0"})     # 2.0 (cooler / more viscous)
+resolve_viscosity({"VISCOSITY": "0"})       # ValueError
+resolve_viscosity({"VISCOSITY": "-1"})      # ValueError
+```
+
+### Why Hazen-Williams is viscosity-independent
+
+EPANET's `Viscosity` directive only affects friction calculations that
+involve a Reynolds number, i.e. the Darcy-Weisbach head-loss model
+through the Colebrook-White / Swamee-Jain explicit friction factor.
+Hazen-Williams head loss
+
+```
+h_L = 10.67 · L · Q^1.852 / (C^1.852 · D^4.87)
+```
+
+has **no viscosity term**: the empirical roughness coefficient `C`
+absorbs the fluid's frictional behaviour, and the exponent on flow is
+fixed at `1.852` independent of Reynolds number. The current dPHM
+core (`aquaoptima.dphm.hazen_williams`, `residuals.py`, the analytic
+Jacobian, and `newton_solve`) implements only the Hazen-Williams
+branch. Adding viscosity to any of those would have no mathematical
+meaning under H-W; Sprint 20 therefore treats viscosity strictly as a
+parser-compatibility surface.
+
+### What Sprint 20 does with the directive
+
+The fallback parser:
+
+1. Reads `[OPTIONS] Viscosity` through `_parse_options` (single-token
+   key path).
+2. Resolves it via `resolve_viscosity(opts)`, which validates the
+   value (defaults to `1.0`, must be finite and strictly positive)
+   and raises `ValueError` on zero, negative, NaN, Inf, or
+   non-numeric input. This preserves the fail-fast contract for
+   EPANET-produced fixtures even though the value is never consumed.
+3. Discards the resolved value. No demand, fixed head, geometry,
+   HEAD pump coefficient, POWER pump surrogate coefficient, PRV or
+   TCV surrogate parameter, or Newton-solve output is a function of
+   viscosity under Hazen-Williams.
+
+The Sprint 20 test suite asserts hydraulic invariance across a
+representative cross-section of fixtures (LPS loop, GPM loop, HEAD
+pump, POWER pump, PRV with PSI + SG, TCV) by loading each fixture
+with and without the directive and comparing demands / fixed heads /
+geometry / pump coefficients / Newton-solve heads & flows.
+
+### What Sprint 20 does NOT do
+
+- It does **not** add a Darcy-Weisbach head-loss branch. Viscosity
+  would matter there but is deferred.
+- It does **not** add a Reynolds / friction-factor model.
+- It does **not** propagate viscosity into Specific Gravity / Demand
+  Multiplier / Pressure directive behaviour — the three axes are
+  orthogonal under the current H-W core.
+- It does **not** ship a `Viscosity` example fixture under
+  `docs/examples/`; tmp-path fixtures cover the parser surface
+  without growing the shipped-fixture inventory.
+
+### Validation
+
+The resolver and the fallback parser fail loudly on:
+
+- Zero viscosity → `ValueError` ("must be strictly positive"). Zero
+  viscosity would imply an inviscid fluid and would singularise any
+  future Reynolds calculation.
+- Negative viscosity → `ValueError` ("must be strictly positive").
+- Non-finite viscosity (NaN or Inf) → `ValueError` ("must be finite").
+- Non-numeric values → `ValueError` ("is not numeric").
+
+### WNTR adapter behaviour
+
+WNTR's treatment of `[OPTIONS] Viscosity` is **ambiguous across
+releases**: some versions parse it into
+`wn.options.hydraulic.viscosity`, others into the deprecated
+`wn.options.hydraulic.viscosity` alias, others ignore it, and the
+simulator itself only consults the value when the Darcy-Weisbach
+formula is selected. Sprint 20 therefore **leaves the WNTR adapter
+structurally unchanged**:
+
+- The fallback parser is authoritative for Sprint 20 viscosity
+  parsing and validation.
+- WNTR's HEAD / POWER / PRV / TCV / demand-multiplier parity from
+  Sprints 13–19 remains green.
+- The optional WNTR parity test
+  (`test_wntr_fallback_parity_with_viscosity_directive`) only
+  asserts that adding a `Viscosity` directive does not break either
+  back-end; it does not assert agreement on a viscosity-derived
+  quantity (because, under Hazen-Williams, no such quantity exists).
+
+A future sprint may pin WNTR to a stable surface and add explicit
+WNTR-side viscosity handling at the same time it adds a
+Darcy-Weisbach branch to the dPHM core.
+
+### Tests
+
+- `tests/dphm/test_inp_viscosity.py` — Sprint 20 viscosity resolver
+  (defaults, validation surface, case / whitespace tolerance),
+  fallback parser invalid-value rejection, hydraulic invariance under
+  Hazen-Williams across SI and US flow-unit families (demands,
+  fixed heads, geometry, HEAD pump coefficients, POWER pump
+  coefficients, PRV PSI conversion with and without SG, TCV
+  effective resistance, Newton-solve heads / flows), orthogonality
+  with Demand Multiplier and Specific Gravity, and existing-fixture
+  preservation.
+
 ## Mass balancing
 
 EPANET INP files often declare junction demands without a matching
@@ -1039,5 +1166,13 @@ Deferred to a future sprint:
   ships SG support in the fallback parser only — WNTR's handling of
   the directive has drifted across releases and is left untouched.
   A future sprint may pin WNTR to a stable surface and add parity.
+- A Darcy-Weisbach head-loss branch (and the Reynolds / friction-
+  factor model it requires) — the place where `[OPTIONS] Viscosity`
+  would actually be propagated. Sprint 20 ships parser support only
+  because the current dPHM core is Hazen-Williams and is viscosity-
+  independent by construction.
+- Explicit WNTR-side `[OPTIONS] Viscosity` handling. Sprint 20 ships
+  viscosity parsing in the fallback parser only — WNTR's handling of
+  the directive has shifted across releases and is left untouched.
 
 See `docs/sprint-roadmap.md` for the current ordering.
