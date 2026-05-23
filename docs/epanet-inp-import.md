@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–16)
+# EPANET `.inp` Topology Import (Sprint 11–17)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -12,6 +12,9 @@ two steady-state-compatible forms `PRV` and `TCV` (see "Valves"
 below). Sprint 16 widens the fallback parser to handle the
 US-customary EPANET flow-unit family (`GPM`, `CFS`, `MGD`, `IMGD`,
 `AFD`) on top of the SI family (see "Unit conventions" below).
+Sprint 17 adds explicit `[OPTIONS] Pressure` parsing so PRV settings
+can be declared in psi / kPa / bar / metres / feet independently of
+the flow-unit family (see "Pressure units" below).
 The public entry point is one function:
 
 ```python
@@ -75,7 +78,7 @@ needed to load steady-state reference fixtures.
 | `[RESERVOIRS]`   | id, head. Pattern column is ignored.                                                                     |
 | `[TANKS]`        | id, elevation, init-level → mapped to a fixed-head boundary at `elev + init_level`. Curves ignored.       |
 | `[PIPES]`        | id, node1, node2, length, diameter, roughness, optional minor-loss (ignored), optional status (`OPEN`).  |
-| `[OPTIONS]`      | `Units` (flow-unit family) and `Headloss` (must be `H-W`).                                               |
+| `[OPTIONS]`      | `Units` (flow-unit family), `Headloss` (must be `H-W`), and `Pressure` (Sprint 17: optional pressure-display unit for PRV settings). |
 | `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate via least-squares curve fit. Sprint 14: `POWER value` pump rows translate via the constant-power surrogate. |
 | `[VALVES]`       | Sprint 15: `PRV` and `TCV` valve rows translate via the conservative pressure-boundary / resistance surrogates. See "Valves" below.   |
 | `[CURVES]`       | Sprint 12: pump HEAD curves are parsed into `(Q, H)` points. The X column is converted to m³/s using the file's flow-unit factor. Unused curves are tolerated. |
@@ -599,6 +602,107 @@ raises — the dPHM core is Hazen-Williams.
 Unsupported tokens (e.g. `CMS`, `BARRELS`) raise a clear
 `ValueError` listing the ten supported units.
 
+## Pressure units (Sprint 17)
+
+EPANET's `[OPTIONS]` section accepts an orthogonal `Pressure`
+directive that selects the pressure-display unit used for pressure-
+related fields, most importantly the `PRV` valve `Setting` column.
+The flow-unit family alone does not pin the pressure unit: a GPM
+network can still declare its PRV setting in psi, kPa, or metres of
+head, and an LPS network can declare its setting in bar.
+
+Sprint 17 captures every supported pressure unit in
+`aquaoptima.dphm.inp_io.EpanetPressureUnit`, a frozen dataclass with
+one field (`pressure_to_head_m`) that converts a file-declared
+pressure to metres of water head:
+
+```python
+from aquaoptima.dphm.inp_io import (
+    SUPPORTED_PRESSURE_UNITS,
+    resolve_pressure_unit,
+)
+
+resolve_pressure_unit("PSI").pressure_to_head_m
+# 0.7030695796...
+```
+
+Conversion factors. All Pa-pivot derivations use the EPANET pump-
+energy constants `rho = 1000 kg/m³` and `g = 9.80665 m/s²`, so
+`1 m of water head = 9806.65 Pa`:
+
+| `Pressure` directive | factor (× → metres of water head)                |
+|----------------------|--------------------------------------------------|
+| `METERS`             | `× 1.0`                                          |
+| `M`                  | `× 1.0` (alias for `METERS`)                     |
+| `FEET`               | `× 0.3048`                                       |
+| `FT`                 | `× 0.3048` (alias for `FEET`)                    |
+| `KPA`                | `× 1000 / 9806.65` ≈ `0.10197162129779281`       |
+| `PSI`                | `× 6894.757293168 / 9806.65` ≈ `0.7030695796`    |
+| `BAR`                | `× 100000 / 9806.65` ≈ `10.197162129779281`      |
+
+`SUPPORTED_PRESSURE_UNITS` is the tuple of the canonical (upper-case)
+tokens the resolver accepts. Lookup is case-insensitive (`PSI`,
+`psi`, and `Psi` all resolve to the same manifest entry).
+Unsupported tokens (e.g. `PASCAL`, `MMHG`) raise a clear
+`ValueError` listing the supported units.
+
+### Parser semantics
+
+- When `[OPTIONS] Pressure` is **present**, every PRV setting in the
+  file is multiplied by `pressure_to_head_m` before being interpreted
+  as a downstream fixed-head boundary. The flow-unit family's
+  `head_to_m` factor is bypassed for PRV settings only.
+- When `[OPTIONS] Pressure` is **absent**, the parser falls back to
+  the Sprint 16 contract: PRV settings follow the flow-unit family's
+  `pressure_setting_to_m` (= `head_to_m` — metres for SI flow units,
+  feet for US flow units). Existing fixtures load unchanged.
+- TCV settings (the dimensionless minor-loss coefficient `K`) and
+  the `MinorLoss` column are **never** scaled by either the flow-unit
+  manifest or the pressure-unit manifest. They remain dimensionless.
+- Junction / reservoir / tank elevations and heads continue to use
+  the flow-unit family's `head_to_m`. The pressure-unit manifest
+  applies only to PRV setting columns.
+
+### Shipped PSI fixture
+
+`docs/examples/epanet_reference_prv_gpm_psi.inp` is a four-node
+topology in GPM/ft/in with the PRV setting declared in PSI:
+
+- `R1` reservoir at 164 ft (~50 m).
+- `P1`: long, narrow upstream pipe (6562 ft, 3.15 in, C = 130).
+- `V1`: PRV with setting **30 PSI**, 3.15 in diameter.
+- `J2`: downstream of the PRV (pinned by the import).
+- `P2`: short downstream pipe (656 ft, 3.15 in, C = 130).
+- `J3`: 32 GPM consumer (~2 L/s).
+
+The fallback parser converts the 30 PSI setting via the Sprint 17
+pressure-unit manifest to ~21.09 m of water head — NOT via the
+flow-unit family's feet → m factor, which would silently give
+30 × 0.3048 = 9.144 m. The network solves with
+`newton_solve(..., jacobian_mode="analytic")` to a residual norm
+below the working tolerance.
+
+### WNTR adapter behaviour
+
+WNTR normalises all hydraulic quantities (including PRV settings) to
+its internal SI representation when a `WaterNetworkModel` is loaded,
+regardless of the source file's `[OPTIONS] Pressure` directive. The
+WNTR adapter therefore **does not** apply a second pressure-unit
+conversion in Sprint 17 — doing so would double-convert and yield
+nonsense. The fallback parser performs the conversion itself; the
+WNTR adapter trusts WNTR's conversion.
+
+Implication: on a `[OPTIONS] Units GPM` / `[OPTIONS] Pressure PSI`
+file, the two back-ends agree on the downstream-pinned fixed-head
+value only when WNTR's `[OPTIONS] Pressure` interpretation matches
+the dPHM pressure manifest. The shipped SI PRV fixture (with no
+`Pressure` directive) demonstrates byte-for-byte fallback-vs-WNTR
+parity on the pinned fixed-head value; for arbitrary `Pressure`
+declarations, the parity is constrained by WNTR's own pressure-unit
+table. The fallback parser remains the authoritative path for
+Sprint 17 behaviour and is exercised by both shipped and tmp-path
+test fixtures.
+
 ## Mass balancing
 
 EPANET INP files often declare junction demands without a matching
@@ -612,7 +716,7 @@ hand-built fixtures.
 
 ## Shipped fixtures
 
-Six small fixtures are shipped under `docs/examples/`:
+Nine small fixtures are shipped under `docs/examples/`:
 
 | Fixture                                | Family | Notes                                                  |
 |----------------------------------------|--------|--------------------------------------------------------|
@@ -624,6 +728,7 @@ Six small fixtures are shipped under `docs/examples/`:
 | `epanet_reference_loop_gpm.inp`        | US     | Sprint 16 — looped distribution, GPM/ft/in.            |
 | `epanet_reference_pump_gpm.inp`        | US     | Sprint 16 — HEAD-curve pump, GPM/ft/in.                |
 | `epanet_reference_tcv_gpm.inp`         | US     | Sprint 16 — TCV surrogate, GPM/ft/in.                  |
+| `epanet_reference_prv_gpm_psi.inp`     | US     | Sprint 17 — PRV with explicit `[OPTIONS] Pressure PSI`. |
 
 Each US fixture mirrors the structure of its SI counterpart but uses
 US-customary EPANET conventions (length in feet, diameter in inches,
@@ -682,6 +787,11 @@ Tests:
   POWER pump nominal flow under US units, PRV setting conversion,
   and fallback-vs-WNTR parity on every shipped US fixture
   (`pytest.importorskip("wntr")`).
+- `tests/dphm/test_inp_pressure_units.py` — Sprint 17 pressure-unit
+  manifest, every supported pressure unit's conversion factor, the
+  case-insensitive lookup surface, GPM+PSI PRV fixture load + solve,
+  tmp-path kPa / bar / metres / feet PRV conversion, TCV-not-affected
+  invariant, and Sprint 16 default-behaviour preservation.
 - `tests/dataio/test_inp_physics_telemetry.py` — physics-consistent
   telemetry round-trip on the INP-loaded loop network.
 - `tests/dataio/test_inp_pump_telemetry.py` — Sprint 12 analytic-Newton

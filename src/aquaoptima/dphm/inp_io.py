@@ -16,6 +16,19 @@ conversion constants are captured in a single
 ad-hoc per-section scaling. See :func:`resolve_unit_system` and the
 shipped US fixtures under ``docs/examples/*_gpm.inp``.
 
+Sprint 17 adds an orthogonal pressure-display unit axis through the
+optional EPANET ``[OPTIONS] Pressure`` directive. The new
+:class:`EpanetPressureUnit` manifest captures the conversion factor
+from each supported pressure unit (``PSI``, ``KPA``, ``METERS``,
+``M``, ``FEET``, ``FT``, ``BAR``) to metres of water head. When
+``[OPTIONS] Pressure`` is present, the fallback parser uses the
+explicit pressure-unit conversion for ``PRV`` valve settings instead
+of the flow-unit family's head conversion; when absent, Sprint 16
+behaviour is preserved. ``TCV`` settings (the dimensionless minor-
+loss coefficient ``K``) and the ``MinorLoss`` column remain
+dimensionless. See :func:`resolve_pressure_unit` and the shipped
+``docs/examples/epanet_reference_prv_gpm_psi.inp`` fixture.
+
 Sprint 12 extends the fallback parser to additionally translate
 EPANET ``HEAD``-curve pumps into dPHM pump-affinity quadratic
 coefficients. The translation fits the EPANET curve points to the
@@ -139,11 +152,16 @@ The fallback parser supports both families through
 :class:`EpanetUnitSystem`. Demand is converted from the chosen flow
 unit to m^3/s; diameter from mm or inches to m; length and head from
 m or ft to m. PRV settings are interpreted as the head-units conversion
-(feet of head for US, metres of head for SI). TCV settings (``K``) and
-``MinorLoss`` are dimensionless and never scaled.
+(feet of head for US, metres of head for SI) by default. Sprint 17:
+when ``[OPTIONS] Pressure`` is set, the explicit pressure-unit
+conversion (psi / kPa / bar / metres / feet) overrides that default
+for PRV settings only. TCV settings (``K``) and ``MinorLoss`` are
+dimensionless and never scaled.
 
 If ``[OPTIONS]`` is absent or omits ``Units``, the parser assumes the
-EPANET default of ``LPS``.
+EPANET default of ``LPS``. If ``[OPTIONS] Pressure`` is absent, the
+Sprint 16 contract applies (PRV settings follow the flow-unit
+family's head conversion).
 """
 
 from __future__ import annotations
@@ -269,6 +287,89 @@ def resolve_unit_system(unit_name: str) -> EpanetUnitSystem:
         diameter_to_m=diameter_to_m,
         head_to_m=head_to_m,
         pressure_setting_to_m=head_to_m,
+    )
+
+
+# --- pressure-unit handling (Sprint 17) ------------------------------------
+
+
+# Standard water density and gravity used to convert any pressure
+# unit to metres of water head. Mirrors the constants the Sprint 14
+# POWER pump surrogate uses (``_POWER_PUMP_RHO`` and ``_POWER_PUMP_G``)
+# so head conversions are arithmetically consistent across the module.
+_PRESSURE_RHO = 1000.0   # kg/m^3 (water at ~20 C)
+_PRESSURE_G = 9.80665    # m/s^2 (standard gravity)
+_PA_PER_M_WATER = _PRESSURE_RHO * _PRESSURE_G  # 9806.65 Pa per metre
+
+# Pressure-to-pascal factors for every supported pressure unit. The
+# pascal pivot keeps the per-unit conversions auditable in one place;
+# the metres-of-water-head factor is derived as ``pa / _PA_PER_M_WATER``.
+_PSI_TO_PA = 6894.757293168    # exact (NIST, international foot-pound-second)
+_KPA_TO_PA = 1000.0
+_BAR_TO_PA = 100_000.0
+
+
+@dataclass(frozen=True)
+class EpanetPressureUnit:
+    """EPANET ``[OPTIONS] Pressure`` pressure-unit manifest entry.
+
+    Sprint 17 adds explicit pressure-unit support so PRV settings can
+    be declared in psi / kPa / bar / metres / feet independently of
+    the flow-unit family. Each manifest entry captures one factor:
+    how many metres of water head one unit of the file-declared
+    pressure equals.
+
+    Attributes
+    ----------
+    name
+        The canonical (upper-case) EPANET ``[OPTIONS] Pressure``
+        token, e.g. ``"PSI"`` or ``"BAR"``.
+    pressure_to_head_m
+        Factor to multiply a file-declared pressure value to get
+        metres of water head. Derived through a Pa pivot using
+        ``rho = 1000 kg/m^3`` and ``g = 9.80665 m/s^2``:
+        ``pressure_to_head_m = (Pa per unit) / (rho * g)``.
+    """
+
+    name: str
+    pressure_to_head_m: float
+
+
+# Pressure-unit table. ``METERS`` and ``M`` are aliases (both EPANET-
+# recognised), as are ``FEET`` and ``FT``. The table is the single
+# source of truth for both the manifest constants and the
+# ``SUPPORTED_PRESSURE_UNITS`` tuple.
+_PRESSURE_TO_HEAD_M: dict[str, float] = {
+    "METERS": 1.0,
+    "M": 1.0,
+    "FEET": _FT_TO_M,
+    "FT": _FT_TO_M,
+    "KPA": _KPA_TO_PA / _PA_PER_M_WATER,
+    "PSI": _PSI_TO_PA / _PA_PER_M_WATER,
+    "BAR": _BAR_TO_PA / _PA_PER_M_WATER,
+}
+
+
+SUPPORTED_PRESSURE_UNITS: tuple[str, ...] = (
+    "PSI", "KPA", "METERS", "M", "FEET", "FT", "BAR",
+)
+
+
+def resolve_pressure_unit(unit_name: str) -> EpanetPressureUnit:
+    """Return the :class:`EpanetPressureUnit` for a pressure-unit token.
+
+    The lookup is case-insensitive. Unknown tokens raise
+    :class:`ValueError` listing the supported units.
+    """
+    canonical = str(unit_name).upper()
+    if canonical not in _PRESSURE_TO_HEAD_M:
+        raise ValueError(
+            f"unknown EPANET pressure unit {unit_name!r}; supported units are "
+            f"{SUPPORTED_PRESSURE_UNITS}"
+        )
+    return EpanetPressureUnit(
+        name=canonical,
+        pressure_to_head_m=_PRESSURE_TO_HEAD_M[canonical],
     )
 
 
@@ -1133,6 +1234,19 @@ def _fallback_parse(
     unit_system = resolve_unit_system(flow_unit)
     demand_factor = unit_system.flow_to_m3s
 
+    # Sprint 17: [OPTIONS] Pressure overrides the PRV pressure-setting
+    # conversion. When absent, the parser falls back to the flow-unit
+    # family's pressure_setting_to_m (Sprint 16 contract). When present,
+    # the explicit pressure unit converts PRV settings to metres of
+    # water head regardless of the active flow-unit family.
+    pressure_directive = opts.get("PRESSURE", "")
+    if pressure_directive:
+        prv_setting_to_m = resolve_pressure_unit(
+            pressure_directive
+        ).pressure_to_head_m
+    else:
+        prv_setting_to_m = unit_system.pressure_setting_to_m
+
     # Sprint 12: parse pump curves up-front so [PUMPS] rows can
     # resolve their curve_id against the file's declared CURVES.
     # Sprint 16: pass the full unit system so HEAD curve points are
@@ -1448,11 +1562,17 @@ def _fallback_parse(
                     f"valve {valve_id!r} setting column {row[5]!r} is not "
                     "numeric"
                 ) from exc
-            # PRV settings carry head units (m for SI, ft for US) — convert
-            # to metres. TCV settings are the dimensionless minor-loss
-            # coefficient K and are passed through unchanged.
+            # PRV settings carry pressure / head units; convert to
+            # metres of water head. Sprint 16: in the default case
+            # (no [OPTIONS] Pressure directive) the flow-unit family's
+            # head_to_m factor applies — metres for SI, feet for US.
+            # Sprint 17: when [OPTIONS] Pressure is present, the
+            # explicit pressure unit (psi / kPa / bar / metres / feet)
+            # overrides that conversion. TCV settings are the
+            # dimensionless minor-loss coefficient K and are passed
+            # through unchanged in either case.
             if valve_type == "PRV":
-                setting_value = setting_raw * unit_system.pressure_setting_to_m
+                setting_value = setting_raw * prv_setting_to_m
             else:
                 setting_value = setting_raw
 
@@ -2220,12 +2340,15 @@ def load_network_from_inp(
 
 
 __all__ = [
+    "EpanetPressureUnit",
     "EpanetUnitSystem",
     "SUPPORTED_FLOW_UNITS",
+    "SUPPORTED_PRESSURE_UNITS",
     "fit_power_pump_surrogate",
     "fit_pump_head_curve",
     "fit_tcv_resistance_surrogate",
     "load_network_from_inp",
+    "resolve_pressure_unit",
     "resolve_unit_system",
     "translate_valve_to_surrogate",
 ]
