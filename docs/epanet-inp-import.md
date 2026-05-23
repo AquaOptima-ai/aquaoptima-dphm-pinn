@@ -1,10 +1,11 @@
-# EPANET `.inp` Topology Import (Sprint 11–12)
+# EPANET `.inp` Topology Import (Sprint 11–13)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
-Sprint 12 adds HEAD-curve pump translation on top of that surface
-(see "Pump HEAD curves" below). The public entry point is one
-function:
+Sprint 12 adds HEAD-curve pump translation to the fallback parser
+(see "Pump HEAD curves" below). Sprint 13 brings the optional
+WNTR-backed parser into parity with the fallback parser for the same
+HEAD-curve pumps. The public entry point is one function:
 
 ```python
 from aquaoptima.dphm import load_network_from_inp
@@ -79,9 +80,11 @@ needed to load steady-state reference fixtures.
 | `[PUMPS]` (non-HEAD form) | Raises `ValueError`. The fallback parser only supports `HEAD curve_id` pump rows. `POWER`, `SPEED`, and other forms are out of scope. |
 | `[VALVES]`       | Raises `ValueError`. The dPHM steady-state core does not model valves.                                                                |
 
-The Sprint 11 WNTR back-end still refuses INP files that declare
-pumps or valves; Sprint 12 only updates the fallback parser. The
-WNTR-backed pump path is deferred.
+The WNTR back-end still refuses `[VALVES]`. As of Sprint 13, the
+WNTR back-end **does** translate HEAD-curve pumps (see "WNTR-backed
+pump translation" below); non-HEAD forms (`POWER`, etc.) still raise
+`ValueError` from the WNTR adapter, matching the fallback parser's
+behaviour.
 
 ## Pump HEAD curves (Sprint 12)
 
@@ -166,6 +169,60 @@ to float-precision tolerances. The network solves with
 `newton_solve(..., jacobian_mode="analytic")` to a residual norm at
 or below the working tolerance.
 
+## WNTR-backed pump translation (Sprint 13)
+
+When `parser="wntr"` (or `parser="auto"` with WNTR installed), the
+adapter iterates `wn.pump_name_list` and translates each pump via
+the **same** `fit_pump_head_curve` helper used by the fallback
+parser. The two back-ends therefore produce numerically identical
+pump coefficients for the same curve points.
+
+### Unit conversion in the WNTR path
+
+WNTR normalises all hydraulic quantities to its internal SI
+representation when a `WaterNetworkModel` is loaded — regardless of
+the file's `[OPTIONS] Units` directive. That means
+`pump.get_pump_curve().points` are already `(Q in m³/s, H in m)`
+when our adapter reads them. The WNTR path therefore **does not**
+apply the fallback parser's `[OPTIONS] Units`-driven `demand_factor`
+to curve points; doing so would double-convert and yield
+nonsense coefficients. The fallback parser performs the conversion
+itself; the WNTR adapter trusts WNTR's conversion.
+
+### WNTR API surface assumed
+
+The adapter touches only the WNTR public surface that has been
+stable across recent WNTR releases:
+
+| WNTR attribute / method               | Use                                                         |
+|---------------------------------------|-------------------------------------------------------------|
+| `wn.pump_name_list`                   | Iterate pumps                                               |
+| `wn.get_link(name)`                   | Resolve a pump by name                                      |
+| `pump.start_node_name` / `.end_node_name` | Edge endpoints                                          |
+| `pump.pump_type`                      | `"HEAD"` / `"POWER"` discrimination (string-typed)         |
+| `pump.get_pump_curve()`               | Returns a `Curve` object for HEAD-curve pumps               |
+| `pump.base_speed`                     | Static nominal speed; defaults to `1.0` if missing or bad   |
+| `Curve.points`                        | List of `(Q, H)` tuples in SI                               |
+| `Curve.curve_type`                    | Sanity check — must be `"HEAD"` when present                |
+| `wn.valve_name_list`                  | Reject valves                                               |
+
+Any non-HEAD pump form (POWER, multi-point efficiency, etc.) raises
+a clear `ValueError` referencing the WNTR `pump_type`. Speed
+patterns (`speed_pattern_name`) are silently ignored — the dPHM
+core is steady-state, so only `base_speed` is consumed.
+
+### Sprint 13 fixture parity
+
+On `docs/examples/epanet_reference_pump.inp`, the WNTR-backed and
+fallback parsers produce:
+
+- Identical structural fields (`num_nodes`, `num_edges`,
+  `num_fixed_heads`, `pipe_mask`, `pump_mask`).
+- Pump coefficients agreeing to ~1e-6 absolute on `a0`/`a1` and
+  ~1e-3 absolute on the large-magnitude `a2`.
+- Solved heads and flows from `newton_solve(jacobian_mode="analytic")`
+  agreeing to 1e-6 absolute.
+
 ## Unit conventions
 
 EPANET picks per-flow-unit conventions for length and diameter:
@@ -233,7 +290,11 @@ Tests:
 - `tests/dphm/test_inp_pump_curves.py` — Sprint 12 pump-curve parser
   and `fit_pump_head_curve` helper, including malformed inputs.
 - `tests/dphm/test_wntr_optional_import.py` — optional WNTR
-  comparison, skipped when WNTR is not installed.
+  comparison (loop + Sprint 13 pump fixtures), skipped when WNTR is
+  not installed.
+- `tests/dphm/test_wntr_pump_helpers.py` — Sprint 13 WNTR pump
+  translation helpers, exercised against duck-typed fakes (no WNTR
+  dependency).
 - `tests/dataio/test_inp_physics_telemetry.py` — physics-consistent
   telemetry round-trip on the INP-loaded loop network.
 - `tests/dataio/test_inp_pump_telemetry.py` — Sprint 12 analytic-Newton
@@ -256,9 +317,8 @@ Deferred to a future sprint:
 
 - US-customary flow units (`GPM`, `CFS`, …) on the fallback parser.
 - Pump curve translation for the `POWER` / `SPEED` / `LINEAR` /
-  multi-point efficiency forms (HEAD-curve form shipped in Sprint 12).
-- WNTR-backed pump translation (the Sprint 12 update only widens the
-  fallback parser; the WNTR adapter still refuses pumps).
+  multi-point efficiency forms (HEAD-curve form shipped in Sprint 12
+  for the fallback parser and Sprint 13 for the WNTR back-end).
 - Larger reference fixtures (e.g. the EPANET `Net1` / `Net3` shipped
   examples) routed through the WNTR back-end.
 

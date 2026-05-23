@@ -15,6 +15,13 @@ dPHM quadratic ``H(Q, s) = a0 s^2 + a1 s Q + a2 Q^2`` at the static
 nominal speed ``s = 1`` via least squares; see
 :func:`fit_pump_head_curve` for the public helper.
 
+Sprint 13 brings the WNTR-backed parser into parity with the
+fallback parser for HEAD-curve pumps. The WNTR adapter now iterates
+``wn.pump_name_list`` and translates each pump via the same
+:func:`fit_pump_head_curve` helper, reading WNTR's already-SI curve
+points so no second unit conversion is applied. Non-HEAD pump forms
+(``POWER``, etc.) still raise :class:`ValueError`.
+
 Two parser back-ends are available:
 
 * ``parser="fallback"`` (default of ``parser="auto"`` when ``wntr`` is
@@ -687,6 +694,117 @@ def _wntr_available() -> bool:
     return True
 
 
+def _wntr_extract_pump_curve_points(pump: object) -> list[PumpCurvePoint]:
+    """Pull ``(Q, H)`` curve points from a WNTR pump-like object.
+
+    The points returned are in SI units — m^3/s for flow, m for head —
+    because WNTR normalises curve data into its internal SI
+    representation regardless of the ``[OPTIONS] Units`` declared in
+    the source ``.inp`` file. **No demand-factor conversion is applied
+    here**; that is the fallback parser's job and would double-convert
+    the WNTR-provided points.
+
+    This helper is deliberately defensive: WNTR's public API has
+    evolved across releases, and we touch only attributes that have
+    been stable since WNTR 1.0 (``pump_type``, ``get_pump_curve()``,
+    ``Curve.points``, ``Curve.curve_type``).
+
+    Parameters
+    ----------
+    pump
+        A WNTR pump-like object (real ``HeadPump`` / ``PowerPump`` or
+        a duck-typed fake exposing the same surface). The helper does
+        not import WNTR, so it can be unit-tested without WNTR being
+        installed.
+
+    Returns
+    -------
+    list of ``(Q, H)`` tuples in SI units.
+
+    Raises
+    ------
+    ValueError
+        If the pump does not expose a HEAD-curve form we can translate
+        (e.g. POWER pumps, missing ``get_pump_curve()``, empty curve,
+        or a curve declared with a non-HEAD type).
+    """
+    pump_type = getattr(pump, "pump_type", None)
+    if pump_type is None:
+        raise ValueError(
+            "WNTR pump object has no 'pump_type' attribute; cannot translate"
+        )
+    pump_type_str = str(pump_type).upper()
+    if pump_type_str != "HEAD":
+        raise ValueError(
+            f"WNTR pump uses unsupported pump_type {pump_type!r}; the dPHM "
+            "adapter only translates HEAD-curve pumps (POWER and other forms "
+            "are out of scope for Sprint 13)"
+        )
+
+    get_curve = getattr(pump, "get_pump_curve", None)
+    if not callable(get_curve):
+        raise ValueError(
+            "WNTR pump object exposes pump_type='HEAD' but no callable "
+            "get_pump_curve(); the WNTR version may be too old or the object "
+            "is malformed"
+        )
+    try:
+        curve = get_curve()
+    except Exception as exc:
+        raise ValueError(
+            f"WNTR pump.get_pump_curve() raised {type(exc).__name__}: {exc}"
+        ) from exc
+
+    curve_type = getattr(curve, "curve_type", None)
+    if curve_type is not None and str(curve_type).upper() != "HEAD":
+        raise ValueError(
+            f"WNTR pump curve has curve_type={curve_type!r}; expected 'HEAD'"
+        )
+
+    raw_points = getattr(curve, "points", None)
+    if not raw_points:
+        raise ValueError("WNTR pump curve has no points; cannot fit")
+
+    out: list[PumpCurvePoint] = []
+    for pt in raw_points:
+        try:
+            q_val, h_val = float(pt[0]), float(pt[1])
+        except (TypeError, ValueError, IndexError) as exc:
+            raise ValueError(
+                f"WNTR pump curve has malformed point {pt!r}: {exc}"
+            ) from exc
+        out.append((q_val, h_val))
+    return out
+
+
+def _wntr_translate_pump(
+    pump: object,
+) -> tuple[list[float], float, dict[str, float]]:
+    """Translate a WNTR pump-like object into dPHM pump parameters.
+
+    Returns ``(coeffs, base_speed, diagnostics)`` where ``coeffs`` is
+    the 3-vector ``[a0, a1, a2]`` consumed by
+    :func:`aquaoptima.dphm.pump_head_gain`, ``base_speed`` is the
+    pump's static nominal speed (defaults to ``1.0`` if WNTR does not
+    expose one), and ``diagnostics`` is the same dict
+    :func:`fit_pump_head_curve` returns.
+
+    Reuses :func:`fit_pump_head_curve` so the WNTR and fallback paths
+    produce numerically identical coefficients for the same curve
+    points.
+    """
+    points = _wntr_extract_pump_curve_points(pump)
+    coeffs, diagnostics = fit_pump_head_curve(points)
+    base_speed = getattr(pump, "base_speed", None)
+    try:
+        base_speed_f = float(base_speed) if base_speed is not None else 1.0
+    except (TypeError, ValueError):
+        base_speed_f = 1.0
+    if not math.isfinite(base_speed_f) or base_speed_f <= 0.0:
+        base_speed_f = 1.0
+    return coeffs, base_speed_f, diagnostics
+
+
 def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
     try:
         import wntr  # type: ignore
@@ -779,17 +897,56 @@ def _wntr_parse(source: PathLike, *, default_c_factor: float) -> Network:
         edge_pump_coeffs.append([0.0, 0.0, 0.0])
         edge_pump_speeds.append(0.0)
 
-    if hasattr(wn, "pump_name_list") and wn.pump_name_list:
-        raise ValueError(
-            "WNTR-loaded INP file contains pumps; the Sprint 11 WNTR adapter "
-            "does not yet translate pump curves into the dPHM pump-affinity "
-            "representation. Please remove pumps from the fixture."
-        )
+    # Sprint 13: WNTR-side HEAD-curve pump translation. Pumps are
+    # appended after pipes so the edge ordering matches the fallback
+    # parser's ``[pipes..., pumps...]`` convention. Each pump is
+    # translated by extracting the WNTR HEAD curve points (already in
+    # SI — WNTR converts on load) and reusing
+    # :func:`fit_pump_head_curve`.
+    pump_names = getattr(wn, "pump_name_list", []) or []
+    for pid in pump_names:
+        p = wn.get_link(pid)
+        n1 = p.start_node_name
+        n2 = p.end_node_name
+        if n1 not in id_to_index or n2 not in id_to_index:
+            raise ValueError(
+                f"WNTR pump {pid!r} references nodes outside the supported set"
+            )
+        try:
+            coeffs, base_speed, _diag = _wntr_translate_pump(p)
+        except ValueError as exc:
+            raise ValueError(
+                f"WNTR pump {pid!r}: {exc}"
+            ) from exc
+        src_idx.append(id_to_index[n1])
+        dst_idx.append(id_to_index[n2])
+        pipe_mask.append(False)
+        pump_mask.append(True)
+        # Benign positive placeholders for pipe-only fields; the
+        # solver only consumes these on rows where pipe_mask=True.
+        lengths.append(1.0)
+        diameters.append(0.1)
+        c_factors.append(130.0)
+        edge_pump_coeffs.append(coeffs)
+        edge_pump_speeds.append(base_speed)
+
     if hasattr(wn, "valve_name_list") and wn.valve_name_list:
         raise ValueError(
             "WNTR-loaded INP file contains valves; the dPHM steady-state "
             "core does not model valves"
         )
+
+    # Mirror the fallback parser's demand rebalancing so WNTR and
+    # fallback networks have the same demand sum on the shipped
+    # fixtures. Mass on fixed-head nodes drops out of the residual
+    # anyway — this is purely cosmetic but keeps the two back-ends
+    # numerically comparable.
+    total_demand = sum(demands)
+    fixed_idx = [i for i, f in enumerate(fixed_mask) if f]
+    if fixed_idx and not math.isclose(total_demand, 0.0, abs_tol=1e-12):
+        share = total_demand / len(fixed_idx)
+        for i in fixed_idx:
+            demands[i] -= share
 
     edge_index = torch.tensor([src_idx, dst_idx], dtype=torch.long)
     return Network(
