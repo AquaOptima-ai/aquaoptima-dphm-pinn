@@ -53,6 +53,13 @@ from .solver import (
     newton_solve,
     residual_norm,
 )
+from .shadow_replay import (
+    ShadowReplayDataset,
+    ShadowReplayDiagnostics,
+    ShadowReplayFrame,
+    build_shadow_replay_dataset,
+    load_shadow_replay_csv,
+)
 from .telemetry_tag_map import (
     CanonicalTelemetryTag,
     TELEMETRY_AXES,
@@ -139,8 +146,13 @@ __all__ = [
     "pump_energy_residual",
     "pump_head_gain",
     "residual_norm",
+    "ShadowReplayDataset",
+    "ShadowReplayDiagnostics",
+    "ShadowReplayFrame",
     "SolveFailureReason",
     "SolveResult",
+    "build_shadow_replay_dataset",
+    "load_shadow_replay_csv",
     "CanonicalTelemetryTag",
     "TELEMETRY_AXES",
     "TELEMETRY_AXIS_EDGE_FLOW",
