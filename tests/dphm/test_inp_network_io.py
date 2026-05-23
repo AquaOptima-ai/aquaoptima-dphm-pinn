@@ -387,20 +387,35 @@ def test_duplicate_pipe_id_raises(tmp_path: Path) -> None:
         load_network_from_inp(path, parser="fallback")
 
 
-def test_us_customary_flow_unit_raises(tmp_path: Path) -> None:
+def test_us_customary_flow_unit_now_loads_in_fallback(tmp_path: Path) -> None:
+    """Sprint 16: the fallback parser accepts US-customary flow units.
+
+    Before Sprint 16 the fallback parser rejected any US flow unit
+    with a clear ValueError. Sprint 16 widens the unit manifest to
+    cover GPM/CFS/MGD/IMGD/AFD with the correct length/diameter/head
+    conversions, so US-unit fixtures now parse cleanly. See
+    :func:`aquaoptima.dphm.inp_io.resolve_unit_system`.
+    """
     inp = """[JUNCTIONS]
  J1  0  5
 [RESERVOIRS]
  R1  100
 [PIPES]
- P1  R1  J1  100  150  130  0  OPEN
+ P1  R1  J1  100  6  130  0  OPEN
 [OPTIONS]
  Units  GPM
 """
     path = tmp_path / "us_units.inp"
     path.write_text(inp)
-    with pytest.raises(ValueError, match="US-customary"):
-        load_network_from_inp(path, parser="fallback")
+    net = load_network_from_inp(path, parser="fallback")
+    # 100 ft -> 30.48 m, 6 in -> 0.1524 m, 100 ft head -> 30.48 m.
+    # Tolerances reflect the dtype precision (float32 default) of the
+    # underlying ``Network`` tensors.
+    assert float(net.lengths[0].item()) == pytest.approx(30.48, abs=1e-4)
+    assert float(net.diameters[0].item()) == pytest.approx(0.1524, abs=1e-6)
+    assert float(net.fixed_head_values[-1].item()) == pytest.approx(
+        100.0 * 0.3048, abs=1e-4
+    )
 
 
 def test_unknown_flow_unit_raises(tmp_path: Path) -> None:

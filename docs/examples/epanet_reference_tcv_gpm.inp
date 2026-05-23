@@ -1,0 +1,42 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 16 — small reference EPANET .inp fixture
+in US-customary units with a throttle-control valve (TCV).
+Three-node topology:
+
+    R1 (suction reservoir, fixed head 165 ft)
+      |
+      +-- V1 (TCV, K = 2.5, 6 in) --> J1 (elev 0, no consumer)
+                                          |
+                                          +-- P1 (pipe, 660 ft, 6 in)
+                                                |
+                                                +-> J2 (200 GPM consumer)
+
+The Sprint 16 fallback parser converts the GPM/ft/in inputs to SI
+through the EpanetUnitSystem manifest before routing the TCV row
+through the conservative resistance surrogate
+``fit_tcv_resistance_surrogate``. TCV setting K is dimensionless and
+is *not* scaled by the unit system. Solvable by
+aquaoptima.dphm.newton_solve with jacobian_mode="analytic".
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0      0.0    ;     ; TCV discharge node (no consumer)
+ J2   0.0    200.0    ;     ; 200 GPM consumer
+
+[RESERVOIRS]
+;ID   Head   Pattern
+ R1   165.0  ;          ; 165 ft fixed-head suction reservoir
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   J1      J2      660.0    6.0        130.0       0.0         OPEN
+
+[VALVES]
+;ID   Node1   Node2   Diameter   Type   Setting   MinorLoss
+ V1   R1      J1      6.0        TCV    2.5       0
+
+[OPTIONS]
+ Units                GPM
+ Headloss             H-W
+
+[END]

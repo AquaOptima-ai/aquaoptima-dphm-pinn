@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–15)
+# EPANET `.inp` Topology Import (Sprint 11–16)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -9,7 +9,10 @@ HEAD-curve pumps. Sprint 14 adds `POWER`-pump support to both
 back-ends via a bounded quadratic surrogate (see "POWER pumps"
 below). Sprint 15 adds conservative `[VALVES]` translation for the
 two steady-state-compatible forms `PRV` and `TCV` (see "Valves"
-below). The public entry point is one function:
+below). Sprint 16 widens the fallback parser to handle the
+US-customary EPANET flow-unit family (`GPM`, `CFS`, `MGD`, `IMGD`,
+`AFD`) on top of the SI family (see "Unit conventions" below).
+The public entry point is one function:
 
 ```python
 from aquaoptima.dphm import load_network_from_inp
@@ -540,30 +543,61 @@ fallback parsers produce:
 
 ## Unit conventions
 
+Sprint 16 centralises every per-flow-unit conversion the fallback
+parser needs into a single frozen dataclass,
+`aquaoptima.dphm.inp_io.EpanetUnitSystem`, returned by
+`resolve_unit_system(unit_name)`. The parser passes that manifest
+to every section that scales a file-declared value, so no ad-hoc
+unit constants are sprinkled across the parser body. Lookup is
+case-insensitive (`gpm`, `GPM`, and `Gpm` all resolve to the same
+manifest).
+
 EPANET picks per-flow-unit conventions for length and diameter:
 
-- **SI flow units** (`LPS`, `LPM`, `CMH`, `CMS`, `MLD`):
+- **SI flow units** (`LPS`, `LPM`, `MLD`, `CMH`, `CMD`):
   length in metres, diameter in **millimetres**, head/elevation in
   metres. Supported.
 - **US-customary flow units** (`CFS`, `GPM`, `MGD`, `IMGD`, `AFD`):
-  length in feet, diameter in inches, head in feet. **Not
-  supported.** US-style files raise a clear `ValueError`. Convert
-  upstream, or use WNTR which performs its own conversion to SI
-  before our adapter reads its `WaterNetworkModel`.
+  length in feet, diameter in inches, head/elevation in feet.
+  Supported from Sprint 16 onwards.
 
-Demand conversions (file → m³/s) implemented in the fallback parser:
+Flow-to-m³/s conversions implemented in the unit manifest. All
+constants are exact (NIST conversion factors / EPANET 2.2 user
+manual section 4.2):
 
-| `Units` directive | factor                |
-|-------------------|-----------------------|
-| `LPS`             | `× 1e-3`              |
-| `LPM`             | `× 1 / 60_000`        |
-| `CMH`             | `× 1 / 3600`          |
-| `CMS`             | `× 1` (no conversion) |
-| `MLD`             | `× 1000 / 86_400`     |
+| `Units` directive | factor (× → m³/s)                          |
+|-------------------|---------------------------------------------|
+| `LPS`             | `× 1e-3`                                    |
+| `LPM`             | `× 1 / 60_000`                              |
+| `MLD`             | `× 1000 / 86_400`                           |
+| `CMH`             | `× 1 / 3600`                                |
+| `CMD`             | `× 1 / 86_400`                              |
+| `CFS`             | `× 0.3048³` (≈ 0.028316846592)              |
+| `GPM`             | `× 0.003785411784 / 60` (≈ 6.30901964e-5)   |
+| `MGD`             | `× 1e6 × 0.003785411784 / 86_400`           |
+| `IMGD`            | `× 1e6 × 0.00454609 / 86_400`               |
+| `AFD`             | `× 1233.48183754752 / 86_400`               |
+
+Length / diameter / head conversions, also captured in the manifest:
+
+| Family   | length     | diameter           | head/elevation | PRV setting    |
+|----------|------------|--------------------|----------------|----------------|
+| SI       | `× 1.0`    | `× 1e-3` (mm → m)  | `× 1.0`        | `× 1.0`        |
+| US       | `× 0.3048` | `× 0.0254` (in → m)| `× 0.3048`     | `× 0.3048`     |
+
+`TCV` settings (the dimensionless minor-loss coefficient `K`) and
+the `MinorLoss` column are **never** scaled by the unit system.
+`POWER` pump values are declared in **kW** under SI flow units and
+**HP** under US flow units; the parser converts HP → kW using the
+EPANET-internal constant `0.7457 kW/HP` before invoking the bounded
+quadratic surrogate (`fit_power_pump_surrogate`).
 
 If `[OPTIONS]` is absent or omits `Units`, the parser assumes the
 EPANET default of `LPS`. If `Headloss` is not `H-W`, the parser
 raises — the dPHM core is Hazen-Williams.
+
+Unsupported tokens (e.g. `CMS`, `BARRELS`) raise a clear
+`ValueError` listing the ten supported units.
 
 ## Mass balancing
 
@@ -576,8 +610,29 @@ mass-balance residual term anyway — this is purely cosmetic, but it
 keeps loaded networks comparable with the JSON loader and the
 hand-built fixtures.
 
-## Shipped fixture
+## Shipped fixtures
 
+Six small fixtures are shipped under `docs/examples/`:
+
+| Fixture                                | Family | Notes                                                  |
+|----------------------------------------|--------|--------------------------------------------------------|
+| `epanet_reference_loop.inp`            | SI     | Sprint 11 — five-node looped distribution, LPS units.  |
+| `epanet_reference_pump.inp`            | SI     | Sprint 12 — HEAD-curve pump.                           |
+| `epanet_reference_power_pump.inp`      | SI     | Sprint 14 — POWER pump (kW under SI).                  |
+| `epanet_reference_prv.inp`             | SI     | Sprint 15 — PRV pressure-boundary surrogate.           |
+| `epanet_reference_tcv.inp`             | SI     | Sprint 15 — TCV resistance surrogate.                  |
+| `epanet_reference_loop_gpm.inp`        | US     | Sprint 16 — looped distribution, GPM/ft/in.            |
+| `epanet_reference_pump_gpm.inp`        | US     | Sprint 16 — HEAD-curve pump, GPM/ft/in.                |
+| `epanet_reference_tcv_gpm.inp`         | US     | Sprint 16 — TCV surrogate, GPM/ft/in.                  |
+
+Each US fixture mirrors the structure of its SI counterpart but uses
+US-customary EPANET conventions (length in feet, diameter in inches,
+head/elevation in feet, demand in GPM). The fallback parser converts
+every dimension to SI through the `EpanetUnitSystem` manifest before
+populating the `Network` dataclass; analytic-Newton solves both
+SI and US fixtures unchanged.
+
+The original Sprint 11 loop fixture
 `docs/examples/epanet_reference_loop.inp` is a tiny 5-node looped
 distribution sample (1 reservoir + 4 junctions, 5 pipes) in SI
 (`LPS`) flow units. It is small enough to read at a glance and large
@@ -619,6 +674,14 @@ Tests:
   solve + diagnostic evidence, error surface.
 - `tests/dphm/test_wntr_valve_helpers.py` — Sprint 15 WNTR valve
   helpers exercised against duck-typed fakes (no WNTR dependency).
+- `tests/dphm/test_inp_unit_systems.py` — Sprint 16 unit-system
+  manifest, every supported flow unit's conversion factors, case-
+  insensitive lookup, and the unsupported-token error path.
+- `tests/dphm/test_inp_us_fixtures.py` — Sprint 16 US-customary
+  fixture loads, dimension conversions, analytic-Newton solves,
+  POWER pump nominal flow under US units, PRV setting conversion,
+  and fallback-vs-WNTR parity on every shipped US fixture
+  (`pytest.importorskip("wntr")`).
 - `tests/dataio/test_inp_physics_telemetry.py` — physics-consistent
   telemetry round-trip on the INP-loaded loop network.
 - `tests/dataio/test_inp_pump_telemetry.py` — Sprint 12 analytic-Newton
@@ -642,7 +705,6 @@ Tests:
 
 Deferred to a future sprint:
 
-- US-customary flow units (`GPM`, `CFS`, …) on the fallback parser.
 - Pump curve translation for the `SPEED` / `LINEAR` /
   multi-point efficiency forms (HEAD-curve form shipped in Sprint
   12, POWER form shipped in Sprint 14).

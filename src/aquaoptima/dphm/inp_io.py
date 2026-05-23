@@ -8,6 +8,14 @@ adapter. The public surface is one function,
 :class:`aquaoptima.dphm.Network` dataclass every other loader and
 fixture in the project produces.
 
+Sprint 16 extends the fallback parser to handle EPANET US-customary
+flow units (``GPM``, ``CFS``, ``MGD``, ``IMGD``, ``AFD``) on top of
+the SI family (``LPS``, ``LPM``, ``MLD``, ``CMH``, ``CMD``). All
+conversion constants are captured in a single
+:class:`EpanetUnitSystem` manifest so the parser never carries
+ad-hoc per-section scaling. See :func:`resolve_unit_system` and the
+shipped US fixtures under ``docs/examples/*_gpm.inp``.
+
 Sprint 12 extends the fallback parser to additionally translate
 EPANET ``HEAD``-curve pumps into dPHM pump-affinity quadratic
 coefficients. The translation fits the EPANET curve points to the
@@ -121,16 +129,18 @@ Unit conversion
 
 EPANET picks per-flow-unit conventions for pipe length and diameter:
 
-* **SI flow units** (``LPS``, ``LPM``, ``CMH``, ``CMS``, ``MLD``):
+* **SI flow units** (``LPS``, ``LPM``, ``MLD``, ``CMH``, ``CMD``):
   length in metres, diameter in **millimetres**, head/elevation in
   metres.
 * **US flow units** (``CFS``, ``GPM``, ``MGD``, ``IMGD``, ``AFD``):
   length in feet, diameter in inches, head/elevation in feet.
 
-The fallback parser supports the SI family. US units raise a clear
-:class:`ValueError`. Demand is converted from the chosen flow unit to
-m^3/s before populating ``Network.demands``. Diameter is converted
-from mm to m.
+The fallback parser supports both families through
+:class:`EpanetUnitSystem`. Demand is converted from the chosen flow
+unit to m^3/s; diameter from mm or inches to m; length and head from
+m or ft to m. PRV settings are interpreted as the head-units conversion
+(feet of head for US, metres of head for SI). TCV settings (``K``) and
+``MinorLoss`` are dimensionless and never scaled.
 
 If ``[OPTIONS]`` is absent or omits ``Units``, the parser assumes the
 EPANET default of ``LPS``.
@@ -139,8 +149,9 @@ EPANET default of ``LPS``.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Union
+from typing import Union
 
 import torch
 
@@ -153,17 +164,112 @@ PathLike = Union[str, Path]
 # --- unit handling ---------------------------------------------------------
 
 
-_SI_FLOW_UNITS = ("LPS", "LPM", "CMH", "CMS", "MLD")
-_US_FLOW_UNITS = ("CFS", "GPM", "MGD", "IMGD", "AFD")
+# Exact NIST / EPANET-manual conversion constants. Keeping them as
+# named symbols makes the unit manifest auditable in one place.
+_FT_TO_M = 0.3048              # exact (international foot)
+_IN_TO_M = 0.0254              # exact (international inch)
+_US_GAL_TO_M3 = 0.003785411784  # exact (US liquid gallon, NIST HB-44)
+_IMP_GAL_TO_M3 = 0.00454609     # exact (UK Weights & Measures Act 1985)
+_ACRE_FOOT_TO_M3 = 1233.48183754752  # exact (international acre × international foot)
+_DAY_S = 86_400.0
+_MIN_S = 60.0
+_HOUR_S = 3600.0
 
-# Conversion factor from the EPANET-declared flow unit into m^3/s.
-_DEMAND_TO_CMS: dict[str, float] = {
+
+@dataclass(frozen=True)
+class EpanetUnitSystem:
+    """Per-flow-unit conversion manifest for the EPANET INP grammar.
+
+    Captures every conversion the fallback parser needs in a single
+    auditable object, so no ad-hoc constant scattering can drift.
+
+    Attributes
+    ----------
+    units
+        The canonical (upper-case) EPANET ``[OPTIONS] Units`` token,
+        e.g. ``"LPS"`` or ``"GPM"``.
+    flow_to_m3s
+        Factor to multiply a file-declared flow/demand value to get
+        m^3/s.
+    length_to_m
+        Factor to multiply a file-declared pipe length to get metres.
+        Equal to ``1.0`` for SI flow units (already m) and ``0.3048``
+        for US flow units (feet).
+    diameter_to_m
+        Factor to multiply a file-declared pipe/valve diameter to get
+        metres. Equal to ``1e-3`` for SI flow units (mm) and ``0.0254``
+        for US flow units (inches).
+    head_to_m
+        Factor to multiply a file-declared head / elevation value to
+        get metres. Equal to ``1.0`` for SI flow units and ``0.3048``
+        for US flow units.
+    pressure_setting_to_m
+        Factor to multiply a PRV/PSV/PBV setting to get metres of
+        head. EPANET expresses pressure-valve settings in the head
+        unit of the active flow-unit family, so this currently
+        mirrors ``head_to_m``. Kept as a separate field so future
+        sprints can switch to pressure-in-bar / psi if needed
+        without disturbing the head-conversion path.
+    """
+
+    units: str
+    flow_to_m3s: float
+    length_to_m: float
+    diameter_to_m: float
+    head_to_m: float
+    pressure_setting_to_m: float
+
+
+_SI_FAMILY = ("LPS", "LPM", "MLD", "CMH", "CMD")
+_US_FAMILY = ("CFS", "GPM", "MGD", "IMGD", "AFD")
+
+
+_FLOW_TO_M3S: dict[str, float] = {
     "LPS": 1.0e-3,
     "LPM": 1.0 / 60_000.0,
-    "CMH": 1.0 / 3600.0,
-    "CMS": 1.0,
-    "MLD": 1_000.0 / 86_400.0,
+    "MLD": 1_000.0 / _DAY_S,
+    "CMH": 1.0 / _HOUR_S,
+    "CMD": 1.0 / _DAY_S,
+    "CFS": _FT_TO_M ** 3,
+    "GPM": _US_GAL_TO_M3 / _MIN_S,
+    "MGD": 1_000_000.0 * _US_GAL_TO_M3 / _DAY_S,
+    "IMGD": 1_000_000.0 * _IMP_GAL_TO_M3 / _DAY_S,
+    "AFD": _ACRE_FOOT_TO_M3 / _DAY_S,
 }
+
+
+SUPPORTED_FLOW_UNITS: tuple[str, ...] = _SI_FAMILY + _US_FAMILY
+
+
+def _is_us_unit(unit: str) -> bool:
+    return unit in _US_FAMILY
+
+
+def resolve_unit_system(unit_name: str) -> EpanetUnitSystem:
+    """Return the :class:`EpanetUnitSystem` for an EPANET unit token.
+
+    The lookup is case-insensitive. EPANET-recognised but
+    parser-unsupported tokens, and entirely unknown tokens, both
+    raise :class:`ValueError` with a list of supported units.
+    """
+    canonical = str(unit_name).upper()
+    if canonical not in _FLOW_TO_M3S:
+        raise ValueError(
+            f"unknown EPANET flow unit {unit_name!r}; supported units are "
+            f"{SUPPORTED_FLOW_UNITS}"
+        )
+    is_us = _is_us_unit(canonical)
+    length_to_m = _FT_TO_M if is_us else 1.0
+    diameter_to_m = _IN_TO_M if is_us else 1.0e-3
+    head_to_m = _FT_TO_M if is_us else 1.0
+    return EpanetUnitSystem(
+        units=canonical,
+        flow_to_m3s=_FLOW_TO_M3S[canonical],
+        length_to_m=length_to_m,
+        diameter_to_m=diameter_to_m,
+        head_to_m=head_to_m,
+        pressure_setting_to_m=head_to_m,
+    )
 
 
 # Sections we silently skip — they carry no information the
@@ -268,22 +374,6 @@ def _parse_options(rows: list[list[str]]) -> dict[str, str]:
     return opts
 
 
-def _resolve_demand_factor(flow_unit: str) -> float:
-    flow_unit = flow_unit.upper()
-    if flow_unit in _DEMAND_TO_CMS:
-        return _DEMAND_TO_CMS[flow_unit]
-    if flow_unit in _US_FLOW_UNITS:
-        raise ValueError(
-            f"US-customary flow unit {flow_unit!r} is not supported by the "
-            "fallback INP parser; please convert your fixture to an SI "
-            f"flow unit (one of {_SI_FLOW_UNITS}) or use parser='wntr'"
-        )
-    raise ValueError(
-        f"unknown EPANET flow unit {flow_unit!r}; supported SI flow units "
-        f"are {tuple(_DEMAND_TO_CMS)}"
-    )
-
-
 def _parse_node_rows(
     rows: list[list[str]],
     *,
@@ -309,17 +399,17 @@ PumpCurvePoint = tuple[float, float]
 
 
 def _parse_curves(
-    rows: list[list[str]], *, demand_factor: float
+    rows: list[list[str]], *, unit_system: EpanetUnitSystem
 ) -> dict[str, list[PumpCurvePoint]]:
     """Group ``[CURVES]`` rows by curve id, preserving file order.
 
     Each accepted row has at least three tokens:
     ``curve_id``, ``X-value`` (flow, in the file's flow unit), and
-    ``Y-value`` (head, in metres for SI flow units). The X column
-    is converted to m^3/s by ``demand_factor`` so the resulting
-    coefficients are directly compatible with
-    :func:`aquaoptima.dphm.pump_head_gain`, which consumes flows in
-    m^3/s.
+    ``Y-value`` (head, in metres for SI flow units / feet for US).
+    The X column is converted to m^3/s by ``unit_system.flow_to_m3s``;
+    the Y column is converted to metres by ``unit_system.head_to_m``.
+    The resulting (Q, H) points are in SI and directly compatible with
+    :func:`aquaoptima.dphm.pump_head_gain`.
 
     EPANET allows curves of several types (HEAD / EFFICIENCY /
     VOLUME / HEADLOSS). The ``[CURVES]`` section itself does not
@@ -347,7 +437,9 @@ def _parse_curves(
             raise ValueError(
                 f"[CURVES] curve {curve_id!r} has negative flow value {x_val}"
             )
-        grouped.setdefault(curve_id, []).append((x_val * demand_factor, y_val))
+        grouped.setdefault(curve_id, []).append(
+            (x_val * unit_system.flow_to_m3s, y_val * unit_system.head_to_m)
+        )
     return grouped
 
 
@@ -453,6 +545,26 @@ def fit_pump_head_curve(
 # the fallback parser multiplies by 1000 before applying
 # ``P = rho * g * Q * H``.
 _POWER_PUMP_KW_TO_W = 1.0e3
+
+# EPANET ``[PUMPS] POWER`` is declared in horsepower under US-customary
+# flow units; the EPANET 2.2 binary multiplies by 0.7457 to get kW. We
+# mirror that constant exactly so the fallback POWER surrogate matches
+# the EPANET energy calculation under either unit family.
+_POWER_HP_TO_KW = 0.7457
+
+
+def _convert_power_value_to_kw(
+    raw_value: float, *, unit_system: EpanetUnitSystem
+) -> float:
+    """Convert a file-declared POWER value to kW.
+
+    Under SI flow units the value is already in kW; under US-customary
+    flow units it is in horsepower and EPANET applies a 0.7457 kW/HP
+    conversion internally.
+    """
+    if _is_us_unit(unit_system.units):
+        return raw_value * _POWER_HP_TO_KW
+    return raw_value
 
 # Water density at ~20 C and standard gravity. EPANET uses constant
 # rho/g internally for its pump-energy calculations; the surrogate
@@ -1018,12 +1130,15 @@ def _fallback_parse(
     # Options
     opts = _parse_options(sections.get("OPTIONS", []))
     flow_unit = opts.get("UNITS", "LPS")
-    demand_factor = _resolve_demand_factor(flow_unit)
+    unit_system = resolve_unit_system(flow_unit)
+    demand_factor = unit_system.flow_to_m3s
 
     # Sprint 12: parse pump curves up-front so [PUMPS] rows can
     # resolve their curve_id against the file's declared CURVES.
+    # Sprint 16: pass the full unit system so HEAD curve points are
+    # converted to (m^3/s, m) for both SI and US flow-unit families.
     curves = _parse_curves(
-        sections.get("CURVES", []), demand_factor=demand_factor
+        sections.get("CURVES", []), unit_system=unit_system
     )
 
     headloss = opts.get("HEADLOSS", "H-W").upper()
@@ -1069,8 +1184,9 @@ def _fallback_parse(
         sections.get("JUNCTIONS", []), section="JUNCTIONS", expected_min_cols=1
     ):
         node_id = row[0]
-        elev = float(row[1]) if len(row) >= 2 else 0.0
+        elev_raw = float(row[1]) if len(row) >= 2 else 0.0
         demand_raw = float(row[2]) if len(row) >= 3 else 0.0
+        elev = elev_raw * unit_system.head_to_m
         demand_si = demand_raw * demand_factor
         _register_node(
             node_id, demand_si=demand_si, is_fixed=False, head_value=0.0,
@@ -1081,7 +1197,7 @@ def _fallback_parse(
         sections.get("RESERVOIRS", []), section="RESERVOIRS", expected_min_cols=2
     ):
         node_id = row[0]
-        head_value = float(row[1])
+        head_value = float(row[1]) * unit_system.head_to_m
         _register_node(
             node_id, demand_si=0.0, is_fixed=True, head_value=head_value,
             elev=head_value, section="RESERVOIRS",
@@ -1091,8 +1207,8 @@ def _fallback_parse(
         sections.get("TANKS", []), section="TANKS", expected_min_cols=3
     ):
         node_id = row[0]
-        elev = float(row[1])
-        init_level = float(row[2])
+        elev = float(row[1]) * unit_system.head_to_m
+        init_level = float(row[2]) * unit_system.head_to_m
         # Steady-state surrogate: a tank pins its node to the current
         # water-surface elevation. Documented limitation — the dPHM core
         # does not integrate tank volumes over time in Sprint 11.
@@ -1148,19 +1264,21 @@ def _fallback_parse(
                 f"pipe {edge_id!r} references unknown target node {node2!r}"
             )
 
-        length = float(row[3])
-        # EPANET SI: diameter in mm -> convert to m for the Network dataclass.
-        diameter_mm = float(row[4])
-        diameter_m = diameter_mm * 1.0e-3
+        length_raw = float(row[3])
+        # EPANET: length in metres (SI flow units) or feet (US flow units).
+        length = length_raw * unit_system.length_to_m
+        # EPANET: diameter in mm (SI flow units) or inches (US flow units).
+        diameter_raw = float(row[4])
+        diameter_m = diameter_raw * unit_system.diameter_to_m
         c_factor = float(row[5]) if len(row) >= 6 else default_c_factor
 
         if length <= 0.0:
             raise ValueError(
-                f"pipe {edge_id!r} has non-positive length {length}"
+                f"pipe {edge_id!r} has non-positive length {length_raw}"
             )
         if diameter_m <= 0.0:
             raise ValueError(
-                f"pipe {edge_id!r} has non-positive diameter {diameter_mm} mm"
+                f"pipe {edge_id!r} has non-positive diameter {diameter_raw}"
             )
         if c_factor <= 0.0:
             raise ValueError(
@@ -1220,20 +1338,24 @@ def _fallback_parse(
             coeffs, _diag = fit_pump_head_curve(curves[curve_id])
         elif keyword == "POWER":
             # Sprint 14: constant-power surrogate. EPANET POWER values
-            # under SI flow units are expressed in kW; the surrogate
-            # converts to W internally before applying
+            # under SI flow units are expressed in kW, and under US
+            # flow units in horsepower; both are normalised to kW here
+            # via :func:`_convert_power_value_to_kw` before applying
             # ``P = rho * g * Q * H``.
             try:
-                power_kw_raw = float(row[4])
+                power_raw = float(row[4])
             except ValueError as exc:
                 raise ValueError(
                     f"pump {pump_id!r} POWER value {row[4]!r} is not numeric"
                 ) from exc
-            if not math.isfinite(power_kw_raw) or power_kw_raw <= 0.0:
+            if not math.isfinite(power_raw) or power_raw <= 0.0:
                 raise ValueError(
                     f"pump {pump_id!r} POWER value must be strictly positive "
-                    f"and finite, got {power_kw_raw}"
+                    f"and finite, got {power_raw}"
                 )
+            power_kw_raw = _convert_power_value_to_kw(
+                power_raw, unit_system=unit_system
+            )
             # Anchor nominal flow on the downstream node's demand when
             # positive (single-consumer pumps), else fall back to the
             # network's total positive demand (single-source pump for
@@ -1308,22 +1430,31 @@ def _fallback_parse(
                 )
 
             try:
-                diameter_mm = float(row[3])
+                diameter_raw = float(row[3])
             except ValueError as exc:
                 raise ValueError(
                     f"valve {valve_id!r} diameter column {row[3]!r} is not "
                     "numeric"
                 ) from exc
-            diameter_m = diameter_mm * 1.0e-3
+            # SI flow units: diameter in mm; US flow units: diameter in
+            # inches. The unit-system diameter_to_m factor handles both.
+            diameter_m = diameter_raw * unit_system.diameter_to_m
 
             valve_type = row[4].upper()
             try:
-                setting_value = float(row[5])
+                setting_raw = float(row[5])
             except ValueError as exc:
                 raise ValueError(
                     f"valve {valve_id!r} setting column {row[5]!r} is not "
                     "numeric"
                 ) from exc
+            # PRV settings carry head units (m for SI, ft for US) — convert
+            # to metres. TCV settings are the dimensionless minor-loss
+            # coefficient K and are passed through unchanged.
+            if valve_type == "PRV":
+                setting_value = setting_raw * unit_system.pressure_setting_to_m
+            else:
+                setting_value = setting_raw
 
             if len(row) >= 7:
                 try:
@@ -2026,11 +2157,16 @@ def load_network_from_inp(
           :class:`ImportError` if WNTR is not installed.
 
     units
-        Currently only ``"si"`` is supported. Reserved for future
-        US-customary support. Any other value raises
-        :class:`ValueError`. The actual flow unit (``LPS``, ``CMS``,
-        …) is read from the INP file's ``[OPTIONS] Units`` directive;
-        this parameter only asserts the unit family.
+        Output unit family for the returned :class:`Network`.
+        Currently only ``"si"`` is supported — every
+        :class:`Network` produced by this loader carries SI tensors
+        (m, m^3/s) regardless of the input fixture's flow-unit
+        family. The actual *input* flow unit (``LPS``, ``GPM``, …)
+        is read from the INP file's ``[OPTIONS] Units`` directive
+        and converted to SI through
+        :func:`resolve_unit_system`. The parameter exists for
+        future expansion; passing anything other than ``"si"``
+        raises :class:`ValueError`.
     default_c_factor
         Hazen-Williams roughness coefficient used when a pipe row
         omits its roughness column. Default ``130.0`` matches the
@@ -2046,10 +2182,12 @@ def load_network_from_inp(
     Raises
     ------
     ValueError
-        For malformed input, unsupported sections (pumps in the
-        fallback parser, valves anywhere), missing fixed-head
-        boundaries, non-positive pipe parameters, or US-customary
-        flow units.
+        For malformed input, missing fixed-head boundaries,
+        non-positive pipe parameters, unsupported pump/valve forms,
+        or unsupported flow-unit tokens. From Sprint 16 onwards
+        the ten EPANET-recognised flow units
+        ``{LPS, LPM, MLD, CMH, CMD, GPM, CFS, MGD, IMGD, AFD}`` are
+        all parsed cleanly.
     ImportError
         Only when ``parser="wntr"`` and WNTR is not installed.
     """
@@ -2059,8 +2197,9 @@ def load_network_from_inp(
         )
     if units.lower() != "si":
         raise ValueError(
-            f"units={units!r} is not supported; only 'si' is implemented in "
-            "Sprint 11. US-customary support is deferred."
+            f"units={units!r} is not supported; load_network_from_inp always "
+            "returns an SI Network. The input fixture's flow-unit family is "
+            "read from [OPTIONS] Units and may be either SI or US-customary."
         )
     if default_c_factor <= 0.0:
         raise ValueError(
@@ -2081,9 +2220,12 @@ def load_network_from_inp(
 
 
 __all__ = [
+    "EpanetUnitSystem",
+    "SUPPORTED_FLOW_UNITS",
     "fit_power_pump_surrogate",
     "fit_pump_head_curve",
     "fit_tcv_resistance_surrogate",
     "load_network_from_inp",
+    "resolve_unit_system",
     "translate_valve_to_surrogate",
 ]
