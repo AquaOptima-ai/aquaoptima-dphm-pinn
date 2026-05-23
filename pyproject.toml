@@ -19,6 +19,9 @@ dev = [
 pyg = [
     "torch-geometric>=2.7",
 ]
+epanet = [
+    "wntr>=1.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

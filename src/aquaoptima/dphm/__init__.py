@@ -11,6 +11,7 @@ from .fixtures import (
 from .hazen_williams import hazen_williams_head_loss
 from .large_fixtures import make_grid_network
 from .incidence import cached_incidence_matrix, incidence_matrix, node_flow_balance
+from .inp_io import load_network_from_inp
 from .network import Network
 from .network_io import load_network_from_json
 from .pump_affinity import pump_head_gain
@@ -36,6 +37,7 @@ __all__ = [
     "hazen_williams_head_loss",
     "incidence_matrix",
     "initial_guess",
+    "load_network_from_inp",
     "load_network_from_json",
     "make_branch_network",
     "make_grid_network",
