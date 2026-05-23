@@ -7,8 +7,14 @@ section that is outside the current steady-state Hazen-Williams scope
 ``[EMITTERS]``, ``[QUALITY]``, ``[SOURCES]``, ``[REACTIONS]``,
 ``[MIXING]``, and the inert layout sections (``[TITLE]``, ``[END]``,
 ``[PATTERNS]``, ``[COORDINATES]``, ``[VERTICES]``, ``[LABELS]``,
-``[BACKDROP]``, ``[TAGS]``, ``[ENERGY]``, ``[STATUS]``,
-``[DEMANDS]``).
+``[BACKDROP]``, ``[TAGS]``, ``[ENERGY]``, ``[DEMANDS]``).
+
+Sprint 22 narrows the contract for ``[STATUS]``: the fallback parser
+now actively validates ``[STATUS]`` rows (accepting ``<link_id> OPEN``
+as a no-op, rejecting ``CLOSED`` / ``CV`` / numeric / unknown tokens),
+so ``STATUS`` is **not** in :data:`IGNORED_SECTIONS` anymore. The
+Sprint 22 surface is covered by ``test_inp_status.py``; this module
+continues to pin the no-op contract for the remaining ignored sections.
 
 This module pins the no-op contract:
 
@@ -227,6 +233,16 @@ def test_curves_is_not_globally_ignored() -> None:
     it as a no-op.
     """
     assert "CURVES" not in IGNORED_SECTIONS
+
+
+def test_status_is_not_globally_ignored_after_sprint_22() -> None:
+    """Sprint 22 actively validates ``[STATUS]`` rows (accepting
+    ``<link_id> OPEN`` as a no-op, rejecting closed/CV/numeric/unknown
+    tokens). The constant must NOT advertise it as a global no-op
+    anymore — that would silently swallow ``[STATUS]`` rows the Sprint
+    22 validator is supposed to fail loudly on.
+    """
+    assert "STATUS" not in IGNORED_SECTIONS
 
 
 @pytest.mark.parametrize(

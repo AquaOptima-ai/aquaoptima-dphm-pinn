@@ -69,7 +69,7 @@ treats as a silent no-op (``[TIMES]``, ``[REPORT]``, ``[CONTROLS]``,
 ``[REACTIONS]``, ``[MIXING]``, plus the inert layout sections
 ``[TITLE]``, ``[END]``, ``[PATTERNS]``, ``[COORDINATES]``,
 ``[VERTICES]``, ``[LABELS]``, ``[BACKDROP]``, ``[TAGS]``,
-``[ENERGY]``, ``[STATUS]``, ``[DEMANDS]``). Adding any of these
+``[ENERGY]``, ``[DEMANDS]``). Adding any of these
 sections to a fixture — anywhere in the file, with any
 representative body, including malformed-looking rows — must leave
 the loaded :class:`Network` byte-for-byte unchanged. The constant is
@@ -80,6 +80,34 @@ meaningful ones. ``[CURVES]`` is **not** in the set because Sprint
 ``[RULES]`` are documented as a *known limitation* — rows that
 would close a link, change a pump speed, or modify a fixed-head
 boundary are dropped, not enforced. See
+``docs/epanet-inp-import.md``.
+
+Sprint 22 narrows the Sprint 21 contract for ``[STATUS]``. Through
+Sprint 21 the section was a global no-op; from Sprint 22 onwards the
+fallback parser actively validates ``[STATUS]`` rows so EPANET-exported
+fixtures that include explicit ``<link_id> OPEN`` declarations load
+without pretending to implement closed-link or active status physics:
+
+* ``<link_id> OPEN`` (case-insensitive, extra whitespace tolerated) is
+  accepted as a redundant no-op — every link the fallback parser loads
+  is already implicitly open, so accepted rows leave the loaded
+  :class:`Network` byte-for-byte identical to the same fixture with
+  no ``[STATUS]`` section.
+* The link id is validated against the union of parsed
+  ``[PIPES]``/``[PUMPS]``/``[VALVES]`` ids; references to an unknown
+  id raise :class:`ValueError` with the id in the message.
+* ``CLOSED`` and ``CV`` still raise — the steady-state core does not
+  model closed links or check valves.
+* Numeric pump speed / status declarations (e.g. ``PU1 1.0``) raise —
+  the steady-state core does not consume per-link speed multipliers
+  from ``[STATUS]``.
+* Any other unsupported token raises with the link id and the
+  offending token in the message.
+
+The per-row ``[PIPES] ... CLOSED`` / ``CV`` status column (validated in
+the pipe-row loop) is unchanged — Sprint 22 only adds standalone
+``[STATUS]``-section handling. ``STATUS`` is therefore removed from
+:data:`IGNORED_SECTIONS`. See :func:`_validate_status_rows` and
 ``docs/epanet-inp-import.md``.
 
 Sprint 19 adds fallback support for the optional EPANET
@@ -193,11 +221,14 @@ Sections honoured:
   ``Headloss`` (must be ``H-W``; the dPHM core is Hazen-Williams).
 * ``[COORDINATES]``, ``[TITLE]``, ``[END]``, ``[TIMES]``,
   ``[REPORT]``, ``[PATTERNS]``, ``[VERTICES]``, ``[LABELS]``,
-  ``[BACKDROP]``, ``[TAGS]``, ``[ENERGY]``, ``[STATUS]``,
+  ``[BACKDROP]``, ``[TAGS]``, ``[ENERGY]``,
   ``[CONTROLS]``, ``[RULES]``, ``[EMITTERS]``,
   ``[DEMANDS]``, ``[QUALITY]``, ``[SOURCES]``, ``[REACTIONS]``,
   ``[MIXING]`` — silently ignored (steady-state hydraulic topology
   only).
+* ``[STATUS]`` — Sprint 22: validated. Accepts ``<link_id> OPEN``
+  rows as no-ops; rejects ``CLOSED``, ``CV``, numeric pump
+  speed/status, and any other token. Unknown link ids also raise.
 * ``[CURVES]`` — Sprint 12: parsed into per-curve ``(Q, H)`` point
   lists in the file-declared flow unit. Only consumed when a
   ``[PUMPS]`` row references the curve via ``HEAD curve_id``; unused
@@ -661,6 +692,115 @@ def resolve_viscosity(opts: dict[str, str]) -> float:
     return value
 
 
+# --- [STATUS] handling (Sprint 22) -----------------------------------------
+
+
+# Status tokens the Sprint 22 ``[STATUS]`` validator accepts as no-ops.
+# The only accepted state is ``OPEN`` — every pipe/pump/valve loaded by
+# the fallback parser is already implicitly open, so a row of the form
+# ``<link_id> OPEN`` is a documented redundant declaration that
+# EPANET-exported files often emit. Validating the link id is still
+# meaningful: a ``[STATUS]`` row that references a link the file never
+# declared is a structural error in the source fixture and would be
+# silently swallowed under the Sprint 21 ignored-section contract.
+_STATUS_ACCEPTED_TOKENS: frozenset[str] = frozenset({"OPEN"})
+
+# EPANET ``[STATUS]`` tokens with closed-link / check-valve semantics.
+# Both are deliberately rejected because the dPHM steady-state core
+# models only OPEN links; importing either would silently change the
+# network's hydraulics (a closed pipe drops out of the flow equation,
+# a check valve adds a sign-restricted unilateral edge), so we fail
+# loudly to keep the boundary explicit. See the Sprint 22 report and
+# ``docs/epanet-inp-import.md`` for the documented limitation.
+_STATUS_REJECTED_LINK_TOKENS: frozenset[str] = frozenset({"CLOSED", "CV"})
+
+
+def _validate_status_rows(
+    rows: list[list[str]], known_link_ids: set[str]
+) -> None:
+    """Validate ``[STATUS]`` rows against the parsed link surface.
+
+    Sprint 22 narrows the Sprint 21 ignored-section contract for
+    ``[STATUS]``: rows of the form ``<link_id> OPEN`` (case-insensitive)
+    are accepted as redundant no-ops on top of the parser's default
+    "every link is open" assumption, while ``CLOSED``, ``CV``, numeric
+    pump speed/status declarations, and any other unsupported token
+    raise :class:`ValueError` with the link id and the offending token
+    in the message. The link id itself is also validated — a ``[STATUS]``
+    row that references an id the file never declared in
+    ``[PIPES]``/``[PUMPS]``/``[VALVES]`` is a structural error in the
+    source fixture and fails loudly.
+
+    The function is intentionally read-only: accepted rows are no-ops
+    and the loaded :class:`Network` is byte-for-byte identical to the
+    same fixture without ``[STATUS]``. The ``[PIPES] ... CLOSED`` /
+    ``CV`` per-row status column (validated in the pipe-row loop)
+    continues to raise as it did in earlier sprints; this validator
+    only governs the standalone ``[STATUS]`` section.
+
+    Parameters
+    ----------
+    rows
+        Tokenised ``[STATUS]`` rows from :func:`_split_sections`. May be
+        empty (the section is optional). Each row must have at least
+        two tokens: the link id and the status token.
+    known_link_ids
+        Set of link ids the fallback parser has already registered
+        across ``[PIPES]``, ``[PUMPS]``, and ``[VALVES]``. Status rows
+        are validated *after* every link is known so the order of
+        ``[STATUS]`` relative to those sections does not matter.
+
+    Raises
+    ------
+    ValueError
+        On short rows (< 2 tokens), unknown link ids, ``CLOSED`` / ``CV``
+        tokens, numeric pump speed/status values, or any other
+        unsupported token. The error message names ``[STATUS]``, the
+        link id, and the offending token.
+    """
+    for row in rows:
+        if len(row) < 2:
+            raise ValueError(
+                f"[STATUS] row needs at least 2 tokens (link_id, status), "
+                f"got {row!r}"
+            )
+        link_id = row[0]
+        status_raw = row[1]
+        status_word = status_raw.upper()
+        if link_id not in known_link_ids:
+            raise ValueError(
+                f"[STATUS] row references unknown link id {link_id!r}; the "
+                "link must be declared in [PIPES], [PUMPS], or [VALVES] "
+                "before its status can be set"
+            )
+        if status_word in _STATUS_ACCEPTED_TOKENS:
+            continue
+        if status_word in _STATUS_REJECTED_LINK_TOKENS:
+            raise ValueError(
+                f"[STATUS] row for link {link_id!r} uses unsupported "
+                f"status token {status_raw!r}; the dPHM steady-state core "
+                "models only OPEN links (CLOSED and CV are deferred)"
+            )
+        # Numeric pump speed / status (e.g. ``PU1 1.0`` or ``PU1 0``) is
+        # an EPANET shape we explicitly do not support — the steady-state
+        # core does not consume per-link speed multipliers from [STATUS].
+        try:
+            float(status_raw)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(
+                f"[STATUS] row for link {link_id!r} declares a numeric "
+                f"pump speed/status {status_raw!r}; the dPHM steady-state "
+                "core does not model pump speed changes from [STATUS]"
+            )
+        raise ValueError(
+            f"[STATUS] row for link {link_id!r} uses unsupported status "
+            f"token {status_raw!r}; the only accepted token is OPEN "
+            "(case-insensitive)"
+        )
+
+
 # Sections the fallback parser tolerates as silent no-ops because they
 # carry no information the steady-state Hazen-Williams core depends on.
 # Promoted to a public surface in Sprint 21 so external code (and the
@@ -670,16 +810,25 @@ def resolve_viscosity(opts: dict[str, str]) -> float:
 # branch on membership. ``_fallback_parse`` only ever consumes the
 # hydraulically-meaningful sections (``[OPTIONS]``, ``[JUNCTIONS]``,
 # ``[RESERVOIRS]``, ``[TANKS]``, ``[PIPES]``, ``[PUMPS]``, ``[VALVES]``,
-# ``[CURVES]``); every other section header is tokenised by
-# :func:`_split_sections` and then simply never read. Sprint 21 ships
-# explicit tests that this no-op behaviour holds — adding any section
-# in :data:`IGNORED_SECTIONS` (or any other unknown section) to a
-# fixture must leave the loaded :class:`Network` unchanged.
+# ``[CURVES]``, plus the Sprint 22 ``[STATUS]`` validator); every other
+# section header is tokenised by :func:`_split_sections` and then simply
+# never read. Sprint 21 ships explicit tests that this no-op behaviour
+# holds — adding any section in :data:`IGNORED_SECTIONS` (or any other
+# unknown section) to a fixture must leave the loaded :class:`Network`
+# unchanged.
 #
 # ``CURVES`` is deliberately **NOT** in this set: Sprint 12 consumes
 # HEAD-type curves when a ``[PUMPS]`` row references one, so the
 # section is active. Unused curves are tolerated (the parser simply
 # never reads them) but the section is not a global no-op.
+#
+# ``STATUS`` was a member through Sprint 21 but is **NOT** in this set
+# from Sprint 22 onwards. Sprint 22 narrows the contract for
+# ``[STATUS]``: explicit ``<link_id> OPEN`` rows are accepted as
+# no-ops (and the link id is validated against the parsed
+# pipes/pumps/valves), but ``CLOSED``, ``CV``, numeric pump
+# speed/status, and any other token still raise :class:`ValueError`.
+# See :func:`_validate_status_rows`.
 #
 # Sprint 21 known limitations that this set encodes:
 #
@@ -709,7 +858,6 @@ IGNORED_SECTIONS: frozenset[str] = frozenset(
         "BACKDROP",
         "TAGS",
         "ENERGY",
-        "STATUS",
         "CONTROLS",
         "RULES",
         "EMITTERS",
@@ -2050,6 +2198,14 @@ def _fallback_parse(
             c_factors.append(float(pipe_params["c_factor"]))
             edge_pump_coeffs.append([0.0, 0.0, 0.0])
             edge_pump_speeds.append(0.0)
+
+    # Sprint 22: validate any optional [STATUS] rows now that every link
+    # id is known. Accept ``<link_id> OPEN`` no-ops (case-insensitive),
+    # reject CLOSED / CV / numeric pump-status / unknown tokens / unknown
+    # link ids with a clear ValueError. Accepted rows leave the network
+    # byte-for-byte unchanged — they only buy explicit fail-fast on
+    # ``CLOSED``-bearing files and on dangling link-id references.
+    _validate_status_rows(sections.get("STATUS", []), seen_edge_ids)
 
     # Re-balance demand so the network is mass-consistent at parse time:
     # any drift (e.g. demands declared on junctions but no matching supply

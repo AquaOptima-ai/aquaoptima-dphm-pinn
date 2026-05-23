@@ -1,4 +1,4 @@
-# EPANET `.inp` Topology Import (Sprint 11–21)
+# EPANET `.inp` Topology Import (Sprint 11–22)
 
 Sprint 11 extends the dPHM topology loader stack with optional
 EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
@@ -33,6 +33,11 @@ EPANET section the parser deliberately treats as a silent no-op
 layout sections), and ships explicit tests pinning the invariance
 that adding any of those sections to a fixture leaves the loaded
 `Network` byte-for-byte unchanged (see "Ignored sections" below).
+Sprint 22 narrows the Sprint 21 contract for `[STATUS]`: the
+fallback parser now actively validates `[STATUS]` rows so EPANET-
+exported files that declare explicit `<link_id> OPEN` rows load
+without pretending to implement closed-link or active status physics
+(see "Explicit [STATUS] no-op rows (Sprint 22)" below).
 The public entry point is one function:
 
 ```python
@@ -1062,8 +1067,11 @@ section header the parser tolerates and then deliberately drops:
 | `[BACKDROP]`   | Background image / drawing dimensions for the EPANET GUI.                                                            |
 | `[TAGS]`       | Free-form node / link annotations.                                                                                   |
 | `[ENERGY]`     | Energy-cost / efficiency definitions. Active controls would consume these; deferred with `[CONTROLS]` / `[RULES]`.   |
-| `[STATUS]`     | Initial open / closed status overrides. Steady-state core models OPEN pipes only.                                    |
 | `[DEMANDS]`    | Per-junction supplemental demand list. The Sprint 11 importer reads junction demand from the `[JUNCTIONS]` column.   |
+
+> **`[STATUS]` is no longer ignored.** Sprint 22 removed `[STATUS]` from
+> the no-op set and validates it actively — see
+> "Explicit [STATUS] no-op rows (Sprint 22)" below.
 
 ### Contract
 
@@ -1136,6 +1144,117 @@ only for the subset of ignored sections WNTR is happy to round-trip
     and PRV / TCV surrogate invariants);
   - optional WNTR back-end smoke check on the subset WNTR
     round-trips cleanly.
+
+## Explicit `[STATUS]` no-op rows (Sprint 22)
+
+Sprint 22 narrows the Sprint 21 ignored-section contract for the
+`[STATUS]` section. Through Sprint 21 `[STATUS]` was a global no-op —
+the parser tokenised the rows and then never read them. Sprint 22
+keeps the *steady-state hydraulic boundary* in place but starts
+validating the section so EPANET-exported files that include explicit
+`<link_id> OPEN` declarations load without pretending to implement
+closed-link or active status physics.
+
+### What Sprint 22 accepts
+
+Rows of the form
+
+```text
+[STATUS]
+ <link_id>   OPEN
+ <link_id>   open       ; case-insensitive
+   <link_id>    OPEN    ; extra whitespace is tolerated
+```
+
+are accepted as **redundant no-ops**. Every pipe, pump, and valve the
+fallback parser loads is already implicitly open, so a `<link_id> OPEN`
+row carries no new information — but the validator still:
+
+1. Confirms the row has at least two tokens (link id + status token).
+2. Confirms the link id appears in the union of parsed
+   `[PIPES]` / `[PUMPS]` / `[VALVES]` ids. The `[STATUS]` section may
+   appear before or after those sections in the file; validation runs
+   after every link is known, so the ordering does not matter.
+3. Confirms the status token (case-folded) is `OPEN`.
+
+Accepted `[STATUS]` rows leave the loaded `Network` **byte-for-byte
+identical** to the same fixture with no `[STATUS]` section.
+
+### What Sprint 22 rejects
+
+| Row shape                              | Behaviour                                                                                                  |
+|----------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `<link_id>` (single token)             | `ValueError` — "row needs at least 2 tokens".                                                              |
+| `<unknown_id> OPEN`                    | `ValueError` — "references unknown link id".                                                               |
+| `<link_id> CLOSED` / `closed`          | `ValueError` — the steady-state core does not model closed links.                                          |
+| `<link_id> CV`                         | `ValueError` — the steady-state core does not model check valves.                                          |
+| `<link_id> 1.0` / `0` (numeric)        | `ValueError` — the steady-state core does not consume per-link pump speed/status multipliers from `[STATUS]`. |
+| `<link_id> MAYBE_LATER` (other token)  | `ValueError` — the only accepted token is `OPEN`.                                                          |
+
+Every error message names `[STATUS]`, the link id, and the offending
+token so the source row is easy to find. Case-folding applies only to
+the comparison — the original-case token is echoed back in the message.
+
+### What Sprint 22 does NOT do
+
+- It does **not** model closed-link behaviour. `[STATUS] P1 CLOSED`
+  raises rather than silently dropping pipe `P1` from the flow
+  equation.
+- It does **not** model check valves. `[STATUS] P1 CV` raises rather
+  than adding a sign-restricted unilateral edge.
+- It does **not** model pump speed/status multipliers from `[STATUS]`.
+  Numeric values raise — pump speed in the steady-state core is the
+  `s = 1` static nominal speed used by `fit_pump_head_curve`.
+- It does **not** alter the per-row `[PIPES]` status column. A
+  `[PIPES] ... CLOSED` / `CV` row continues to raise from the pipe-row
+  loop exactly as it did from Sprint 11 onwards.
+- It does **not** activate `[CONTROLS]` or `[RULES]`. The Sprint 21
+  documented limitation (control-state logic deferred) is unchanged.
+- It does **not** change the WNTR back-end. WNTR has its own
+  `[STATUS]` parser that validates link references and applies any
+  closed-state semantics to its internal link state; the dPHM
+  WNTR adapter reads the resulting pipe/pump/valve list but does not
+  re-validate `[STATUS]`. The fallback parser is therefore
+  authoritative for Sprint 22 `[STATUS]` behaviour. The optional
+  WNTR smoke test in `tests/dphm/test_inp_status.py` only confirms
+  that the demand sum / node / edge counts agree between back-ends
+  on `[STATUS] <id> OPEN` fixtures.
+
+### Public surface change
+
+`aquaoptima.dphm.inp_io.IGNORED_SECTIONS` no longer contains
+`"STATUS"`. The Sprint 21 ignored-section invariance tests still pass
+because they iterate over the documented Sprint 21 target list which
+never included `STATUS`. An explicit regression test in
+`tests/dphm/test_inp_ignored_sections.py::test_status_is_not_globally_ignored_after_sprint_22`
+pins this removal — a future sprint that reintroduces global
+`[STATUS]` ignoring will trip that test.
+
+### Tests
+
+- `tests/dphm/test_inp_status.py` — Sprint 22:
+  - public-surface check (`STATUS` not in `IGNORED_SECTIONS`);
+  - accepted-no-op invariance on pipes, HEAD-curve pumps, PRV
+    valves, and TCV valves (loaded `Network` byte-for-byte
+    identical to baseline);
+  - case-insensitive `OPEN` token (every spelling accepted);
+  - extra-whitespace tolerance;
+  - multiple `OPEN` rows in one block;
+  - `[STATUS]` section before and after the link sections;
+  - unknown link id raises with id in message;
+  - short row (< 2 tokens) raises with shape error;
+  - `CLOSED` / `closed` raises with link id and token in message;
+  - `CV` raises with link id and token in message;
+  - numeric pump speed `1.0` and `0` both raise;
+  - arbitrary token raises with link id and token in message;
+  - mixed `OPEN`/`CLOSED` block raises on the closed row;
+  - per-row `[PIPES] ... CLOSED` / `CV` rejection still raises
+    (Sprint 11 behaviour preserved);
+  - `[CONTROLS]` / `[RULES]` still ignored alongside `[STATUS] OPEN`
+    (Sprint 21 limitation preserved);
+  - HEAD pump `[CURVES]` resolution unaffected by `[STATUS] PU1 OPEN`;
+  - empty `[STATUS]` section accepted;
+  - optional WNTR back-end smoke check (`pytest.importorskip("wntr")`).
 
 ## Mass balancing
 
