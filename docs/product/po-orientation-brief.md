@@ -16,13 +16,13 @@ Quantified external context: the US EPA notes that drinking water and wastewater
 
 The product story is:
 
-1. **MVP v1 solves the immediate business problem**: optimize a large WTP / transmission pump station that usually has one source boundary and one to three outlet trunks. The customer outcome is better pressure / flow / volume delivery with improved pump efficiency and operator control.
-2. **dPHM makes MVP v1 more trustworthy**: it is the lightweight hydraulic digital-twin core. It checks whether recommendations are physically plausible, calibrates site-specific pump / pipe behaviour, and explains residuals when telemetry disagrees with the model.
+1. **MVP v1 solves the immediate business problem**: optimize a large WTP / transmission pump station that usually has one source boundary and one to three outlet trunks. MVP v1 is not only regression + MPC; it also includes the first version of **Multi-Goal PID**, the deterministic rule/priority layer that balances pressure, flow, efficiency, wear, ramping, and operator safety constraints.
+2. **dPHM makes MVP v1 more trustworthy when needed**: it is the lightweight hydraulic digital-twin core. It checks whether recommendations are physically plausible, calibrates site-specific pump / pipe behaviour, and explains residuals when telemetry disagrees with the model.
 3. **dPHM-PINN expands the product from station optimization to network intelligence**: it uses the hydraulic digital twin plus learning from telemetry to estimate unmeasured states, improve demand forecasting, and support more complex sites with multiple stations, branches, tanks, sparse sensors, or looped zones.
 
 Simple positioning:
 
-> **MVP v1 is the commercial wedge. dPHM is the trust layer. dPHM-PINN is the scaling layer.**
+> **MVP v1 is the commercial wedge. Multi-Goal PID is the operator-trust/control-policy layer inside MVP v1. dPHM is the optional physics trust layer. dPHM-PINN is the scaling layer.**
 
 This framing keeps the business value clear while avoiding overclaiming that the current pilot already controls or understands the entire downstream distribution network.
 
@@ -88,7 +88,10 @@ estimate default demand / target pressure / target volume
 operator reviews or adjusts target
         |
         v
-MPC chooses feasible pump / VFD schedule
+MPC searches candidate pump / VFD schedules
+        |
+        v
+Multi-Goal PID resolves priorities and safety constraints
         |
         v
 station meets pressure + flow goals with better total efficiency
@@ -102,6 +105,8 @@ Control goals:
 4. maximize total station efficiency;
 5. avoid unsafe or undesirable operating states;
 6. preserve operator override and existing PLC authority.
+
+Multi-Goal PID is the first-version policy layer that makes these goals operational. It should be deterministic, versioned, and auditable: when goals conflict, the product should be able to explain which goal won and why.
 
 ### Q3. What kind of site needs MVP v1, dPHM-only, or dPHM-PINN, and why?
 
@@ -121,6 +126,8 @@ The practical decision rule:
 - If the site is a simple WTP / transmission station and MVP v1 already gives physically realistic, trusted recommendations, **do not add dPHM just because it exists**.
 - Add **dPHM-only** when the business needs stronger trust, calibration, diagnostics, repeatability across new sites, or long-term maintenance evidence.
 - Add **dPHM-PINN** when the business problem becomes network intelligence: sparse sensors, multiple stations, branches, tanks, or unmeasured nodes.
+
+Most new sites will start with some uncertainty. That does **not** automatically mean full dPHM-PINN from day one. The default path should be: start with MVP v1 + good onboarding checks; add dPHM-only as a standard validation/calibration option when uncertainty affects trust, safety, or repeatability; reserve dPHM-PINN for sites where network inference or forecasting materially changes the business outcome.
 
 Why this matters to the customer:
 
@@ -165,9 +172,55 @@ Do not overclaim that dPHM-PINN optimizes the full supply-zone network when Aqua
 
 | Layer | Product-manager description | Inputs | Outputs | Business outcome | Best current use |
 |---|---|---|---|---|---|
-| MVP v1 | Station optimization product | Station telemetry, pump curves, outlet pressure/flow, operator targets | Pump/VFD schedule or recommendation | Fastest path to energy savings, pressure/flow reliability, and operator adoption at the first pilot | Core pilot product for WTP / transmission pump station. |
+| MVP v1 | Station optimization product with Multi-Goal PID | Station telemetry, pump curves, outlet pressure/flow, operator targets | Pump/VFD schedule or recommendation with goal-priority explanation | Fastest path to energy savings, pressure/flow reliability, and operator adoption at the first pilot | Core pilot product for WTP / transmission pump station. |
 | dPHM-only | Lightweight hydraulic digital-twin core | Topology, pipe/pump parameters, boundary conditions, candidate flows/heads | Physics residuals, feasibility, predicted hydraulic state, calibration loss | Higher trust where needed: fewer unrealistic recommendations, better calibration, clearer explanations when telemetry looks wrong | Add when MVP v1 needs physics evidence, maintenance diagnostics, or new-site repeatability. |
 | dPHM-PINN | Learning layer on top of the hydraulic digital twin | Topology, telemetry windows, sparse sensor observations | Forecasts, inferred states, physically regularized predictions | Scaling story: better forecasts and network insight without needing sensors at every node | Shadow layer now; network intelligence layer later. |
+
+### Module features by solution level
+
+This table lists the product modules without turning the brief into a technical spec.
+
+| Module feature | MVP v1 | dPHM-only adds | dPHM-PINN adds |
+|---|---|---|---|
+| Pump performance model | HQ curve + efficiency curve regression | Physics-constrained pump head validation / calibration | Learns pump-performance drift patterns if enough history exists |
+| Demand handling | Statistical demand defaults; operator-adjustable targets | Feasibility check for assumed demand against hydraulic boundaries | Temporal/spatial demand forecast using topology + telemetry windows |
+| Optimizer | MPC searches pump/VFD schedules | dPHM can act as feasibility checker or plant-model component | Uses forecasts / inferred states to improve optimization context |
+| Multi-Goal PID / policy layer | Deterministic priority layer for pressure, flow, efficiency, wear, ramping, safety, override | dPHM evidence can inform whether a candidate violates physics | dPHM-PINN evidence can inform future network-aware priorities |
+| Safety / operator trust | Familiar targets, operator override, existing PLC remains authority | Physics residuals explain why a recommendation is plausible or suspicious | Shadow first; explanations must be simplified because ML is harder to trust |
+| Diagnostics | Basic performance and target tracking | Sensor/unit/curve drift, hydraulic inconsistency, anomaly residuals | Virtual-node / forecast disagreement and network-level anomaly clues |
+| Best business role | First-pilot ROI and adoption | Trust, maintainability, new-site repeatability | Scale from station product to network intelligence |
+
+### Multi-Goal PID: where it fits
+
+Multi-Goal PID is part of MVP v1, not a replacement for MPC, dPHM, or dPHM-PINN.
+
+Product interpretation:
+
+> MPC searches for a good operating schedule; Multi-Goal PID is the deterministic policy layer that resolves goal conflicts and keeps the recommendation operator-safe and explainable.
+
+The first version should focus on a small number of explicit, auditable goals:
+
+| Goal family | Why the operator cares | Example metric / constraint |
+|---|---|---|
+| Pressure minimum | Avoid service failure | discharge pressure >= operator minimum |
+| Pressure maximum | Avoid bursts/leakage/excess stress | discharge pressure <= site maximum |
+| Flow / volume delivery | Meet WTP / zone supply mission | delivered volume vs target schedule |
+| Energy efficiency | Reduce kWh/m3 and inefficient pump combinations | total station efficiency, BEP-band runtime |
+| Pump wear protection | Avoid unnecessary starts, bad speed ranges, excessive cycling | max starts/hour, speed/ramp limits |
+| Smoothness / surge avoidance | Avoid rapid changes that operators distrust or that stress assets | pressure/speed rate-of-change limit |
+| Manual override / safety | Preserve existing operating authority | operator override, PLC permissives, no write without approval |
+
+Business value:
+
+- It makes MVP v1 more sellable to conservative operators because recommendations are not a black box.
+- It creates an audit trail: when goals conflict, the system can say why pressure safety beat energy efficiency, or why a BEP target was relaxed.
+- It is a natural place to encode site-specific operating policy before any advanced AI model is trusted.
+
+Relationship to dPHM / dPHM-PINN:
+
+- **Without dPHM:** Multi-Goal PID can still use measured pressure/flow/power and configured limits.
+- **With dPHM:** PID decisions can include physics-feasibility evidence and residual warnings.
+- **With dPHM-PINN:** future PID/advisory logic can include forecasted demand and inferred network-state risk, but only after shadow validation.
 
 ### Requirement level comparison
 
@@ -176,7 +229,7 @@ These are planning ranges, not hard product gates. They should be refined after 
 | Requirement | MVP v1 | dPHM-only | dPHM-PINN |
 |---|---|---|---|
 | Site topology | Station schematic, pump list, inlet/outlet points | Station + simple hydraulic topology: tanks/reservoirs, pipes/headers, pumps, 1-3 outlets if relevant | Network graph with nodes/edges; EPANET/GIS/P&ID strongly preferred |
-| Telemetry minimum | Discharge pressure, outlet flow, pump status/speed; power preferred | Same as MVP v1 plus enough boundary data to validate residuals | Multi-axis telemetry over time: pressure/flow/pump states, preferably across multiple nodes/edges |
+| Telemetry minimum | Discharge pressure, outlet flow, pump status/speed; power preferred; operator target/override logs for Multi-Goal PID tuning | Same as MVP v1 plus enough boundary data to validate residuals | Multi-axis telemetry over time: pressure/flow/pump states, preferably across multiple nodes/edges |
 | Historical data to start | 2-4 weeks can support first defaults; 8-12+ weeks better for daily/weekly patterns | Same or less for feasibility; 4-8+ weeks better for calibration/drift | 8-12+ weeks minimum for useful learning; 3-12 months better for seasonality and robust forecasting |
 | Server / compute | Ordinary industrial PC or small server for optimization; edge can be CPU-first | CPU-first is usually enough for steady-state solves and calibration reports | Training/retraining wants GPU or stronger server; edge inference should remain bounded/read-only first |
 | Site complexity justified | 1 source, 1-3 outlets, station boundary control | MVP sites needing validation, diagnostics, commissioning, or maintenance drift evidence | District/zone, sparse sensors, multiple stations, tanks/branches/loops |
@@ -202,6 +255,7 @@ Do not treat these as AquaOptima-proven claims until field baselines validate th
 | Pump HQ / efficiency regression | Core module | Can constrain / validate pump head behaviour; efficiency may remain a separate empirical curve | Can learn drift patterns if enough history exists. |
 | Demand defaults / forecast | Statistical defaults + operator adjustment | Can check whether assumed demand is hydraulically feasible | Can improve demand forecast using topology + temporal telemetry. |
 | MPC optimization | Core module | Can become the differentiable plant model or feasibility checker inside MPC | Can propose forecasts / state estimates for MPC. |
+| Multi-Goal PID | Core v1 policy layer for resolving conflicting goals and explaining tradeoffs | Can consume dPHM feasibility/residual evidence | Can later consume forecast / inferred-state risk after shadow validation. |
 | Physical feasibility | Mostly constraints around station operating bounds | Strong: mass / energy / head-loss residuals | Stronger for sparse network state estimation. |
 | Explainability | High | High-medium; physics residuals are explainable | Medium; needs careful UI explanations. |
 | Direct control readiness | Highest, with safety gates | Useful as validator before control | Shadow first; do not use for direct control initially. |
@@ -353,7 +407,7 @@ From a product strategy perspective, AquaOptima should not sell every layer at o
 
 | Stage | Product framing | Technical layer | Customer-facing outcome |
 |---|---|---|---|
-| MVP v1 | Station optimization | Regression + demand defaults + MPC | Better pressure/flow/volume delivery with higher pump efficiency. |
+| MVP v1 | Station optimization | Regression + demand defaults + MPC + Multi-Goal PID v1 | Better pressure/flow/volume delivery with higher pump efficiency and explainable tradeoffs. |
 | v1.5 | Physics-validated station optimization | MVP v1 + independent dPHM | More trustworthy schedules, better calibration, anomaly flags. |
 | v2 | Shadow network intelligence | dPHM + dPHM-PINN | Better forecasts, virtual-state inference, evidence for advisory mode. |
 | v3 | Advisory / supervised control | dPHM-PINN + optimizer + safety contract | Operator-reviewed recommendations with audit trail. |
