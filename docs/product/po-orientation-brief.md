@@ -247,12 +247,13 @@ These are planning ranges, not hard product gates. They should be refined after 
 
 | Requirement | MVP v1 | dPHM-only | dPHM-PINN |
 |---|---|---|---|
-| Site topology | Station schematic, pump list, inlet/outlet points | Station + simple hydraulic topology: tanks/reservoirs, pipes/headers, pumps, 1-3 outlets if relevant | Network graph with nodes/edges; EPANET/GIS/P&ID strongly preferred |
-| Telemetry minimum | Discharge pressure, outlet flow, pump status/speed; power preferred; operator target/override logs, alarms, confirmation counters, switch events for Multi-Goal PID tuning | Same as MVP v1 plus enough boundary data to validate residuals | Multi-axis telemetry over time: pressure/flow/pump states, preferably across multiple nodes/edges |
-| Historical data to start | 2-4 weeks can support first defaults; 8-12+ weeks better for daily/weekly patterns | Same or less for feasibility; 4-8+ weeks better for calibration/drift | 8-12+ weeks minimum for useful learning; 3-12 months better for seasonality and robust forecasting |
-| Server / compute | Ordinary industrial PC or small server for optimization; edge can be CPU-first | CPU-first is usually enough for steady-state solves and calibration reports | Training/retraining wants GPU or stronger server; edge inference should remain bounded/read-only first |
-| Site complexity justified | 1 source, 1-3 outlets, station boundary control | MVP sites needing validation, diagnostics, commissioning, or maintenance drift evidence | District/zone, sparse sensors, multiple stations, tanks/branches/loops |
-| Product maturity | Pilot-ready fastest | v1.5 trust/diagnostic layer | v2+ shadow/network intelligence layer |
+| Site topology | **Control topology only:** pump list, suction/discharge points, inlet/outlet meters, available pump combinations, min/max VFD limits. A full hydraulic pipe model is not required. | **Hydraulic mini-model:** everything in MVP v1 plus enough physical layout to compute head/flow residuals: source tank/reservoir/clearwell boundary, suction/discharge headers, pump edges, major trunk/outlet edges, approximate lengths/diameters/elevations where relevant. | **Network graph:** nodes/edges beyond the station: tanks, branches, valves, zones, multiple stations, virtual/unmeasured nodes. EPANET/GIS/P&ID strongly preferred. |
+| What topology is enough for the first pilot? | Satellite WTP -> pump station -> main outlet meter -> unknown zone is acceptable. | Same site can use dPHM only if we can represent a simple source/header/pump/outlet hydraulic mini-model; otherwise keep dPHM as offline calibration until topology improves. | Not enough unless downstream topology or additional sensor context exists. |
+| Telemetry minimum | Discharge pressure, outlet flow, pump status/speed; power preferred; operator target/override logs, alarms, confirmation counters, switch events for Multi-Goal PID tuning. | Same as MVP v1 plus enough boundary data to compare predicted vs measured head/flow/power/residuals. | Multi-axis telemetry over time: pressure/flow/pump states, preferably across multiple nodes/edges. |
+| Historical data to start | 2-4 weeks can support first defaults; 8-12+ weeks better for daily/weekly patterns. | Feasibility can start with little history if topology is available; calibration/drift is stronger with 4-8+ weeks. | 8-12+ weeks minimum for useful learning; 3-12 months better for seasonality and robust forecasting. |
+| Server / compute | Ordinary industrial PC or small server for optimization; edge can be CPU-first. | CPU-first is usually enough for steady-state solves and calibration reports. | Training/retraining wants GPU or stronger server; edge inference should remain bounded/read-only first. |
+| Site complexity justified | 1 source, 1-3 outlets, station boundary control. | Same sites as MVP v1 when physics evidence, commissioning, diagnostics, or maintenance drift matter. | District/zone, sparse sensors, multiple stations, tanks/branches/loops. |
+| Product maturity | Pilot-ready fastest. | v1.5 trust/diagnostic layer; can be optional per site. | v2+ shadow/network intelligence layer. |
 
 ### Quantified outcome framing
 
@@ -331,34 +332,43 @@ Add dPHM-PINN shadow layer
   improve demand forecast + infer missing network states when topology exists
 ```
 
-## 5. Could differentiable algorithm concepts help MVP v1?
+## 5. What does “differentiable algorithm concepts” mean for MVP v1?
 
-Yes, but the best near-term use is **not** to replace MPC with a neural network. The better use is to make parts of MVP v1 more calibrated, testable, and explainable.
+This does **not** mean building a third, separate product between MVP v1 and dPHM. It means using selected dPHM-style techniques inside or beside MVP v1 when they improve calibration, feasibility checks, or sensitivity analysis.
 
-Potential improvements:
+Plain-English answer:
 
-1. **Differentiable pump-curve fitting**
-   - Fit pump parameters by minimizing pressure / flow / power residuals.
-   - Add physical bounds so regression does not produce unrealistic curves.
+```text
+MVP v1 remains the product.
+        |
+        +-- Option A: keep MVP v1 as-is if it is trusted and performing well.
+        |
+        +-- Option B: use small differentiable techniques inside MVP v1
+        |             for curve fitting, calibration, or sensitivity.
+        |
+        +-- Option C: add dPHM as an explicit physics mini-model
+                      when we need residuals, feasibility validation, or drift diagnostics.
+```
 
-2. **Differentiable site calibration**
-   - Learn station-specific loss coefficients, roughness surrogates, or correction factors from historical telemetry.
-   - Useful when datasheets are stale or field conditions differ from design assumptions.
+So the question is not “intermediate solution vs dPHM.” The decision is:
 
-3. **Gradient-assisted MPC**
-   - Use dPHM sensitivities to understand how pump speed changes affect discharge pressure, flow, and efficiency.
-   - Could reduce brute-force search or improve optimizer stability.
+- **Small differentiable technique:** use only the math/optimization idea, without deploying the full dPHM model. Good for better pump-curve fitting or sensitivity analysis.
+- **dPHM with MVP v1:** deploy a lightweight hydraulic mini-model alongside MVP v1. Good when we need physics residuals, site calibration, or explainable diagnostics.
+- **dPHM-PINN:** use later when learning from topology + time-series telemetry creates network-level value.
 
-4. **Scenario / target sensitivity**
-   - Show operator-facing tradeoffs: "If pressure target rises by 2 m, energy cost increases by X and pump 2 leaves efficient range."
-   - This is product-useful even before direct control.
+Potential MVP v1 improvements:
 
-5. **Residual-based anomaly detection**
-   - If observed pressure/flow/power disagrees with dPHM beyond tolerance, flag likely sensor error, curve drift, valve state mismatch, leakage, blockage, or abnormal operating condition.
+| Improvement | Use small differentiable technique? | Use dPHM with MVP v1? | Why |
+|---|---:|---:|---|
+| Pump-curve fitting | Yes | Optional | Fit HQ/efficiency curves more robustly without needing a full hydraulic network model. |
+| Site calibration | Sometimes | Yes if physical residuals matter | Learn correction factors for pump/head-loss assumptions when data and topology support it. |
+| Gradient-assisted MPC | Yes | Optional/advanced | Use sensitivities to search schedules faster or understand target tradeoffs. |
+| Scenario / target sensitivity | Yes | Useful | Show operator tradeoffs like pressure target vs energy cost. |
+| Residual-based anomaly detection | No/limited | Yes | Needs a physics model to compare expected vs observed head/flow/power. |
 
 Near-term principle:
 
-> Use differentiability first for calibration, feasibility, sensitivity, and explainability. Only later use it for closed-loop optimization once safety evidence exists.
+> Start with MVP v1. Add differentiable techniques only where they improve an existing MVP module. Add dPHM only when a physics mini-model provides a product benefit that regression + Multi-Goal PID cannot provide alone.
 
 ## 6. Visual examples
 
