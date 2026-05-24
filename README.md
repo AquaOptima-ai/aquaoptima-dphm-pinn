@@ -121,11 +121,15 @@ add a convergence-assertion CI test that proves
 the physics lambda, batchify, generalise the ablation harness
 across fixtures. See [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md).
 
-## Shared Contracts / SDK (Sprint 41 MVP)
+## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 projections)
 
-The Sprint 41 Shared Contracts / SDK package ships under
+The Shared Contracts / SDK package ships under
 `src/aquaoptima_contracts/` and exposes the cross-component vocabulary
-every Phase 2+ deployable depends on:
+every Phase 2+ deployable depends on. Sprint 41 shipped the MVP
+foundation; Sprint 42 adds the first batch of contract *shape*
+projections from the Phase 1 runtime artifacts.
+
+Sprint 41 MVP:
 
 - `SchemaVersion` SemVer triple + same-major reader compatibility;
 - `ContractEnvelope` schema metadata wrapper used by every contract;
@@ -138,10 +142,35 @@ every Phase 2+ deployable depends on:
   1 manifest writer byte-for-byte;
 - a golden-fixture harness (`assert_golden_roundtrip`).
 
+Sprint 42 additions:
+
+- `Checksum` (algorithm + hex digest + size), `Provenance`
+  (component + version + optional build id / signer identity),
+  extended `ArtifactReference` (now carries optional `checksum` +
+  `uri`);
+- `TelemetryAxis` canonical axis vocabulary + `UnitSpec` canonical
+  unit / dimension record;
+- `TelemetryTagSpec` / `TelemetryTagMap` / `TelemetryTagMapDiagnostics`
+  shape projections + a Phase 1 fixture adapter
+  (`project_phase1_tag_map_document`);
+- `ShadowReplayFrame` / `ShadowReplayDataset` /
+  `ShadowReplayDiagnostics` shape projections + a Phase 1 CSV body
+  adapter (`project_phase1_replay_csv_text`);
+- `ShadowDeploymentArtifact` / `ShadowDeploymentManifest` /
+  `ShadowDeploymentPackageDiagnostics` shape projections;
+- `ShadowRuntimeStepReport` / `ShadowRuntimeReport` /
+  `ShadowRuntimeDiagnostics` shape projections.
+
 The SDK is stdlib-only at runtime and never imports any
 `aquaoptima.*` deployable module. It does not introduce live OT
 binding, PLC/PAC/SCADA write, command emission, setpoint output,
 control-loop closure, HTTP, database, or message-broker code paths.
+The full Phase 1 runtime modules
+(`aquaoptima.dphm.telemetry_tag_map`, `aquaoptima.dphm.shadow_replay`,
+`aquaoptima.dphm.shadow_deployment`, `aquaoptima.dphm.shadow_runtime`,
+`aquaoptima.dphm.advisory_contract`, `aquaoptima.dphm.dpl_calibration`)
+remain the authority for in-network runtime behavior; the SDK only
+owns deterministic *shape* and JSON projections.
 
 Planning references:
 
