@@ -121,6 +121,35 @@ add a convergence-assertion CI test that proves
 the physics lambda, batchify, generalise the ablation harness
 across fixtures. See [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md).
 
+## Shared Contracts / SDK (Sprint 41 MVP)
+
+The Sprint 41 Shared Contracts / SDK package ships under
+`src/aquaoptima_contracts/` and exposes the cross-component vocabulary
+every Phase 2+ deployable depends on:
+
+- `SchemaVersion` SemVer triple + same-major reader compatibility;
+- `ContractEnvelope` schema metadata wrapper used by every contract;
+- `SafetyFlagSet` with the seven canonical Sprint 41 flag tokens;
+- `CapabilityDeclaration` / `CapabilityRequirement` + the deny-by-
+  default `evaluate_capability_gate` helper;
+- the forbidden-vocabulary denylist enforced by a grep-style scan;
+- deterministic JSON helpers (`dump_canonical_json`,
+  `load_canonical_json`, `write_canonical_json`) that match the Phase
+  1 manifest writer byte-for-byte;
+- a golden-fixture harness (`assert_golden_roundtrip`).
+
+The SDK is stdlib-only at runtime and never imports any
+`aquaoptima.*` deployable module. It does not introduce live OT
+binding, PLC/PAC/SCADA write, command emission, setpoint output,
+control-loop closure, HTTP, database, or message-broker code paths.
+
+Planning references:
+
+- [`docs/product/sprint40-3plus1-approval-gate.md`](docs/product/sprint40-3plus1-approval-gate.md)
+- [`docs/product/sprint41-shared-contracts-sdk-plan.md`](docs/product/sprint41-shared-contracts-sdk-plan.md)
+- [`docs/architecture/contracts-inventory.md`](docs/architecture/contracts-inventory.md)
+- [`docs/safety/capability-model-and-safety-gates.md`](docs/safety/capability-model-and-safety-gates.md)
+
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — module map and data flow
