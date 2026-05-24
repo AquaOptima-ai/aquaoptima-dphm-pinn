@@ -265,6 +265,33 @@ Relationship to dPHM / dPHM-PINN:
 - **With dPHM:** PID decisions can include physics-feasibility evidence, residual warnings, and better confidence in pump/pipe assumptions.
 - **With dPHM-PINN:** future PID/advisory logic can include forecasted demand, inferred network-state risk, and sparse-sensor network context after shadow validation.
 
+### Extended optimization use cases: energy, leakage/NRW, asset stress, and demand fulfillment
+
+The uploaded slide reframes Pump Autopilot as **three objectives, one optimization**:
+
+```text
+minimize [ W_E * energy cost + W_L * NRW/leakage cost + W_A * asset-stress cost ]
+
+Hard constraint: end-of-line pressure >= SLA per node.
+Weights can vary by zone and time of day.
+```
+
+This is a good product direction, but each objective needs a different model depth.
+
+| Use case | MVP v1 + Multi-Goal PID | dPHM-only | dPHM-PINN | Practical product reading |
+|---|---|---|---|---|
+| Energy optimization | Strongest current fit. Uses pump-curve regression from SCADA, BEP/efficiency tables, MPC, Multi-Goal PID, and operator constraints. | Adds physics validation if energy gains are disputed or curves/meters look wrong. | Can improve long-term forecasts/context, but not required for first energy ROI. | Keep this as the commercial wedge; slide claims Yilan 17.5% energy reduction, 11+ months, zero PLC mods should be validated/documented separately as evidence. |
+| Leak / NRW pressure-led management | Limited to safe outlet-pressure reduction if operator supplies pressure targets and downstream SLA assumptions. Cannot prove node-level leakage reduction without network context. | Strong fit when topology exists: can use EPANET-style hydraulics + FAVAD-style pressure/leak relationship to estimate pressure-led NRW benefit while respecting minimum pressure. | Stronger when sensors are sparse and pressure/demand must be inferred across many nodes/zones. | Do not sell as full NRW optimization if only WTP outlet is visible; sell as pressure-management readiness or boundary-pressure optimization until topology/SLA nodes exist. |
+| Asset stress / surge reduction | Can reduce stress operationally through bounded ramps, fewer starts/stops, smoother switching, and pressure-rate limits. | Adds physics-based stress proxy: head-loss/pressure changes, pipe constraints, and fatigue/stress models where data exists. | Useful for network-wide stress forecasting across assets and unmeasured nodes. | MVP can reduce operational stress; dPHM is needed for stronger asset-stress claims; transient surge/water-hammer certification remains out of scope unless separately modeled. |
+| Predictive demand fulfillment | Basic fit: statistical demand defaults and operator-adjusted targets. Works for station-boundary planning. | Adds feasibility checking: can the station meet demand while respecting pressure/head/flow constraints? | Best fit: temporal/spatial demand forecasting using topology + telemetry windows, especially for zones/tanks/multiple stations. | MVP handles aggregate demand; dPHM validates feasibility; dPHM-PINN becomes valuable when forecasting demand distribution, not just total outlet flow. |
+
+Product rule for extended objectives:
+
+- **Energy** can be MVP-led.
+- **Leak/NRW** becomes credible when pressure at critical/end nodes can be modeled or measured.
+- **Asset stress** can start with MVP smoothness constraints, but stronger claims need dPHM or specialist transient/fatigue validation.
+- **Predictive demand fulfillment** starts as statistical defaults; dPHM-PINN is the long-term layer for spatial/temporal demand prediction.
+
 ### Requirement level comparison
 
 These are planning ranges, not hard product gates. They should be refined after pilot data inventory.
