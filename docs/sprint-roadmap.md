@@ -223,3 +223,68 @@ Boundary (reaffirmed):
 The SDK advisory module is **audit only**. The advisory dataclasses
 deliberately omit any actuation-shaped field; the decision status
 vocabulary is restricted to `accepted` / `rejected`.
+
+## Sprint 44 — Deployment Package Manifest SDK Contracts
+
+Adds the full SDK contract *shapes* for deployment package manifests
+and the model / artifact registry record named in
+`docs/architecture/contracts-inventory.md`. Sprint 44 keeps the
+existing Phase 1 `aquaoptima.*` import paths, runtime modules, and
+on-disk fixtures intact and adds no new HTTP / database /
+message-broker code paths. The SDK projection is audit / packaging
+evidence only.
+
+Shipped in Sprint 44 (under `src/aquaoptima_contracts/package/`):
+
+- `PackageValidationDiagnostic` — deterministic warnings / errors
+  tuples for package-side validation diagnostics.
+- `PackageSafetyDeclaration` — mandatory `SafetyFlagSet` plus
+  `CapabilityRequirement` bundle attached to every deployment
+  package. Every string field is scanned for forbidden vocabulary
+  tokens at construction.
+- `ArtifactManifest` — per-artifact descriptor composed from
+  `ArtifactReference` (with optional `Checksum` and `uri`) and
+  `Provenance`. Roles are constrained to the canonical
+  `PACKAGE_ARTIFACT_ROLES` vocabulary.
+- `ArtifactBundleRecord` — optional grouping of related artifact
+  manifests for larger packages.
+- `ModelArtifactRecord` — audit-only model / artifact registry
+  projection. References model artifacts only by
+  `ArtifactReference` + mandatory `Checksum`; carries `Provenance`,
+  the canonical `SafetyFlagSet`, and a `CapabilityRequirement`. No
+  inline weights, no filesystem writes outside tests, no runtime
+  loading of model artifacts.
+- `DeploymentPackageManifest` — top-level audit-evidence manifest.
+  Composes `ContractEnvelope` (schema family `manifest`),
+  `PackageSafetyDeclaration`, `CapabilityRequirement`, `Provenance`,
+  and tuples of `ArtifactManifest` / `ModelArtifactRecord` /
+  `ArtifactBundleRecord` plus a `PackageValidationDiagnostic`.
+  `package_id` consistency across the declaration / requirement /
+  manifest is enforced; setpoint-shaped field names are rejected in
+  `from_dict`.
+- `build_deployment_package_manifest_from_shadow` — pure-SDK builder
+  that lifts a Sprint 42 `ShadowDeploymentManifest` into the Sprint
+  44 `DeploymentPackageManifest` shape without importing any
+  `aquaoptima.*` runtime module.
+
+Boundary (reaffirmed):
+
+- no live OT binding;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no HTTP / database / message-broker code;
+- no AI / Optimization Server runtime, no Edge Runtime, no
+  Operations Console runtime;
+- no migration / removal / rename of Phase 1 `aquaoptima.*` import
+  paths;
+- no movement of `evaluate_advisory_proposals`,
+  `run_shadow_runtime`, or EPANET `.inp` import into the SDK;
+- no inline model weights, no filesystem writes outside tests, no
+  runtime loading of model artifacts.
+
+Sprint 45 follow-ups: Edge `EdgeCapabilityDeclaration` enforcement,
+`EdgePackageValidationResult`, signature verification on
+`Provenance.signer_identity`, and the Edge-side package validator
+that consumes `DeploymentPackageManifest`.

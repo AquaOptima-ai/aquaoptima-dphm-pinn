@@ -121,15 +121,16 @@ add a convergence-assertion CI test that proves
 the physics lambda, batchify, generalise the ablation harness
 across fixtures. See [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md).
 
-## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 projections)
+## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 projections)
 
 The Shared Contracts / SDK package ships under
 `src/aquaoptima_contracts/` and exposes the cross-component vocabulary
 every Phase 2+ deployable depends on. Sprint 41 shipped the MVP
 foundation; Sprint 42 added the first batch of contract *shape*
-projections from the Phase 1 runtime artifacts; Sprint 43 closes the
+projections from the Phase 1 runtime artifacts; Sprint 43 closed the
 first-batch list with calibration, advisory, and EPANET
-import-quality projections.
+import-quality projections; Sprint 44 adds the deployment package
+manifest contracts plus the model / artifact registry projection.
 
 Sprint 41 MVP:
 
@@ -184,6 +185,40 @@ Sprint 43 additions:
   `EpanetImportQualityReport` — EPANET import-quality shape
   projections (Console-facing), plus a duck-typed Phase 1 adapter
   (`project_phase1_import_quality_report`).
+
+Sprint 44 additions:
+
+- `PackageValidationDiagnostic` — deterministic warnings / errors
+  tuples for package validation diagnostics.
+- `PackageSafetyDeclaration` — mandatory `SafetyFlagSet` plus
+  `CapabilityRequirement` bundle attached to every deployment
+  package; rejects forbidden vocabulary tokens used in any string
+  field.
+- `ArtifactManifest` — per-artifact descriptor composed from
+  `ArtifactReference` (with optional `Checksum` and `uri`) and
+  `Provenance`; constrained to the canonical
+  `PACKAGE_ARTIFACT_ROLES` vocabulary.
+- `ArtifactBundleRecord` — optional grouping of related artifact
+  manifests inside a larger package.
+- `ModelArtifactRecord` — audit-only model / artifact registry
+  projection carrying `ArtifactReference` + mandatory `Checksum`,
+  `Provenance`, `SafetyFlagSet`, and `CapabilityRequirement`. No
+  inline weights, no filesystem writes, no runtime loading; the SDK
+  never opens a model file.
+- `DeploymentPackageManifest` — top-level audit-evidence deployment
+  package manifest. Composes `ContractEnvelope` (schema family
+  `manifest`), `PackageSafetyDeclaration`, `CapabilityRequirement`,
+  `Provenance`, and tuples of `ArtifactManifest` /
+  `ModelArtifactRecord` / `ArtifactBundleRecord` plus a
+  `PackageValidationDiagnostic`. `package_id` consistency across
+  declaration / requirement / manifest is enforced; setpoint-shaped
+  field names (`setpoint`, `command`, `control`, `actuate`, `write`,
+  `dispatch`, `weights`, `binary`, `raw`) are rejected in
+  `from_dict`.
+- `build_deployment_package_manifest_from_shadow` — pure-SDK helper
+  that lifts a Sprint 42 `ShadowDeploymentManifest` into the
+  Sprint 44 `DeploymentPackageManifest` shape without importing
+  any `aquaoptima.*` runtime module.
 
 The SDK is stdlib-only at runtime and never imports any
 `aquaoptima.*` deployable module. It does not introduce live OT
