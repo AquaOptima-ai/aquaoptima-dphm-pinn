@@ -1,10 +1,10 @@
-# Hunter Feedback on PO Orientation Brief
+# Kevin Feedback on PO Orientation Brief
 
 Related brief: [`docs/product/po-orientation-brief.md`](po-orientation-brief.md)
 
 ## Context
 
-This note captures Hunter's feedback and clarifying questions on the PO orientation brief covering MVP v1, dPHM, and dPHM-PINN. The feedback generally agrees with the brief's observation that AquaOptima can be explained in multiple product/model layers, but asks for a few corrections in emphasis before the product framing is treated as final.
+This note captures Kevin's feedback and clarifying questions on the PO orientation brief covering MVP v1, dPHM, and dPHM-PINN. The feedback generally agrees with the brief's observation that AquaOptima can be explained in multiple product/model layers, but asks for a few corrections in emphasis before the product framing is treated as final.
 
 The main correction is that the discussion should not only be framed as **model-site fit**. It also needs to reflect **product packaging strategy**: AquaOptima can keep multiple model/control layers available inside the edge package, while enabling only the layer that is suitable for the customer, project scope, telemetry maturity, and commercial entitlement.
 
