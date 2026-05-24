@@ -223,3 +223,142 @@ Boundary (reaffirmed):
 The SDK advisory module is **audit only**. The advisory dataclasses
 deliberately omit any actuation-shaped field; the decision status
 vocabulary is restricted to `accepted` / `rejected`.
+
+## Sprint 44 — Deployment Package Manifest SDK Contracts
+
+Adds the full SDK contract *shapes* for deployment package manifests
+and the model / artifact registry record named in
+`docs/architecture/contracts-inventory.md`. Sprint 44 keeps the
+existing Phase 1 `aquaoptima.*` import paths, runtime modules, and
+on-disk fixtures intact and adds no new HTTP / database /
+message-broker code paths. The SDK projection is audit / packaging
+evidence only.
+
+Shipped in Sprint 44 (under `src/aquaoptima_contracts/package/`):
+
+- `PackageValidationDiagnostic` — deterministic warnings / errors
+  tuples for package-side validation diagnostics.
+- `PackageSafetyDeclaration` — mandatory `SafetyFlagSet` plus
+  `CapabilityRequirement` bundle attached to every deployment
+  package. Every string field is scanned for forbidden vocabulary
+  tokens at construction.
+- `ArtifactManifest` — per-artifact descriptor composed from
+  `ArtifactReference` (with optional `Checksum` and `uri`) and
+  `Provenance`. Roles are constrained to the canonical
+  `PACKAGE_ARTIFACT_ROLES` vocabulary.
+- `ArtifactBundleRecord` — optional grouping of related artifact
+  manifests for larger packages.
+- `ModelArtifactRecord` — audit-only model / artifact registry
+  projection. References model artifacts only by
+  `ArtifactReference` + mandatory `Checksum`; carries `Provenance`,
+  the canonical `SafetyFlagSet`, and a `CapabilityRequirement`. No
+  inline weights, no filesystem writes outside tests, no runtime
+  loading of model artifacts.
+- `DeploymentPackageManifest` — top-level audit-evidence manifest.
+  Composes `ContractEnvelope` (schema family `manifest`),
+  `PackageSafetyDeclaration`, `CapabilityRequirement`, `Provenance`,
+  and tuples of `ArtifactManifest` / `ModelArtifactRecord` /
+  `ArtifactBundleRecord` plus a `PackageValidationDiagnostic`.
+  `package_id` consistency across the declaration / requirement /
+  manifest is enforced; setpoint-shaped field names are rejected in
+  `from_dict`.
+- `build_deployment_package_manifest_from_shadow` — pure-SDK builder
+  that lifts a Sprint 42 `ShadowDeploymentManifest` into the Sprint
+  44 `DeploymentPackageManifest` shape without importing any
+  `aquaoptima.*` runtime module.
+
+Boundary (reaffirmed):
+
+- no live OT binding;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no HTTP / database / message-broker code;
+- no AI / Optimization Server runtime, no Edge Runtime, no
+  Operations Console runtime;
+- no migration / removal / rename of Phase 1 `aquaoptima.*` import
+  paths;
+- no movement of `evaluate_advisory_proposals`,
+  `run_shadow_runtime`, or EPANET `.inp` import into the SDK;
+- no inline model weights, no filesystem writes outside tests, no
+  runtime loading of model artifacts.
+
+## Sprint 45+ — AMAX-5580 primary Edge target plan
+
+The primary Edge hardware target for Sprint 45+ is now the
+**Advantech AMAX-5580** class of PAC / industrial controller, not an
+NVIDIA Jetson / Orin-first EPC-R profile. The Edge package should be
+planned as an OT-side, CPU-first, x86_64 industrial runtime that can
+coexist with site PLCs and pump-station PLCs. The site PLC remains the
+direct VFD / pump / actuator authority; AquaOptima Edge remains a
+supervisory validation, inference, audit, and eventually bounded
+setpoint-proposal layer after explicit safety approval.
+
+This target change does not require a rewrite of the current codebase:
+the current implementation is platform-neutral Python / PyTorch and
+Shared Contracts / SDK code. Jetson / TensorRT should be treated as an
+optional accelerator variant only, not the default deployment path.
+
+Hardware / runtime assumptions for Sprint 45+:
+
+- primary target: AMAX-5580 or equivalent PAC-class industrial
+  controller;
+- architecture: x86_64;
+- acceleration: CPU-first PyTorch inference, with optional ONNX
+  Runtime CPU or OpenVINO later if benchmarking justifies it;
+- PAC / OT integration posture: CODESYS / industrial-protocol capable
+  controller coexisting with existing site PLCs;
+- no CUDA / TensorRT / Jetson / Orin requirement in the default Edge
+  package;
+- TensorRT artifacts may remain valid manifest vocabulary for an
+  optional Orin accelerator profile, but AMAX validation must reject
+  packages that require unavailable GPU acceleration.
+
+Sprint 45 should therefore be reframed as:
+
+**Sprint 45 — AMAX-5580 Edge Package Validator / Capability Profile**
+
+Expected scope:
+
+- `EdgeHardwareProfile` / `EdgeCapabilityDeclaration` for
+  `advantech-amax-5580` or a generic `x86_64-pac-cpu` profile;
+- `EdgePackageValidationResult` consuming Sprint 44
+  `DeploymentPackageManifest`;
+- checks that reject default-edge packages requiring CUDA, TensorRT,
+  Jetson, Orin, ARM64, inline model weights, runtime model loading, or
+  write/control capabilities;
+- checks that accept CPU-first PyTorch artifacts and future
+  ONNX-Runtime-CPU/OpenVINO-compatible metadata;
+- deterministic diagnostics for architecture, OS/runtime,
+  Python/PyTorch compatibility, safety declaration, capability gates,
+  provenance signer identity, and AMAX/PAC profile compatibility;
+- docs that state AMAX Edge is an OT-side supervisory controller while
+  the site PLC / pump-station PLC remains final actuator authority.
+
+Suggested Sprint 46+ sequence after Sprint 45 passes:
+
+1. **Sprint 46 — AMAX CPU inference smoke profile.** Add benchmark /
+   evidence contracts for dPHM-PINN CPU inference latency, memory
+   envelope, thread policy, and package manifest compatibility. This
+   is still offline/mock execution, not live OT integration.
+2. **Sprint 47 — AMAX read-only PLC/SCADA adapter contract.** Define
+   read-only OPC UA / Modbus / CODESYS-facing adapter contracts and
+   replay fixtures. No write path, no commands, no setpoints.
+3. **Sprint 48 — AMAX supervised-control dry-run contract.** Define
+   dry-run handoff records, PLC gatekeeper expectations, fallback
+   evidence, and operator-enable requirements. This remains simulated
+   unless a later safety gate explicitly approves supervised writes.
+
+Boundary for all Sprint 45+ AMAX work:
+
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge;
+- no bypass of site PLC interlocks, permissives, trips, manual mode,
+  or emergency stop;
+- no assumption that AMAX certification alone certifies the full
+  deployed AquaOptima control system.

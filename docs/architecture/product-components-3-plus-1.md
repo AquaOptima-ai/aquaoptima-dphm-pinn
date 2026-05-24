@@ -43,11 +43,18 @@ That chain should be preserved as compatibility evidence and redistributed into 
 
 ### Purpose
 
-The Edge Runtime is the plant-adjacent runtime for offline, mock, dry-run, and read-only shadow behavior. It is designed as if it operates near OT infrastructure, even when initially deployed with file fixtures or mock telemetry only.
+The Edge Runtime is the plant-adjacent runtime for offline, mock,
+dry-run, and read-only shadow behavior. For Sprint 45+ planning the
+primary hardware target is the **Advantech AMAX-5580** class of PAC /
+industrial controller: x86_64, CPU-first, CODESYS / industrial-protocol
+capable, and deployed as an OT-side supervisory edge asset. It is
+designed to coexist with existing site PLCs and pump-station PLCs;
+those PLCs remain the direct VFD / pump / actuator authority.
 
 ### Owns
 
 - Edge process lifecycle.
+- AMAX-5580 / x86_64 PAC-class hardware capability validation.
 - Local telemetry ingestion adapters, initially mock/file/replay only.
 - Local tag-map validation using Shared Contracts / SDK types.
 - Local replay or streaming frame construction.
@@ -68,6 +75,9 @@ The Edge Runtime is the plant-adjacent runtime for offline, mock, dry-run, and r
 - Contract schema definitions.
 - Direct write/control semantics.
 - PLC/PAC/SCADA write adapters.
+- Direct VFD / pump / actuator control.
+- Site PLC interlock, permissive, trip, manual-mode, or emergency-stop
+  authority.
 
 ### Initial modes
 
@@ -79,6 +89,21 @@ The Edge Runtime is the plant-adjacent runtime for offline, mock, dry-run, and r
 | `package_validation_only` | Allowed | Validates package manifests and capabilities. |
 | `dry_run_read_only` | Future gated | Reads from an approved source without commands or writes. |
 | `control_enabled` | Not allowed | Would emit commands or setpoints; excluded from current architecture. |
+
+### Primary Edge hardware target for Sprint 45+
+
+The default Edge target is **AMAX-5580 / x86_64 / CPU-first**. The Edge
+package validator must not assume CUDA, TensorRT, Jetson, Orin, ARM64,
+or NVIDIA JetPack. CPU PyTorch is the default model runtime; ONNX
+Runtime CPU or OpenVINO may be added later if benchmarks justify it.
+TensorRT remains only an optional artifact format for a separate Orin
+accelerator profile.
+
+The AMAX Edge role is supervisory: package validation, local dPHM-PINN
+inference, safety/capability gate checks, read-only telemetry handling,
+audit buffering, and later bounded setpoint proposals only after an
+explicit safety gate. The site PLC / pump-station PLC remains the
+deterministic final authority for VFD and pump control.
 
 ## Component 2: AI / Optimization Server
 
@@ -195,7 +220,7 @@ The Shared Contracts / SDK is a non-deployable package used by all three deploya
                                | read-only APIs, manifests
                                |
 +------------------------------|--------------------------------+
-|                  Edge / Industrial Gateway                    |
+|         Edge / AMAX-5580 Industrial Controller                 |
 |                                                               |
 |  +---------------------------------------------------------+  |
 |  | Edge Runtime                                             |  |
@@ -207,7 +232,19 @@ The Shared Contracts / SDK is a non-deployable package used by all three deploya
 |  | - capability gates                                      |  |
 |  +---------------------------------------------------------+  |
 |                                                               |
-|  No live OT binding. No writes. No commands. No setpoints.    |
+|  No live OT binding by default. No writes. No commands.       |
+|  No setpoints.                                                |
++------------------------------|--------------------------------+
+                               |
+                               | read-only telemetry initially;
+                               | bounded proposals only after
+                               | explicit safety approval
+                               |
++------------------------------|--------------------------------+
+|              Site PLC / Pump Station PLC                      |
+|  - VFD / pump / actuator control                              |
+|  - interlocks, permissives, trips, fallback/manual mode        |
+|  - final deterministic actuator authority                     |
 +---------------------------------------------------------------+
 ```
 
