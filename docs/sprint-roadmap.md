@@ -284,6 +284,79 @@ Boundary (reaffirmed):
 - no inline model weights, no filesystem writes outside tests, no
   runtime loading of model artifacts.
 
+## Sprint 45 — AMAX-5580 Edge Package Validator / Capability Profile
+
+Promotes the **Advantech AMAX-5580** (or equivalent x86_64 PAC-class
+industrial controller) to the primary Edge target and ships the
+deny-by-default SDK Edge package validator that consumes a Sprint 44
+`DeploymentPackageManifest`. The Jetson / Orin / TensorRT path stays
+as an optional accelerator profile only — it is not the default Edge
+deployment path. Sprint 45 does not introduce Edge Runtime daemon
+code, model loading, live OT integration, or any new HTTP / database /
+message-broker dependency. The validator is a pure value function
+over Sprint 41–44 SDK contract shapes.
+
+Shipped in Sprint 45 (under `src/aquaoptima_contracts/edge/`):
+
+- `EdgeHardwareProfile` — frozen hardware / runtime capability
+  metadata (`profile_id`, `vendor`, `model`, `architecture`,
+  `os_family`, `runtime_class`, `accelerators`,
+  `supported_model_frameworks`, `python_versions`, audit-only
+  `notes`). The canonical `amax_5580_cpu_profile()` helper returns
+  the x86_64 / Linux / `industrial_pac` profile with CPU-first
+  framework support (`audit_only`, `onnx`, `pytorch`, `tflite`) and
+  no CUDA / TensorRT / Jetson / Orin acceleration.
+- `EDGE_RUNTIME_CLASSES` (`industrial_pac` / `edge_x86_generic` /
+  `edge_gpu_optional`) and the `EDGE_REJECTED_ACCELERATOR_TOKENS`
+  denylist (`aarch64`, `arm64`, `cuda`, `jetson`, `orin`,
+  `tensorrt`) the AMAX default validator refuses by default.
+- `EdgeCapabilityDeclaration` — pairs a Sprint 41
+  `CapabilityDeclaration` with an `EdgeHardwareProfile`. Ships
+  `default_amax_edge_capability_declaration()` for the canonical
+  package-validation-only declaration
+  (`load_signed_or_hashed_package`, `validate_manifest`,
+  `validate_checksums`, `validate_schema_versions`,
+  `validate_safety_flags`, `validate_tag_map`) plus audit-only notes
+  recording the non-negotiable safety boundary.
+- `EdgePackageValidationResult` — deterministic
+  `accepted` / `errors` / `warnings` bundle with optional
+  `profile_id`, `package_id`, `missing_capabilities`,
+  `rejected_accelerator_tokens`, and `rejected_frameworks` evidence.
+- `validate_deployment_package_for_edge(manifest, edge)` — pure
+  value function. Deny-by-default checks: capability gate
+  (manifest- and model-artifact-level requirements merged together);
+  AMAX accelerator-token denylist scan over notes, descriptions, and
+  summaries; model framework compatibility against the profile's
+  `supported_model_frameworks`; per-artifact architecture summary
+  sanity. Accelerator-aware profiles can opt-in to specific
+  accelerators by adding them to `EdgeHardwareProfile.accelerators`,
+  which downgrades the corresponding denylist hits from errors to
+  warnings.
+
+The non-negotiable boundary stays explicit:
+
+- AMAX-5580 is the primary Edge target; Orin / TensorRT is an
+  optional accelerator profile only;
+- the site PLC / pump-station PLC remains the direct VFD / pump /
+  actuator authority;
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge;
+- no bypass of site PLC interlocks, permissives, trips, manual mode,
+  or emergency stop;
+- no HTTP / database / message-broker code, no Edge Runtime daemon
+  / service implementation, no AI / Optimization Server runtime,
+  no Operations Console runtime;
+- no CUDA / TensorRT runtime dependency, no model loading, no
+  inline model weights;
+- no Phase 1 `aquaoptima.*` import path removals or renames;
+- no movement of `evaluate_advisory_proposals`,
+  `run_shadow_runtime`, EPANET `.inp` import, or `Network` into the
+  SDK.
+
 ## Sprint 45+ — AMAX-5580 primary Edge target plan
 
 The primary Edge hardware target for Sprint 45+ is now the
