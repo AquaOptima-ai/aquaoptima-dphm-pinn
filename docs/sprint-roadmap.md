@@ -137,3 +137,36 @@ runtime surface. The non-negotiable boundary holds: no live OT
 binding, no PLC/PAC/SCADA write, no command emission, no setpoint
 output, no control-loop closure. Plan:
 [`docs/product/sprint41-shared-contracts-sdk-plan.md`](product/sprint41-shared-contracts-sdk-plan.md).
+
+## Sprint 42 — First SDK Schema Projections
+
+First batch of contract *shape* projections from the Phase 1 runtime
+artifacts into the Shared Contracts / SDK package. Sprint 42 keeps
+every Phase 1 `aquaoptima.*` import path, runtime module, and on-disk
+fixture intact; it only adds SDK-side projections downstream
+deployables can read without depending on the runtime.
+
+Shipped in Sprint 42:
+
+- Envelope / identity additions: `Checksum`, `Provenance`, extended
+  `ArtifactReference` (now carries optional `checksum` and `uri`).
+- Telemetry projections: `TelemetryAxis` (canonical axis vocabulary),
+  `UnitSpec` (canonical unit / dimension), `TelemetryTagSpec`,
+  `TelemetryTagMap`, `TelemetryTagMapDiagnostics`. Phase 1 fixture
+  adapter: `project_phase1_tag_map_document`.
+- Shadow replay projections: `ShadowReplayFrame`,
+  `ShadowReplayDataset`, `ShadowReplayDiagnostics`. Phase 1 CSV body
+  adapter: `project_phase1_replay_csv_text` (read-only audit only;
+  the Phase 1 runtime keeps `load_shadow_replay_csv`).
+- Manifest projections: `ShadowDeploymentArtifact`,
+  `ShadowDeploymentManifest`, `ShadowDeploymentPackageDiagnostics`.
+- Runtime report projections: `ShadowRuntimeStepReport`,
+  `ShadowRuntimeReport`, `ShadowRuntimeDiagnostics`.
+
+Out of scope: no advisory rule body, no calibration loss report
+projection (deferred to Sprint 43 with the stretch scope), no live
+OT binding, no PLC/PAC/SCADA write, no command emission, no setpoint
+output, no control-loop closure, no HTTP / database / message-broker
+code, no migration / removal / rename of Phase 1 import paths, no
+movement of `evaluate_advisory_proposals`, `run_shadow_runtime`, or
+EPANET `.inp` import into the SDK.
