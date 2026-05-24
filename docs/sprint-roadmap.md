@@ -170,3 +170,56 @@ output, no control-loop closure, no HTTP / database / message-broker
 code, no migration / removal / rename of Phase 1 import paths, no
 movement of `evaluate_advisory_proposals`, `run_shadow_runtime`, or
 EPANET `.inp` import into the SDK.
+
+## Sprint 43 — Calibration / Advisory / Import Quality SDK Projections
+
+Closes the first-batch SDK projection list named in
+`docs/architecture/contracts-inventory.md`. Sprint 43 lifts the
+remaining Phase 1 read-only artifacts into SDK schemas without
+changing AI / Edge runtime behavior, without moving any runtime
+evaluator, and without introducing any new HTTP / database /
+message-broker code.
+
+Shipped in Sprint 43:
+
+- dPL calibration projections: `DPLResidual`,
+  `CalibrationLossSummary`, `DPLCalibrationDiagnostics`,
+  `DPLCalibrationLossReport`. Phase 1 duck-typed adapter:
+  `project_phase1_dpl_calibration_loss_report` — projects a Phase 1
+  `aquaoptima.dphm.dpl_calibration.DPLCalibrationLossReport` into the
+  SDK shape without importing `aquaoptima.*` from inside SDK package
+  code.
+- Advisory projections (audit-only): `AdvisoryRule`,
+  `AdvisoryContract`, `AdvisoryProposal`, `AdvisoryDecision`,
+  `AdvisoryEvaluation`, `AdvisoryRejectionReason`, plus the canonical
+  rejection vocabulary
+  (`out_of_bounds`, `delta_exceeded`, `deny_rule_match`,
+  `no_allow_rule_match`, `insufficient_evidence`,
+  `axis_loss_exceeded`, `malformed_proposal`). Phase 1 duck-typed
+  adapter: `project_phase1_advisory_decisions`.
+- EPANET import-quality projections (Console-facing):
+  `ImportQualitySeverity`, `TopologyReference`,
+  `EpanetImportQualitySectionReport`,
+  `EpanetImportQualitySurrogateReport`,
+  `EpanetImportDiagnosticsRecord`, `EpanetImportQualityReport`.
+  Phase 1 duck-typed adapter:
+  `project_phase1_import_quality_report`.
+
+Boundary (reaffirmed):
+
+- no live OT binding;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no HTTP / database / message-broker code;
+- no AI / Optimization Server runtime, no Edge Runtime, no
+  Operations Console runtime;
+- no migration / removal / rename of Phase 1 `aquaoptima.*` import
+  paths;
+- no movement of `evaluate_advisory_proposals`,
+  `run_shadow_runtime`, or EPANET `.inp` import into the SDK.
+
+The SDK advisory module is **audit only**. The advisory dataclasses
+deliberately omit any actuation-shaped field; the decision status
+vocabulary is restricted to `accepted` / `rejected`.
