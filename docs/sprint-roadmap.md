@@ -91,3 +91,49 @@ satisfies.
 Order is indicative, not contractual. If a customer engagement makes
 EPANET validation higher priority than calibration, swap them. Do not
 swap *anything* in front of the write-path safety boundary.
+
+## Sprint 40 — Phase 2 3+1 architecture planning gate
+
+Approval-gate sprint that locked in the **Edge Runtime / AI &
+Optimization Server / Operations Console + Shared Contracts / SDK**
+component split and the capability / safety vocabulary that every
+Phase 2+ sprint must reuse. No runtime code changed. Planning
+artifacts:
+
+- [`docs/product/sprint40-3plus1-approval-gate.md`](product/sprint40-3plus1-approval-gate.md)
+- [`docs/architecture/contracts-inventory.md`](architecture/contracts-inventory.md)
+- [`docs/architecture/component-ownership-matrix.md`](architecture/component-ownership-matrix.md)
+- [`docs/architecture/phase1-api-to-component-map.md`](architecture/phase1-api-to-component-map.md)
+- [`docs/safety/capability-model-and-safety-gates.md`](safety/capability-model-and-safety-gates.md)
+
+## Sprint 41 — Shared Contracts / SDK MVP
+
+First implementation sprint after the Sprint 40 approval gate. Ships
+the in-tree Python package `aquaoptima_contracts` (under `src/`) with:
+
+- `SchemaVersion` SemVer triple, parse / render / same-major reader
+  compatibility;
+- `ContractEnvelope` frozen schema metadata wrapper with the eleven
+  allowed schema families;
+- `SafetyFlagSet` with the canonical seven-token list and
+  unknown / forbidden / false-value rejection;
+- `CapabilityDeclaration`, `CapabilityRequirement`, and the
+  deny-by-default `evaluate_capability_gate` helper;
+- the forbidden-vocabulary denylist plus a grep-style scan test that
+  fails the build on any leak outside the canonical module;
+- deterministic JSON helpers (`dump_canonical_json`,
+  `load_canonical_json`, `write_canonical_json`) that match the Phase
+  1 manifest writer byte-for-byte;
+- a golden-fixture round-trip harness (`assert_golden_roundtrip`);
+- Phase 1 fixtures copied (not moved) under
+  `src/aquaoptima_contracts/fixtures/phase1_shadow/` with a byte-
+  equality test against the originals;
+- a representative SDK manifest snapshot covering the envelope /
+  safety / capability subset only.
+
+The SDK is stdlib-only, has no HTTP / database / message-broker
+code, never imports `aquaoptima.*`, and adds no Edge / AI / Console
+runtime surface. The non-negotiable boundary holds: no live OT
+binding, no PLC/PAC/SCADA write, no command emission, no setpoint
+output, no control-loop closure. Plan:
+[`docs/product/sprint41-shared-contracts-sdk-plan.md`](product/sprint41-shared-contracts-sdk-plan.md).

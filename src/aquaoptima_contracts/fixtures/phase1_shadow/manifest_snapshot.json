@@ -1,0 +1,38 @@
+{
+  "capability_declaration": {
+    "component": "edge_runtime",
+    "declared": [
+      "evaluate_advisory_contract",
+      "load_signed_or_hashed_package",
+      "produce_shadow_runtime_report",
+      "run_mock_read",
+      "run_shadow_replay",
+      "serve_read_only_status",
+      "upload_audit_event",
+      "upload_health_report",
+      "validate_checksums",
+      "validate_manifest",
+      "validate_safety_flags",
+      "validate_schema_versions",
+      "validate_tag_map"
+    ],
+    "sdk_version": "0.1.0"
+  },
+  "envelope": {
+    "created_by_component": "sdk",
+    "schema_family": "manifest",
+    "schema_name": "Phase1ShadowDeploymentManifestSnapshot",
+    "schema_version": "1.0.0",
+    "sdk_version": "0.1.0"
+  },
+  "note": "Phase 1 offline shadow-mode validation checkpoint. Packaging / audit-evidence bundle only. No live OT binding. No PLC/PAC/SCADA write. No command emission. No setpoint output. No control-loop closure.",
+  "safety_flag_set": {
+    "no_control": true,
+    "no_live_ot_binding": true,
+    "no_setpoint_output": true,
+    "no_write": true,
+    "offline": true,
+    "packaging_audit_only": true,
+    "read_only": true
+  }
+}
