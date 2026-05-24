@@ -16,7 +16,7 @@ Quantified external context: the US EPA notes that drinking water and wastewater
 
 The product story is:
 
-1. **MVP v1 solves the immediate business problem**: optimize a large WTP / transmission pump station that usually has one source boundary and one to three outlet trunks. MVP v1 is not only regression + MPC; it also includes the first version of **Multi-Goal PID**, the deterministic rule/priority layer that balances pressure, flow, efficiency, wear, ramping, and operator safety constraints.
+1. **MVP v1 solves the immediate business problem**: optimize a large WTP / transmission pump station that usually has one source boundary and one to three outlet trunks. MVP v1 is not only regression + MPC; it also includes the first version of **Multi-Goal PID**, the deterministic multi-objective control layer described in the patent disclosure: data acquisition, pump-combination/demand modelling, real-time control, controller/platform exception handling, and operator monitoring.
 2. **dPHM makes MVP v1 more trustworthy when needed**: it is the lightweight hydraulic digital-twin core. It checks whether recommendations are physically plausible, calibrates site-specific pump / pipe behaviour, and explains residuals when telemetry disagrees with the model.
 3. **dPHM-PINN expands the product from station optimization to network intelligence**: it uses the hydraulic digital twin plus learning from telemetry to estimate unmeasured states, improve demand forecasting, and support more complex sites with multiple stations, branches, tanks, sparse sensors, or looped zones.
 
@@ -76,22 +76,25 @@ Rule of thumb:
 The current process is a pump-operation decision loop:
 
 ```text
-historical station telemetry
+100 Data acquisition: live pressure / flow / power / pump state
         |
         v
-learn pump HQ / efficiency behaviour
+200 Pump-combination & demand modelling:
+    HQ/efficiency regression, BEP table, demand targets
         |
         v
-estimate default demand / target pressure / target volume
+700 Operator target / override input
         |
         v
-operator reviews or adjusts target
+500 Nominal control:
+    MPC searches pump combinations and VFD schedules
         |
         v
-MPC searches candidate pump / VFD schedules
+Multi-Goal PID priority cascade resolves tradeoffs
         |
         v
-Multi-Goal PID resolves priorities and safety constraints
+400/600 Exception handling:
+    hold, latch, alarm, or resume safely
         |
         v
 station meets pressure + flow goals with better total efficiency
@@ -161,7 +164,7 @@ For current transmission / Satellite WTP outlet pilots:
 
 - MVP v1 is the most direct product fit.
 - If MVP v1 is already trusted and physically realistic at an existing site, dPHM is **not mandatory** for immediate value.
-- dPHM becomes useful for long-term maintenance, curve drift detection, onboarding new sites, validating questionable telemetry, and defending recommendations with physics evidence.
+- dPHM becomes useful for long-term maintenance, curve drift detection, onboarding new sites, validating questionable telemetry, and defending recommendations with physics evidence. Multi-Goal PID already supplies deterministic control trust; dPHM supplies hydraulic-physics trust when the site needs it.
 - dPHM-PINN is useful as a shadow intelligence layer, especially for demand forecasting, residual detection, and future network expansion.
 
 Do not overclaim that dPHM-PINN optimizes the full supply-zone network when AquaOptima only sees the WTP outlet. The honest claim is:
@@ -185,42 +188,58 @@ This table lists the product modules without turning the brief into a technical 
 | Pump performance model | HQ curve + efficiency curve regression | Physics-constrained pump head validation / calibration | Learns pump-performance drift patterns if enough history exists |
 | Demand handling | Statistical demand defaults; operator-adjustable targets | Feasibility check for assumed demand against hydraulic boundaries | Temporal/spatial demand forecast using topology + telemetry windows |
 | Optimizer | MPC searches pump/VFD schedules | dPHM can act as feasibility checker or plant-model component | Uses forecasts / inferred states to improve optimization context |
-| Multi-Goal PID / policy layer | Deterministic priority layer for pressure, flow, efficiency, wear, ramping, safety, override | dPHM evidence can inform whether a candidate violates physics | dPHM-PINN evidence can inform future network-aware priorities |
+| Multi-Goal PID / policy layer | Dynamic multi-objective controller: priority cascade, pump switching, bounded ramping, exception ladder, operator audit | dPHM evidence can inform whether a candidate violates physics or telemetry is inconsistent | dPHM-PINN evidence can inform future network-aware priorities |
 | Safety / operator trust | Familiar targets, operator override, existing PLC remains authority | Physics residuals explain why a recommendation is plausible or suspicious | Shadow first; explanations must be simplified because ML is harder to trust |
-| Diagnostics | Basic performance and target tracking | Sensor/unit/curve drift, hydraulic inconsistency, anomaly residuals | Virtual-node / forecast disagreement and network-level anomaly clues |
+| Diagnostics | Telemetry validity, demand validity, switch timeout, fail/compromise flags, alarms and dashboard logs | Sensor/unit/curve drift, hydraulic inconsistency, anomaly residuals | Virtual-node / forecast disagreement and network-level anomaly clues |
 | Best business role | First-pilot ROI and adoption | Trust, maintainability, new-site repeatability | Scale from station product to network intelligence |
 
 ### Multi-Goal PID: where it fits
 
-Multi-Goal PID is part of MVP v1, not a replacement for MPC, dPHM, or dPHM-PINN.
+Multi-Goal PID is part of MVP v1, not a replacement for MPC, dPHM, or dPHM-PINN. In the uploaded patent disclosure, it is broader than a simple PID loop: it is a **dynamic multi-objective multi-pump control architecture** with modelling, switching, exception handling, and operator supervision.
 
 Product interpretation:
 
-> MPC searches for a good operating schedule; Multi-Goal PID is the deterministic policy layer that resolves goal conflicts and keeps the recommendation operator-safe and explainable.
+> MVP v1 decides how to run the station. MPC searches for feasible pump combinations and VFD schedules. Multi-Goal PID is the deterministic real-time control and policy layer that resolves goal conflicts, ramps safely, handles exceptions, and keeps recommendations operator-safe and explainable.
 
-The first version should focus on a small number of explicit, auditable goals:
+Patent-disclosure module map:
+
+| Patent block | Product meaning | PO interpretation |
+|---|---|---|
+| 100 Data Acquisition & Processing | Cleans, validates, aligns, normalizes, and archives telemetry | Makes control decisions depend on usable data, not raw noisy tags. |
+| 200 Pump Combination & Demand Modelling | Builds pump performance/BEP tables, demand targets, and feasible combination matrices | Converts history + pump knowledge into lookup/reference intelligence for control. |
+| 300 Real-time Control | Tracks state, setpoints, counters, alarms, operator input, and health every cycle | The real-time brain that decides whether control can proceed. |
+| 400 Controller Exception Handling | Prioritized alarm/warning ladder with latching and confirmation dwell | Prevents unsafe automation during manual override, bad demand, bad sensors, extreme data, or switching failures. |
+| 500 Nominal Control Operation | Selects better pump combination, switches/ramp pumps over multiple cycles, adjusts head/flow/efficiency | The main optimization loop for pressure, flow, BEP/efficiency, and smooth transitions. |
+| 600 Platform Exception Handling | Aggregates hardware/network/telemetry/model/controller faults | Keeps platform-level faults visible and prevents hidden dependency failures. |
+| 700 Operator Monitoring & Interface | Dashboard, manual intervention, alarm acknowledgement, audit trail | Makes the product supervisable and acceptable for conservative plant operations. |
+
+The first version should focus on explicit, auditable goals:
 
 | Goal family | Why the operator cares | Example metric / constraint |
 |---|---|---|
-| Pressure minimum | Avoid service failure | discharge pressure >= operator minimum |
-| Pressure maximum | Avoid bursts/leakage/excess stress | discharge pressure <= site maximum |
-| Flow / volume delivery | Meet WTP / zone supply mission | delivered volume vs target schedule |
-| Energy efficiency | Reduce kWh/m3 and inefficient pump combinations | total station efficiency, BEP-band runtime |
-| Pump wear protection | Avoid unnecessary starts, bad speed ranges, excessive cycling | max starts/hour, speed/ramp limits |
-| Smoothness / surge avoidance | Avoid rapid changes that operators distrust or that stress assets | pressure/speed rate-of-change limit |
-| Manual override / safety | Preserve existing operating authority | operator override, PLC permissives, no write without approval |
+| Pressure / head minimum | Avoid service failure | measured head >= target minimum |
+| Pressure / head maximum | Avoid bursts/leakage/excess stress | measured head <= site maximum |
+| Flow / volume delivery | Meet WTP / zone supply mission | delivered volume vs target schedule; flow within allowed band |
+| Energy efficiency | Reduce kWh/m3 and inefficient pump combinations | total station efficiency, BEP-band runtime, predicted energy per candidate combination |
+| Pump combination switching | Avoid disruptive start/stop behavior | multi-cycle start/confirm/stop/ramp sequence; switch timeout alarm |
+| Pump wear protection | Avoid unnecessary starts, bad speed ranges, excessive cycling | max starts/hour, runtime balancing, maintenance flags, min/max frequency |
+| Smoothness / surge avoidance | Avoid rapid changes that operators distrust or that stress assets | pressure/speed rate-of-change limit; bounded Hz-per-cycle ramps |
+| Manual override / safety | Preserve existing operating authority | manual override suspends optimization; existing PLC authority remains protected |
+| Exception/fault recovery | Maintain safe operation under bad data or equipment faults | latching, confirmation dwell, fail flag, compromise flag, alarm escalation |
 
 Business value:
 
-- It makes MVP v1 more sellable to conservative operators because recommendations are not a black box.
-- It creates an audit trail: when goals conflict, the system can say why pressure safety beat energy efficiency, or why a BEP target was relaxed.
-- It is a natural place to encode site-specific operating policy before any advanced AI model is trusted.
+- It makes MVP v1 more sellable to conservative operators because recommendations are deterministic and auditable, not a black box.
+- It creates a clear conflict-resolution story: default priority can be head -> flow -> efficiency, but the priority cascade can be reconfigured for site requirements.
+- It supports scalable pump inventory: adding/removing pumps should update performance tables and the combination matrix rather than require controller code changes.
+- It reduces operational risk through multi-cycle switching, bounded frequency ramps, latching alarms, dwell confirmation, and operator dashboards.
+- It creates patentable product differentiation separate from dPHM-PINN: the neural model is not required for the Multi-Goal PID value proposition.
 
 Relationship to dPHM / dPHM-PINN:
 
-- **Without dPHM:** Multi-Goal PID can still use measured pressure/flow/power and configured limits.
-- **With dPHM:** PID decisions can include physics-feasibility evidence and residual warnings.
-- **With dPHM-PINN:** future PID/advisory logic can include forecasted demand and inferred network-state risk, but only after shadow validation.
+- **Without dPHM:** Multi-Goal PID can still use measured pressure/flow/power, regression models, BEP tables, demand targets, and configured limits.
+- **With dPHM:** PID decisions can include physics-feasibility evidence, residual warnings, and better confidence in pump/pipe assumptions.
+- **With dPHM-PINN:** future PID/advisory logic can include forecasted demand, inferred network-state risk, and sparse-sensor network context after shadow validation.
 
 ### Requirement level comparison
 
@@ -229,7 +248,7 @@ These are planning ranges, not hard product gates. They should be refined after 
 | Requirement | MVP v1 | dPHM-only | dPHM-PINN |
 |---|---|---|---|
 | Site topology | Station schematic, pump list, inlet/outlet points | Station + simple hydraulic topology: tanks/reservoirs, pipes/headers, pumps, 1-3 outlets if relevant | Network graph with nodes/edges; EPANET/GIS/P&ID strongly preferred |
-| Telemetry minimum | Discharge pressure, outlet flow, pump status/speed; power preferred; operator target/override logs for Multi-Goal PID tuning | Same as MVP v1 plus enough boundary data to validate residuals | Multi-axis telemetry over time: pressure/flow/pump states, preferably across multiple nodes/edges |
+| Telemetry minimum | Discharge pressure, outlet flow, pump status/speed; power preferred; operator target/override logs, alarms, confirmation counters, switch events for Multi-Goal PID tuning | Same as MVP v1 plus enough boundary data to validate residuals | Multi-axis telemetry over time: pressure/flow/pump states, preferably across multiple nodes/edges |
 | Historical data to start | 2-4 weeks can support first defaults; 8-12+ weeks better for daily/weekly patterns | Same or less for feasibility; 4-8+ weeks better for calibration/drift | 8-12+ weeks minimum for useful learning; 3-12 months better for seasonality and robust forecasting |
 | Server / compute | Ordinary industrial PC or small server for optimization; edge can be CPU-first | CPU-first is usually enough for steady-state solves and calibration reports | Training/retraining wants GPU or stronger server; edge inference should remain bounded/read-only first |
 | Site complexity justified | 1 source, 1-3 outlets, station boundary control | MVP sites needing validation, diagnostics, commissioning, or maintenance drift evidence | District/zone, sparse sensors, multiple stations, tanks/branches/loops |
