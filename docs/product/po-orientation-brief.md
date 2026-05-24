@@ -171,6 +171,30 @@ Do not overclaim that dPHM-PINN optimizes the full supply-zone network when Aqua
 
 > We optimize station operation against measured boundary conditions and aggregate demand. dPHM / dPHM-PINN provide physically grounded validation and a path toward network-aware optimization as topology and telemetry expand.
 
+### Q5. If dPHM is a better physics model, why not use it by default for every new and existing site?
+
+Because **better physics model** does not automatically mean **better first product layer**. MVP v1 and dPHM solve different jobs:
+
+- MVP v1 + Multi-Goal PID is the fastest way to make a station run better using the control data operators already understand: pressure, flow, pump speed, power, BEP, alarms, and overrides.
+- dPHM is better when the product needs a hydraulic-physics explanation: feasibility residuals, calibration, drift diagnosis, or confidence under uncertain topology/meters/units.
+- If topology is weak or the site is already trusted, forcing dPHM can add modelling effort, assumptions, and validation burden without improving the operator outcome.
+
+Default recommendation:
+
+| Situation | Recommended default | Why |
+|---|---|---|
+| New simple transmission / WTP outlet site | Deploy MVP v1, collect dPHM-ready topology/telemetry, run dPHM in offline/shadow only if mini-model inputs are available | Fastest value while keeping future physics path open. |
+| New site with uncertain curves/meters/units that affect trust | MVP v1 + dPHM-only validation/calibration from the start | dPHM reduces commissioning and false-confidence risk. |
+| Existing site where MVP v1 is working and trusted | Do not replace immediately; add dPHM only as maintenance/drift/audit layer if there is a pain point | Avoid disrupting a working product without measurable upside. |
+| Existing site with unexplained performance drift or disputed savings | Add dPHM diagnostic layer | Physics evidence can separate pump degradation, sensor error, topology assumption, or demand change. |
+| Complex network / multi-station / sparse sensors | Plan dPHM first and dPHM-PINN shadow path | Station-only control may miss network interactions. |
+
+Product rule:
+
+> Use dPHM by default as a **readiness standard** for new deployments — collect the topology and telemetry needed for it. Do not necessarily use dPHM by default as the **active control model** until it proves incremental value over MVP v1 + Multi-Goal PID for that site.
+
+This keeps the product practical: MVP v1 wins the site; dPHM earns its way in when it improves trust, diagnostics, repeatability, or long-term maintainability.
+
 ## 3. MVP v1 vs dPHM vs dPHM-PINN
 
 | Layer | Product-manager description | Inputs | Outputs | Business outcome | Best current use |
