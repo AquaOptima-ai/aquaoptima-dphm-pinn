@@ -155,6 +155,7 @@ def generate_physics_consistent_telemetry(
     solver_max_iterations: int = 200,
     solver_tol: float = 1e-9,
     dtype: torch.dtype = torch.float64,
+    jacobian_mode: str = "autograd",
 ) -> TelemetrySeries:
     """Generate a physics-consistent ``num_steps``-long telemetry series.
 
@@ -203,6 +204,12 @@ def generate_physics_consistent_telemetry(
         Working precision used inside the per-step solve. The returned
         tensors are cast to the default torch dtype so they slot into
         the existing dataset / model pipeline without a type mismatch.
+    jacobian_mode
+        Forwarded to :func:`newton_solve`. Defaults to ``"autograd"``
+        (the Sprint 1-8 behaviour) so existing callers see no change.
+        Sprint 9's ``"analytic"`` Jacobian is materially faster on the
+        larger O(100)-node grid fixtures used by Sprint 10 and produces
+        bit-equivalent telemetry within solver tolerance.
     """
     if num_steps <= 0:
         raise ValueError(f"num_steps must be positive, got {num_steps}")
@@ -255,6 +262,7 @@ def generate_physics_consistent_telemetry(
             max_iterations=solver_max_iterations,
             tol=solver_tol,
             dtype=dtype,
+            jacobian_mode=jacobian_mode,
         )
         if not result.converged:
             raise RuntimeError(

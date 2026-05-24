@@ -216,3 +216,62 @@ def test_masked_supervised_loss_shape_mismatch_still_raises() -> None:
             torch.zeros(2, 3), torch.zeros(2, 4),
             torch.ones(2, 3, dtype=torch.bool),
         )
+
+
+# ---------------------------------------------------------------------------
+# Sprint 7 — physics_residual_loss now uses vectorized batched assembly
+# ---------------------------------------------------------------------------
+
+
+def test_physics_residual_loss_batched_uses_vectorized_helper(monkeypatch) -> None:
+    """The batched path must call ``assemble_residuals_batched`` exactly
+    once (no Python loop over the batch axis).
+    """
+    import aquaoptima.models.losses as losses_mod
+    from aquaoptima.dphm.solver import assemble_residuals_batched
+
+    net = make_branch_network()
+    B = 4
+    heads = torch.randn(B, net.num_nodes) * 0.1 + 100.0
+    flows = torch.randn(B, net.num_edges) * 0.01 + 0.05
+
+    call_count = {"batched": 0, "unbatched": 0}
+
+    real_batched = assemble_residuals_batched
+
+    def counting_batched(network, h, f):
+        call_count["batched"] += 1
+        return real_batched(network, h, f)
+
+    def counting_unbatched(*args, **kwargs):
+        call_count["unbatched"] += 1
+        from aquaoptima.dphm.solver import assemble_residuals as real_unbatched
+        return real_unbatched(*args, **kwargs)
+
+    monkeypatch.setattr(losses_mod, "assemble_residuals_batched", counting_batched)
+    if hasattr(losses_mod, "assemble_residuals"):
+        monkeypatch.setattr(losses_mod, "assemble_residuals", counting_unbatched)
+
+    out = physics_residual_loss(net, heads, flows)
+    assert torch.isfinite(out)
+    assert call_count["batched"] == 1, (
+        f"expected exactly one batched call, got {call_count}"
+    )
+    assert call_count["unbatched"] == 0, (
+        f"batched path must not fall back into the unbatched loop; got {call_count}"
+    )
+
+
+def test_physics_residual_loss_batched_large_b_matches_stack() -> None:
+    """At B=16, the vectorized result must still match the stacked loop."""
+    net = make_branch_network()
+    torch.manual_seed(7)
+    B = 16
+    heads = torch.randn(B, net.num_nodes) * 0.1 + 100.0
+    flows = torch.randn(B, net.num_edges) * 0.01 + 0.05
+
+    loss_b = physics_residual_loss(net, heads, flows)
+    loss_sum = sum(
+        physics_residual_loss(net, heads[i], flows[i]) for i in range(B)
+    )
+    assert torch.isclose(loss_b, loss_sum, atol=1e-5, rtol=1e-5)

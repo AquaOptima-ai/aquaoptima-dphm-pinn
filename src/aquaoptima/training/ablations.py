@@ -24,6 +24,7 @@ compare runs without re-running training to recompute aggregates.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 import torch
@@ -33,6 +34,7 @@ from aquaoptima.dataio.telemetry import generate_physics_consistent_telemetry
 from aquaoptima.dphm import (
     Network,
     make_branch_network,
+    make_grid_network,
     make_pump_network,
     make_single_loop_network,
 )
@@ -44,23 +46,40 @@ from .train import TrainConfig, train_loop
 
 
 ABLATION_MODES = ("sensor_only", "sensor_plus_physics")
-FIXTURES = ("branch", "single_loop", "pump")
+FIXTURES = ("branch", "single_loop", "pump", "grid")
 DATA_KINDS = ("physics_consistent", "shape_only")
+
+
+# Sprint 8 default grid: 7 rows x 8 cols -> 56 nodes / 97 edges. Sits
+# inside the O(50-200) target range while keeping CPU runtime bounded.
+_GRID_DEFAULT_ROWS = 7
+_GRID_DEFAULT_COLS = 8
+
+
+def _make_grid_default() -> Network:
+    return make_grid_network(
+        rows=_GRID_DEFAULT_ROWS, cols=_GRID_DEFAULT_COLS, seed=0
+    )
 
 
 _FIXTURE_BUILDERS = {
     "branch": make_branch_network,
     "single_loop": make_single_loop_network,
     "pump": make_pump_network,
+    "grid": _make_grid_default,
 }
 
 # Per-fixture default sensor masks. We always observe the reservoir
 # (a SCADA pressure transducer is realistic there) plus one downstream
-# node so the supervised loss has a non-empty target set.
+# node so the supervised loss has a non-empty target set. For the grid
+# fixture we observe the reservoir corner, an interior node, and the
+# opposite corner so the supervised target spans the mesh.
+_GRID_DEFAULT_N = _GRID_DEFAULT_ROWS * _GRID_DEFAULT_COLS
 _FIXTURE_SENSOR_INDICES = {
     "branch": [0, 2],
     "single_loop": [0, 2],
     "pump": [0, 2],
+    "grid": [0, _GRID_DEFAULT_N // 2, _GRID_DEFAULT_N - 1],
 }
 
 
@@ -199,6 +218,7 @@ def run_ablation(
         batch_size=batch_size,
     )
 
+    t0 = time.perf_counter()
     metrics = train_loop(
         model=model,
         dataset=dataset,
@@ -207,6 +227,9 @@ def run_ablation(
         optimizer=optimizer,
         config=config,
     )
+    elapsed = time.perf_counter() - t0
+    metrics.elapsed_seconds = float(elapsed)
+    metrics.batch_size = int(batch_size)
 
     return {
         "mode": mode,

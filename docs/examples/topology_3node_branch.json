@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    {"id": "reservoir", "demand": -0.06, "fixed_head": true,
+     "head_value": 100.0, "elevation": 0.0},
+    {"id": "junction",  "demand":  0.02, "fixed_head": false},
+    {"id": "consumer",  "demand":  0.04, "fixed_head": false}
+  ],
+  "edges": [
+    {"id": "p0", "source": "reservoir", "target": "junction", "kind": "pipe",
+     "length": 200.0, "diameter": 0.20, "c_factor": 130.0},
+    {"id": "p1", "source": "junction",  "target": "consumer", "kind": "pipe",
+     "length": 180.0, "diameter": 0.18, "c_factor": 130.0}
+  ]
+}

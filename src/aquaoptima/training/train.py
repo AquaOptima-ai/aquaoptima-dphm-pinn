@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 
 from aquaoptima.dphm import Network
 from aquaoptima.models.losses import composite_loss
@@ -209,4 +209,87 @@ def train_loop(
     return metrics
 
 
-__all__ = ["TrainConfig", "collate_windows", "train_loop", "train_step"]
+def make_window_dataloader(
+    dataset: Dataset,
+    batch_size: int,
+    *,
+    shuffle: bool = False,
+    drop_last: bool = False,
+    num_workers: int = 0,
+) -> DataLoader:
+    """Wrap a window dataset in a :class:`DataLoader` that uses
+    :func:`collate_windows`.
+
+    The collate function is the same Sprint 6 helper used by
+    :func:`train_loop` — single-sample lists produce a ``B=1`` batched
+    layout, so callers can flip between batched and unbatched paths by
+    only changing ``batch_size``. ``shuffle`` defaults to ``False`` so
+    sequential passes over the dataset are reproducible; set it to
+    ``True`` for stochastic mini-batches.
+    """
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+    return DataLoader(
+        dataset,
+        batch_size=int(batch_size),
+        shuffle=bool(shuffle),
+        drop_last=bool(drop_last),
+        num_workers=int(num_workers),
+        collate_fn=collate_windows,
+    )
+
+
+def train_loop_dataloader(
+    *,
+    model: torch.nn.Module,
+    loader: DataLoader,
+    features: GraphFeatures,
+    network: Network,
+    optimizer: torch.optim.Optimizer,
+    config: TrainConfig,
+) -> TrainingMetrics:
+    """Run ``config.num_iterations`` :func:`train_step` calls using
+    batches drawn from ``loader``.
+
+    The loader is treated as a cyclic stream: when it is exhausted
+    mid-loop, a fresh iterator is created. This keeps the training
+    contract identical to :func:`train_loop` (the iteration count is
+    decoupled from the dataset length) while letting callers control
+    batching, shuffling, and worker concurrency via standard PyTorch
+    ``DataLoader`` knobs.
+    """
+    if config.num_iterations <= 0:
+        raise ValueError(
+            f"num_iterations must be positive, got {config.num_iterations}"
+        )
+
+    metrics = TrainingMetrics()
+    it = iter(loader)
+    for step in range(config.num_iterations):
+        try:
+            batch = next(it)
+        except StopIteration:
+            it = iter(loader)
+            batch = next(it)
+        record = train_step(
+            model=model,
+            batch=batch,
+            features=features,
+            network=network,
+            optimizer=optimizer,
+            lambda_data=config.lambda_data,
+            lambda_physics=config.lambda_physics,
+            step=step,
+        )
+        metrics.record(record)
+    return metrics
+
+
+__all__ = [
+    "TrainConfig",
+    "collate_windows",
+    "make_window_dataloader",
+    "train_loop",
+    "train_loop_dataloader",
+    "train_step",
+]

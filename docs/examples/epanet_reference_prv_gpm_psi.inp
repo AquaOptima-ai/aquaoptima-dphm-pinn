@@ -1,0 +1,53 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 17 — small reference EPANET .inp fixture
+that exercises [OPTIONS] Pressure under US-customary flow units.
+
+Four-node topology mirroring the Sprint 15 SI PRV reference fixture,
+but expressed in GPM/ft/in and with the PRV setting declared in PSI:
+
+    R1 (suction reservoir, fixed head 164 ft ~ 50 m)
+      |
+      +-- P1 (pipe 6562 ft ~ 2000 m, 3.15 in ~ 80 mm, C=130) --> J1 (elev 0)
+                                                |
+                                                +-- V1 (PRV setting 30 PSI, 3.15 in)
+                                                      |
+                                                      +-> J2 (elev 0; pinned by PRV)
+                                                            |
+                                                            +-- P2 (656 ft ~ 200 m, 3.15 in)
+                                                                  |
+                                                                  +-> J3 (32 GPM consumer ~ 2 L/s)
+
+The PRV setting 30 PSI is converted to ~21.09 m of water head via
+the Sprint 17 pressure-unit manifest, NOT via the flow-unit family's
+feet -> metres factor (which would give 30 ft -> 9.144 m). The
+fixture would silently solve to the wrong answer if the parser
+ignored [OPTIONS] Pressure.
+
+US-customary flow units (GPM), Hazen-Williams head loss. Solvable
+by aquaoptima.dphm.newton_solve with jacobian_mode="analytic".
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0    0.0      ;     ; upstream of PRV; no consumer
+ J2   0.0    0.0      ;     ; downstream of PRV (pinned to 30 psi by import)
+ J3   0.0   32.0      ;     ; 32 GPM consumer (~2 L/s)
+
+[RESERVOIRS]
+;ID   Head     Pattern
+ R1   164.0   ;          ; ~50 m of head, in feet
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   R1      J1      6562.0   3.15       130.0       0.0         OPEN
+ P2   J2      J3       656.0   3.15       130.0       0.0         OPEN
+
+[VALVES]
+;ID   Node1   Node2   Diameter   Type   Setting   MinorLoss
+ V1   J1      J2      3.15       PRV    30.0      0
+
+[OPTIONS]
+ Units                GPM
+ Headloss             H-W
+ Pressure             PSI
+
+[END]
