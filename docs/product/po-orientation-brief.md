@@ -6,6 +6,24 @@ This is the product-owner orientation document for AquaOptima's current pump-sta
 
 Use this document as a living Q&A ledger while Product, Kevin, Hunter, and engineering converge on the correct framing. Update it whenever a new product question changes the answer, and keep detailed formulas / API references in the linked engineering docs.
 
+## Product-manager summary
+
+AquaOptima should be explained as a **pump-station optimization product that grows into a lightweight digital twin**.
+
+The business problem is not "build a fancy AI model." The business problem is that water operators must reliably move treated water while managing pressure, flow, energy cost, pump wear, and operational risk. They often do this with incomplete downstream visibility, conservative rules, and aging pump curves. That creates wasted energy, inefficient pump combinations, avoidable wear, and limited confidence in new recommendations.
+
+The product story is:
+
+1. **MVP v1 solves the immediate business problem**: optimize a large WTP / transmission pump station that usually has one source boundary and one to three outlet trunks. The customer outcome is better pressure / flow / volume delivery with improved pump efficiency and operator control.
+2. **dPHM makes MVP v1 more trustworthy**: it is the lightweight hydraulic digital-twin core. It checks whether recommendations are physically plausible, calibrates site-specific pump / pipe behaviour, and explains residuals when telemetry disagrees with the model.
+3. **dPHM-PINN expands the product from station optimization to network intelligence**: it uses the hydraulic digital twin plus learning from telemetry to estimate unmeasured states, improve demand forecasting, and support more complex sites with multiple stations, branches, tanks, sparse sensors, or looped zones.
+
+Simple positioning:
+
+> **MVP v1 is the commercial wedge. dPHM is the trust layer. dPHM-PINN is the scaling layer.**
+
+This framing keeps the business value clear while avoiding overclaiming that the current pilot already controls or understands the entire downstream distribution network.
+
 ## 1. Short answer
 
 AquaOptima's current MVP v1 is best understood as **transmission-side pump-station optimization**:
@@ -83,9 +101,15 @@ Control goals:
 5. avoid unsafe or undesirable operating states;
 6. preserve operator override and existing PLC authority.
 
-### Q3. What kind of site is dPHM-PINN best designed for?
+### Q3. What kind of site is dPHM-PINN best designed for, and why?
 
-dPHM-PINN is strongest when **network topology matters** and the system has unobserved or sparsely observed hydraulic states.
+dPHM-PINN is strongest when the customer problem shifts from **"run this station efficiently"** to **"understand and optimize a partially observed hydraulic network."**
+
+The reason is business as much as technical:
+
+- In a simple one-outlet station, the operator mainly needs a reliable pressure / flow / energy decision. MVP v1 plus dPHM can usually handle that.
+- In a multi-node or multi-station network, the operator has hidden risks: unknown pressure at unmetered nodes, demand moving across branches, tanks interacting with pump schedules, and one station's action affecting another station. This is where a lightweight digital twin becomes commercially useful.
+- dPHM-PINN is designed for that harder environment: it combines topology, hydraulic constraints, and telemetry learning so AquaOptima can reason about places it does not directly measure.
 
 It fits better as the water network becomes more like this:
 
@@ -101,15 +125,25 @@ station A ---- trunk ---- zone node ---- loop ---- tank
         +----------- sparse sensors ------+
 ```
 
+Why this matters to the customer:
+
+| Site complexity | Operator pain | Why dPHM-PINN helps | Business outcome |
+|---|---|---|---|
+| One station, one outlet | Need efficient pump schedule | Usually not enough complexity to justify full dPHM-PINN | Use MVP v1 first; fastest ROI. |
+| One station, 2-3 outlets | Unsure how outlet branches affect pressure / flow | Physics layer can test branch feasibility; PINN may help if telemetry history exists | Fewer unsafe or inefficient recommendations. |
+| District / pressure zone with tanks and branches | Some pressures / demands are unknown | Learns temporal demand patterns and infers virtual states using topology | Better service confidence and pressure management. |
+| Multiple interacting stations / reservoirs | One station's action affects another | Captures network interactions that station-only MPC may miss | Better system-level energy and reliability decisions. |
+| Looped network with sparse sensors | Cannot observe every node | Uses physics residuals to constrain predictions at unmeasured locations | Lower instrumentation burden; better scalable deployment story. |
+
 Rule of thumb:
 
-| Site shape | dPHM-PINN fit | Why |
+| Site shape | dPHM-PINN fit | Product reason |
 |---|---:|---|
-| Single station, one outlet, no downstream topology | Low-medium | Full graph model may be overkill; dPHM is enough. |
-| Single station, 2-3 outlets, simple known downstream topology | Medium | Can validate branch feasibility and infer limited states. |
-| District / pressure zone with tanks, valves, branches, sparse sensors | High | Physics-informed state inference becomes valuable. |
-| Multiple interacting stations / reservoirs | Very high | Network interactions are hard for simple station MPC alone. |
-| Full looped distribution network with partial observability | Very high | GNN + physics residual has a clear reason to exist. |
+| Single station, one outlet, no downstream topology | Low-medium | Use dPHM as the lightweight digital twin; full graph learning may be overkill. |
+| Single station, 2-3 outlets, simple known downstream topology | Medium | Useful when branch tradeoffs affect customer pressure or energy. |
+| District / pressure zone with tanks, valves, branches, sparse sensors | High | Helps manage service risk without instrumenting every node. |
+| Multiple interacting stations / reservoirs | Very high | Moves AquaOptima from local station savings to system-level optimization. |
+| Full looped distribution network with partial observability | Very high | Strongest case for a physics-informed network model. |
 
 ### Q4. Does dPHM-PINN fit the sites AquaOptima is targeting now?
 
@@ -127,11 +161,11 @@ Do not overclaim that dPHM-PINN optimizes the full supply-zone network when Aqua
 
 ## 3. MVP v1 vs dPHM vs dPHM-PINN
 
-| Layer | What it is | Inputs | Outputs | Best current use |
-|---|---|---|---|---|
-| MVP v1 | Station-level optimization product | Station telemetry, pump curves, outlet pressure/flow, operator targets | Pump/VFD schedule or recommendation | Core pilot product for WTP / transmission pump station. |
-| dPHM | Differentiable pressurised hydraulic model | Topology, pipe/pump parameters, boundary conditions, candidate flows/heads | Physics residuals, feasibility, predicted hydraulic state, calibration loss | Improve MVP v1 with physics checks and calibration. |
-| dPHM-PINN | Physics-informed graph + temporal ML model | Topology, telemetry windows, sparse sensor observations | Forecasts, inferred states, physically regularized predictions | Shadow layer now; network intelligence layer later. |
+| Layer | Product-manager description | Inputs | Outputs | Business outcome | Best current use |
+|---|---|---|---|---|---|
+| MVP v1 | Station optimization product | Station telemetry, pump curves, outlet pressure/flow, operator targets | Pump/VFD schedule or recommendation | Fastest path to energy savings, pressure/flow reliability, and operator adoption at the first pilot | Core pilot product for WTP / transmission pump station. |
+| dPHM | Lightweight hydraulic digital-twin core | Topology, pipe/pump parameters, boundary conditions, candidate flows/heads | Physics residuals, feasibility, predicted hydraulic state, calibration loss | Higher trust: fewer unrealistic recommendations, better calibration, clearer explanations when telemetry looks wrong | Improve MVP v1 with physics checks and calibration. |
+| dPHM-PINN | Learning layer on top of the hydraulic digital twin | Topology, telemetry windows, sparse sensor observations | Forecasts, inferred states, physically regularized predictions | Scaling story: better forecasts and network insight without needing sensors at every node | Shadow layer now; network intelligence layer later. |
 
 ### Module comparison
 
@@ -143,6 +177,16 @@ Do not overclaim that dPHM-PINN optimizes the full supply-zone network when Aqua
 | Physical feasibility | Mostly constraints around station operating bounds | Strong: mass / energy / head-loss residuals | Stronger for sparse network state estimation. |
 | Explainability | High | High-medium; physics residuals are explainable | Medium; needs careful UI explanations. |
 | Direct control readiness | Highest, with safety gates | Useful as validator before control | Shadow first; do not use for direct control initially. |
+
+### Business outcome comparison
+
+| Business question | MVP v1 answer | dPHM answer | dPHM-PINN answer |
+|---|---|---|---|
+| How do we win the first pilot? | Show station-level energy / efficiency improvement while meeting pressure and flow targets. | Prove the optimizer is not making physically unrealistic recommendations. | Run in shadow to show future upside without increasing control risk. |
+| Why would an operator trust it? | Targets remain familiar: pressure, flow, volume, pump efficiency, override. | Residuals and feasibility checks explain *why* a recommendation is plausible or suspicious. | Provides richer insight, but needs careful UI because ML is harder to trust. |
+| What creates measurable ROI? | Lower kWh per volume delivered, better pump combination, fewer inefficient operating hours. | Better calibration prevents savings claims from being undermined by wrong curves or bad sensors. | Better forecasting and network inference can expand ROI to district / multi-station optimization. |
+| What reduces deployment friction? | Works with limited station-boundary telemetry. | Uses available topology / pump data to improve confidence without needing full downstream sensors. | Reduces long-term need to instrument every node, but needs more setup and validation. |
+| What is the risk? | May be too station-local for complex networks. | Physics model can be wrong if topology / units / assumptions are wrong. | Can be over-complex or hard to explain if introduced before customer trust is established. |
 
 ## 4. Can dPHM be used independently?
 
@@ -275,6 +319,8 @@ station A--+---- node 1 ---- node 2 ---- station B
 Here dPHM-PINN has a stronger reason to exist because the product needs to infer unmeasured states and learn temporal demand patterns across topology.
 
 ## 7. Product roadmap framing
+
+From a product strategy perspective, AquaOptima should not sell every layer at once. Start with a narrow wedge that creates measurable value, then add trust and network intelligence as the customer and data maturity increase.
 
 | Stage | Product framing | Technical layer | Customer-facing outcome |
 |---|---|---|---|
