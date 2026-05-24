@@ -23,6 +23,28 @@ from .base.envelope import (
 )
 from .base.identifiers import ArtifactReference
 from .base.provenance import ALLOWED_PROVENANCE_COMPONENTS, Provenance
+from .advisory import (
+    AdvisoryContract,
+    AdvisoryDecision,
+    AdvisoryEvaluation,
+    AdvisoryProposal,
+    AdvisoryRejectionReason,
+    AdvisoryRule,
+)
+from .calibration import (
+    CalibrationLossSummary,
+    DPLCalibrationDiagnostics,
+    DPLCalibrationLossReport,
+    DPLResidual,
+)
+from .import_quality import (
+    EpanetImportDiagnosticsRecord,
+    EpanetImportQualityReport,
+    EpanetImportQualitySectionReport,
+    EpanetImportQualitySurrogateReport,
+    ImportQualitySeverity,
+    TopologyReference,
+)
 from .manifest.shadow_deployment import (
     SDK_SHADOW_DEPLOYMENT_ARTIFACT_KINDS,
     ShadowDeploymentArtifact,
@@ -82,11 +104,18 @@ __all__ = [
     "ALLOWED_CREATED_BY_COMPONENTS",
     "ALLOWED_PROVENANCE_COMPONENTS",
     "ALLOWED_SCHEMA_FAMILIES",
+    "AdvisoryContract",
+    "AdvisoryDecision",
+    "AdvisoryEvaluation",
+    "AdvisoryProposal",
+    "AdvisoryRejectionReason",
+    "AdvisoryRule",
     "ArtifactReference",
     "CANONICAL_SAFETY_FLAG_TOKENS",
     "CANONICAL_TELEMETRY_AXES",
     "CANONICAL_TELEMETRY_ROLES",
     "CANONICAL_UNIT_DIMENSIONS",
+    "CalibrationLossSummary",
     "CapabilityDeclaration",
     "CapabilityGateResult",
     "CapabilityRequirement",
@@ -94,6 +123,15 @@ __all__ = [
     "Checksum",
     "ContractEnvelope",
     "ContractError",
+    "DPLCalibrationDiagnostics",
+    "DPLCalibrationLossReport",
+    "DPLResidual",
+    "EpanetImportDiagnosticsRecord",
+    "EpanetImportQualityReport",
+    "EpanetImportQualitySectionReport",
+    "EpanetImportQualitySurrogateReport",
+    "ImportQualitySeverity",
+    "TopologyReference",
     "FORBIDDEN_CAPABILITY_TOKENS",
     "FORBIDDEN_VOCABULARY",
     "Provenance",

@@ -121,13 +121,15 @@ add a convergence-assertion CI test that proves
 the physics lambda, batchify, generalise the ablation harness
 across fixtures. See [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md).
 
-## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 projections)
+## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 projections)
 
 The Shared Contracts / SDK package ships under
 `src/aquaoptima_contracts/` and exposes the cross-component vocabulary
 every Phase 2+ deployable depends on. Sprint 41 shipped the MVP
-foundation; Sprint 42 adds the first batch of contract *shape*
-projections from the Phase 1 runtime artifacts.
+foundation; Sprint 42 added the first batch of contract *shape*
+projections from the Phase 1 runtime artifacts; Sprint 43 closes the
+first-batch list with calibration, advisory, and EPANET
+import-quality projections.
 
 Sprint 41 MVP:
 
@@ -160,6 +162,28 @@ Sprint 42 additions:
   `ShadowDeploymentPackageDiagnostics` shape projections;
 - `ShadowRuntimeStepReport` / `ShadowRuntimeReport` /
   `ShadowRuntimeDiagnostics` shape projections.
+
+Sprint 43 additions:
+
+- `DPLResidual` / `CalibrationLossSummary` /
+  `DPLCalibrationDiagnostics` / `DPLCalibrationLossReport` —
+  dPL calibration loss shape projections, plus a duck-typed Phase 1
+  adapter (`project_phase1_dpl_calibration_loss_report`);
+- `AdvisoryRule` / `AdvisoryContract` / `AdvisoryProposal` /
+  `AdvisoryDecision` / `AdvisoryEvaluation` /
+  `AdvisoryRejectionReason` — audit-only advisory shape projections
+  with a canonical rejection vocabulary
+  (`out_of_bounds`, `delta_exceeded`, `deny_rule_match`,
+  `no_allow_rule_match`, `insufficient_evidence`,
+  `axis_loss_exceeded`, `malformed_proposal`) and a duck-typed
+  Phase 1 adapter (`project_phase1_advisory_decisions`);
+- `ImportQualitySeverity` / `TopologyReference` /
+  `EpanetImportQualitySectionReport` /
+  `EpanetImportQualitySurrogateReport` /
+  `EpanetImportDiagnosticsRecord` /
+  `EpanetImportQualityReport` — EPANET import-quality shape
+  projections (Console-facing), plus a duck-typed Phase 1 adapter
+  (`project_phase1_import_quality_report`).
 
 The SDK is stdlib-only at runtime and never imports any
 `aquaoptima.*` deployable module. It does not introduce live OT
