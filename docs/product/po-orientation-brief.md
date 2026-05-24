@@ -12,6 +12,8 @@ AquaOptima should be explained as a **pump-station optimization product that gro
 
 The business problem is not "build a fancy AI model." The business problem is that water operators must reliably move treated water while managing pressure, flow, energy cost, pump wear, and operational risk. They often do this with incomplete downstream visibility, conservative rules, and aging pump curves. That creates wasted energy, inefficient pump combinations, avoidable wear, and limited confidence in new recommendations.
 
+Quantified external context: the US EPA notes that drinking water and wastewater plants are often among municipal governments' largest energy consumers, drinking-water system energy can be as much as **40% of operating costs**, and energy-efficiency practices can save **15-30%** in some utility contexts. AquaOptima should treat these as market-context ranges, not field-proven product claims until pilot baselines verify them.
+
 The product story is:
 
 1. **MVP v1 solves the immediate business problem**: optimize a large WTP / transmission pump station that usually has one source boundary and one to three outlet trunks. The customer outcome is better pressure / flow / volume delivery with improved pump efficiency and operator control.
@@ -101,49 +103,48 @@ Control goals:
 5. avoid unsafe or undesirable operating states;
 6. preserve operator override and existing PLC authority.
 
-### Q3. What kind of site is dPHM-PINN best designed for, and why?
+### Q3. What kind of site needs MVP v1, dPHM-only, or dPHM-PINN, and why?
 
-dPHM-PINN is strongest when the customer problem shifts from **"run this station efficiently"** to **"understand and optimize a partially observed hydraulic network."**
-
-The reason is business as much as technical:
-
-- In a simple one-outlet station, the operator mainly needs a reliable pressure / flow / energy decision. MVP v1 plus dPHM can usually handle that.
-- In a multi-node or multi-station network, the operator has hidden risks: unknown pressure at unmetered nodes, demand moving across branches, tanks interacting with pump schedules, and one station's action affecting another station. This is where a lightweight digital twin becomes commercially useful.
-- dPHM-PINN is designed for that harder environment: it combines topology, hydraulic constraints, and telemetry learning so AquaOptima can reason about places it does not directly measure.
-
-It fits better as the water network becomes more like this:
+Do not force every site into dPHM-PINN. The right product layer depends on site complexity, trust needs, and data maturity.
 
 ```text
-reservoir / WTP / tank
-        |
-        v
-station A ---- trunk ---- zone node ---- loop ---- tank
-        |                   |             |
-        v                   v             v
-     branch 1            station B      demand area
-        |                                 |
-        +----------- sparse sensors ------+
+Simple / current pilot              Medium complexity                 Network-scale
+1 source -> pumps -> 1 outlet        1 source -> pumps -> 2-3 outlets   multi-station / looped zone
+        |                                      |                                  |
+        v                                      v                                  v
+     MVP v1                             MVP v1 + dPHM                       dPHM-PINN
+commercial wedge                         trust layer                         scaling layer
 ```
+
+The practical decision rule:
+
+- If the site is a simple WTP / transmission station and MVP v1 already gives physically realistic, trusted recommendations, **do not add dPHM just because it exists**.
+- Add **dPHM-only** when the business needs stronger trust, calibration, diagnostics, repeatability across new sites, or long-term maintenance evidence.
+- Add **dPHM-PINN** when the business problem becomes network intelligence: sparse sensors, multiple stations, branches, tanks, or unmeasured nodes.
 
 Why this matters to the customer:
 
-| Site complexity | Operator pain | Why dPHM-PINN helps | Business outcome |
-|---|---|---|---|
-| One station, one outlet | Need efficient pump schedule | Usually not enough complexity to justify full dPHM-PINN | Use MVP v1 first; fastest ROI. |
-| One station, 2-3 outlets | Unsure how outlet branches affect pressure / flow | Physics layer can test branch feasibility; PINN may help if telemetry history exists | Fewer unsafe or inefficient recommendations. |
-| District / pressure zone with tanks and branches | Some pressures / demands are unknown | Learns temporal demand patterns and infers virtual states using topology | Better service confidence and pressure management. |
-| Multiple interacting stations / reservoirs | One station's action affects another | Captures network interactions that station-only MPC may miss | Better system-level energy and reliability decisions. |
-| Looped network with sparse sensors | Cannot observe every node | Uses physics residuals to constrain predictions at unmeasured locations | Lower instrumentation burden; better scalable deployment story. |
+| Site / maturity | Operator pain | Best-fit layer | Why | Business outcome |
+|---|---|---|---|---|
+| One station, one outlet, good telemetry, MVP v1 trusted | Need efficient pump schedule | MVP v1 | Boundary control is enough; avoid unnecessary model complexity | Fastest ROI and simplest operator adoption. |
+| Existing site where MVP v1 is already trusted | Maintain performance over time | MVP v1 first; dPHM only if drift or diagnostics matter | dPHM may not be needed immediately if trust is already solved | Keep product simple; add physics later for maintenance evidence. |
+| New site with limited trust in pump curves / units / meters | Need confidence before recommending schedules | MVP v1 + dPHM | dPHM validates physical plausibility and catches bad assumptions | Faster commissioning, fewer false savings claims. |
+| One station, 2-3 outlets or branch uncertainty | Unsure how outlet branches affect pressure / flow | MVP v1 + dPHM; PINN only if enough telemetry/topology exists | Physics tests branch feasibility; learning may help later | Fewer unsafe or inefficient recommendations. |
+| District / pressure zone with tanks and branches | Some pressures / demands are unknown | dPHM-PINN | Learns temporal demand patterns and infers virtual states using topology | Better service confidence and pressure management. |
+| Multiple interacting stations / reservoirs | One station's action affects another | dPHM-PINN | Captures interactions that station-only MPC may miss | Better system-level energy and reliability decisions. |
+| Looped network with sparse sensors | Cannot observe every node | dPHM-PINN | Uses physics residuals to constrain predictions at unmeasured locations | Lower instrumentation burden; stronger scalable deployment story. |
 
 Rule of thumb:
 
-| Site shape | dPHM-PINN fit | Product reason |
-|---|---:|---|
-| Single station, one outlet, no downstream topology | Low-medium | Use dPHM as the lightweight digital twin; full graph learning may be overkill. |
-| Single station, 2-3 outlets, simple known downstream topology | Medium | Useful when branch tradeoffs affect customer pressure or energy. |
-| District / pressure zone with tanks, valves, branches, sparse sensors | High | Helps manage service risk without instrumenting every node. |
-| Multiple interacting stations / reservoirs | Very high | Moves AquaOptima from local station savings to system-level optimization. |
-| Full looped distribution network with partial observability | Very high | Strongest case for a physics-informed network model. |
+| Site shape | MVP v1 fit | dPHM-only fit | dPHM-PINN fit | Product reason |
+|---|---:|---:|---:|---|
+| Single station, one outlet, no downstream topology | Very high | Optional | Low-medium | Start simple; dPHM is for validation/calibration, not mandatory. |
+| Single station, 2-3 outlets, simple known downstream topology | High | Medium-high | Medium | Branch tradeoffs may justify a physics trust layer. |
+| Existing site with strong MVP trust and stable curves | High | Low-medium | Low | Defer dPHM until maintenance, drift, or new-site replication needs appear. |
+| New site with uncertain curves/meters/units | Medium-high | High | Low-medium | dPHM reduces commissioning and false-confidence risk. |
+| District / pressure zone with tanks, valves, branches, sparse sensors | Medium | Medium | High | Helps manage service risk without instrumenting every node. |
+| Multiple interacting stations / reservoirs | Medium | Medium | Very high | Moves AquaOptima from local station savings to system-level optimization. |
+| Full looped distribution network with partial observability | Low-medium | Medium | Very high | Strongest case for a physics-informed network model. |
 
 ### Q4. Does dPHM-PINN fit the sites AquaOptima is targeting now?
 
@@ -152,7 +153,8 @@ Rule of thumb:
 For current transmission / Satellite WTP outlet pilots:
 
 - MVP v1 is the most direct product fit.
-- dPHM is useful soon because it can validate hydraulics and improve calibration.
+- If MVP v1 is already trusted and physically realistic at an existing site, dPHM is **not mandatory** for immediate value.
+- dPHM becomes useful for long-term maintenance, curve drift detection, onboarding new sites, validating questionable telemetry, and defending recommendations with physics evidence.
 - dPHM-PINN is useful as a shadow intelligence layer, especially for demand forecasting, residual detection, and future network expansion.
 
 Do not overclaim that dPHM-PINN optimizes the full supply-zone network when AquaOptima only sees the WTP outlet. The honest claim is:
@@ -164,8 +166,34 @@ Do not overclaim that dPHM-PINN optimizes the full supply-zone network when Aqua
 | Layer | Product-manager description | Inputs | Outputs | Business outcome | Best current use |
 |---|---|---|---|---|---|
 | MVP v1 | Station optimization product | Station telemetry, pump curves, outlet pressure/flow, operator targets | Pump/VFD schedule or recommendation | Fastest path to energy savings, pressure/flow reliability, and operator adoption at the first pilot | Core pilot product for WTP / transmission pump station. |
-| dPHM | Lightweight hydraulic digital-twin core | Topology, pipe/pump parameters, boundary conditions, candidate flows/heads | Physics residuals, feasibility, predicted hydraulic state, calibration loss | Higher trust: fewer unrealistic recommendations, better calibration, clearer explanations when telemetry looks wrong | Improve MVP v1 with physics checks and calibration. |
+| dPHM-only | Lightweight hydraulic digital-twin core | Topology, pipe/pump parameters, boundary conditions, candidate flows/heads | Physics residuals, feasibility, predicted hydraulic state, calibration loss | Higher trust where needed: fewer unrealistic recommendations, better calibration, clearer explanations when telemetry looks wrong | Add when MVP v1 needs physics evidence, maintenance diagnostics, or new-site repeatability. |
 | dPHM-PINN | Learning layer on top of the hydraulic digital twin | Topology, telemetry windows, sparse sensor observations | Forecasts, inferred states, physically regularized predictions | Scaling story: better forecasts and network insight without needing sensors at every node | Shadow layer now; network intelligence layer later. |
+
+### Requirement level comparison
+
+These are planning ranges, not hard product gates. They should be refined after pilot data inventory.
+
+| Requirement | MVP v1 | dPHM-only | dPHM-PINN |
+|---|---|---|---|
+| Site topology | Station schematic, pump list, inlet/outlet points | Station + simple hydraulic topology: tanks/reservoirs, pipes/headers, pumps, 1-3 outlets if relevant | Network graph with nodes/edges; EPANET/GIS/P&ID strongly preferred |
+| Telemetry minimum | Discharge pressure, outlet flow, pump status/speed; power preferred | Same as MVP v1 plus enough boundary data to validate residuals | Multi-axis telemetry over time: pressure/flow/pump states, preferably across multiple nodes/edges |
+| Historical data to start | 2-4 weeks can support first defaults; 8-12+ weeks better for daily/weekly patterns | Same or less for feasibility; 4-8+ weeks better for calibration/drift | 8-12+ weeks minimum for useful learning; 3-12 months better for seasonality and robust forecasting |
+| Server / compute | Ordinary industrial PC or small server for optimization; edge can be CPU-first | CPU-first is usually enough for steady-state solves and calibration reports | Training/retraining wants GPU or stronger server; edge inference should remain bounded/read-only first |
+| Site complexity justified | 1 source, 1-3 outlets, station boundary control | MVP sites needing validation, diagnostics, commissioning, or maintenance drift evidence | District/zone, sparse sensors, multiple stations, tanks/branches/loops |
+| Product maturity | Pilot-ready fastest | v1.5 trust/diagnostic layer | v2+ shadow/network intelligence layer |
+
+### Quantified outcome framing
+
+Do not treat these as AquaOptima-proven claims until field baselines validate them.
+
+| Metric | Why it matters | How to measure in pilot | External / planning range |
+|---|---|---|---|
+| kWh per m3 delivered | Main energy ROI metric | Compare baseline vs optimized periods normalized by volume/head | EPA context: energy can be up to ~40% of drinking-water operating cost; efficiency practices can save 15-30% in some utilities. |
+| Pump BEP adherence | Indicates less inefficient operation and potentially less wear | % runtime within target BEP band, e.g. around 90% BEP where feasible | Product target should be site-specific; do not promise until curves are validated. |
+| Pressure target compliance | Protects service quality | % intervals within operator pressure band | Target band set by operator/site constraints. |
+| Flow / volume target compliance | Ensures operational mission is met | Delivered volume vs target schedule | Target set by WTP/utility. |
+| Recommendation rejection rate | Measures trust and practicality | Operator rejects / overrides per week and reason codes | Should fall as calibration and explanations improve. |
+| Residual/anomaly count | Measures model-data disagreement | dPHM residual alerts by axis/source | Useful for diagnostics, not a savings claim by itself. |
 
 ### Module comparison
 
@@ -180,19 +208,20 @@ Do not overclaim that dPHM-PINN optimizes the full supply-zone network when Aqua
 
 ### Business outcome comparison
 
-| Business question | MVP v1 answer | dPHM answer | dPHM-PINN answer |
+| Business question | MVP v1 answer | dPHM-only answer | dPHM-PINN answer |
 |---|---|---|---|
-| How do we win the first pilot? | Show station-level energy / efficiency improvement while meeting pressure and flow targets. | Prove the optimizer is not making physically unrealistic recommendations. | Run in shadow to show future upside without increasing control risk. |
+| How do we win the first pilot? | Show lower kWh/m3 or higher efficiency while meeting pressure/flow targets. | Add only if it increases confidence in the recommendation or catches bad assumptions. | Run in shadow to show future upside without increasing control risk. |
 | Why would an operator trust it? | Targets remain familiar: pressure, flow, volume, pump efficiency, override. | Residuals and feasibility checks explain *why* a recommendation is plausible or suspicious. | Provides richer insight, but needs careful UI because ML is harder to trust. |
-| What creates measurable ROI? | Lower kWh per volume delivered, better pump combination, fewer inefficient operating hours. | Better calibration prevents savings claims from being undermined by wrong curves or bad sensors. | Better forecasting and network inference can expand ROI to district / multi-station optimization. |
-| What reduces deployment friction? | Works with limited station-boundary telemetry. | Uses available topology / pump data to improve confidence without needing full downstream sensors. | Reduces long-term need to instrument every node, but needs more setup and validation. |
-| What is the risk? | May be too station-local for complex networks. | Physics model can be wrong if topology / units / assumptions are wrong. | Can be over-complex or hard to explain if introduced before customer trust is established. |
+| What creates measurable ROI? | Reduced kWh/m3, less runtime far from BEP, fewer inefficient pump combinations. | Avoids ROI leakage from wrong curves, bad sensors, or physically impossible schedules. | Expands ROI to district / multi-station optimization when topology and telemetry mature. |
+| What quantified targets should we track? | kWh/m3, pressure compliance %, flow/volume compliance %, BEP-band runtime %. | residual error, calibration drift, anomaly count, schedule-feasibility pass/fail. | forecast error, inferred-state error where sensors exist, network-level energy/service KPIs. |
+| What reduces deployment friction? | Works with limited station-boundary telemetry. | Helps commission new sites where curves/meters/units are uncertain. | Can reduce long-term need to instrument every node, but needs more setup and validation. |
+| What is the risk? | May be too station-local for complex networks. | May be unnecessary on stable existing sites where MVP v1 is already trusted. | Can be over-complex or hard to explain if introduced before customer trust is established. |
 
 ## 4. Can dPHM be used independently?
 
 Yes. Kevin's statement is directionally correct: **dPHM is useful without dPHM-PINN**.
 
-dPHM is the differentiable physics core. It does not need the neural network to provide value. For current target sites, the most practical use is to improve MVP v1 in bounded, explainable ways.
+dPHM is the differentiable physics core. It does not need the neural network to provide value. However, if MVP v1 already produces trusted, physically realistic recommendations at a stable existing site, dPHM may be a **later add-on**, not an immediate requirement. Its strongest near-term value is in bounded, explainable cases: new-site onboarding, curve/telemetry uncertainty, maintenance drift, anomaly diagnostics, and audit evidence.
 
 ### dPHM modules that can improve MVP v1 directly
 
@@ -213,8 +242,8 @@ MVP v1 baseline
   pump regression + statistical demand + MPC
         |
         v
-Add dPHM as validator
-  check candidate schedules for pressure / flow / energy feasibility
+Add dPHM only when needed
+  validate candidate schedules, calibrate new sites, or detect drift
         |
         v
 Add dPHM calibration
@@ -362,6 +391,9 @@ The repo does **not** yet prove field savings at the Satellite WTP pilot, does n
 6. Which outputs are acceptable in the pilot: dashboard-only insight, recommendation, operator-approved setpoint, or no setpoint at all?
 7. What evidence would make the customer trust a dPHM residual warning or MPC recommendation?
 8. What baseline will be used to prove value: existing rule-based control, operator manual strategy, or historical energy per volume delivered?
+9. Is MVP v1 already trusted enough at the existing site, or is dPHM needed to explain / defend recommendations?
+10. What is the minimum quantified pilot target: kWh/m3 reduction, BEP-band runtime improvement, pressure compliance, or operator acceptance?
+11. What compute and deployment environment is acceptable for each layer: station PC, AMAX-class edge, GB10/server, cloud, or offline analysis only?
 
 ## 11. How to maintain this document
 
