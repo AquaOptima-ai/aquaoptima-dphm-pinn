@@ -544,3 +544,75 @@ Boundary (reaffirmed):
 - no movement of `evaluate_advisory_proposals`,
   `run_shadow_runtime`, EPANET `.inp` import, or `Network` into the
   SDK.
+
+## Sprint 47 — AMAX CPU dPHM-PINN Benchmark / Packaging Smoke Harness
+
+Sprint 47 ships an **offline, CPU-only** AMAX CPU dPHM-PINN benchmark
+and packaging smoke harness. The deliverables prove package / runtime
+feasibility evidence only; they do **not** prove real-time control
+safety. Host-derived benchmarks are **surrogate** until executed on
+real AMAX-5580 hardware.
+
+Shipped in Sprint 47:
+
+- SDK projection under `src/aquaoptima_contracts/edge/benchmark.py`:
+  - `AMAXBenchmarkScenario` — frozen scenario record (graph size,
+    sequence length, batch size, hidden dim, framework, thread
+    count, target hardware profile id). Canonical helper
+    `canonical_amax_benchmark_scenarios()` enumerates the
+    `amax_cpu_branch_smoke`, `amax_cpu_single_loop_smoke`, and
+    `amax_cpu_pump_smoke` scenarios.
+  - `AMAXBenchmarkMetrics` — frozen latency p50 / p95 / p99 envelope
+    plus iteration / warmup counts, measured framework, Python
+    version, torch version, host label, optional max-RSS, and an
+    explicit `surrogate_hardware` flag (defaults to `True`). The
+    SDK never imports torch; the runner passes the torch version
+    as a string.
+  - `AMAXBenchmarkReport` — frozen scenario + metrics + cadence
+    classification + feasibility / package references + warnings /
+    notes record. Carries `surrogate_hardware: bool` explicitly.
+    Deterministic `to_dict` / `from_dict`.
+  - `classify_supervisory_cadence(p95_ms)` — pure evidence-only
+    helper that maps a measured p95 latency to one of
+    `sub_1s_supervisory` (`p95 <= 1000 ms`),
+    `sub_5s_supervisory` (`p95 <= 5000 ms`),
+    `sub_60s_supervisory` (`p95 <= 60000 ms`), or
+    `slower_than_60s`. Evidence classification only — not a
+    control-loop guarantee.
+- Runtime helper under `src/aquaoptima/edge/benchmark.py`:
+  - `run_amax_cpu_benchmark` / `run_amax_cpu_benchmark_scenario` —
+    deterministic, CPU-only runners that drive `DPHMPINN` over the
+    branch / single-loop / pump fixtures under
+    `torch.inference_mode()` and return `AMAXBenchmarkReport`
+    records. No CUDA path; no model artifact loading from disk; no
+    HTTP / network / database / message-broker dependency.
+- CLI under `scripts/run_amax_cpu_benchmark.py`: writes a
+  deterministic JSON report to the requested path (e.g.
+  `artifacts/amax_cpu_benchmark_report.json`) via the SDK's
+  canonical JSON writer; prints a concise per-scenario summary;
+  defaults to surrogate host mode and CPU-only.
+- New audit-only doc:
+  `docs/hardware/amax-5580-cpu-benchmarking.md`.
+
+What Sprint 47 does **not** ship:
+
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge;
+- no HTTP / network / database / message-broker code;
+- no Edge Runtime daemon / service implementation;
+- no AI / Optimization Server runtime, no Operations Console runtime;
+- no live PLC/SCADA/OPC UA/Modbus client;
+- no CUDA / TensorRT runtime dependency, no model artifact loading
+  from disk, no inline model weights;
+- no Phase 1 `aquaoptima.*` import path removals or renames;
+- no movement of `evaluate_advisory_proposals`, `run_shadow_runtime`,
+  EPANET `.inp` import, or `Network` into the SDK.
+
+**Sprint 48 (next gate, after Sprint 47 benchmark evidence is
+accepted)** should remain a **read-only** PLC/SCADA integration
+contract gate. Live OT binding, write paths, command emission,
+setpoint output, and control-loop closure stay out of scope.
