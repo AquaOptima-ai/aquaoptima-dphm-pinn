@@ -616,3 +616,87 @@ What Sprint 47 does **not** ship:
 accepted)** should remain a **read-only** PLC/SCADA integration
 contract gate. Live OT binding, write paths, command emission,
 setpoint output, and control-loop closure stay out of scope.
+
+## Sprint 48 — AMAX Read-only PLC/SCADA Integration Contract
+
+Sprint 48 defines how an AMAX Edge instance can **read** telemetry
+from site PLC / SCADA / CODESYS-facing systems without controlling
+anything. **Sprint 48 ships read-only integration contracts, not live
+adapters.** The SDK module is stdlib-only and introduces no live OPC
+UA, Modbus, CODESYS, SCADA, PLC, MQTT, HTTP, database, or
+message-broker client.
+
+Shipped in Sprint 48 (under
+`src/aquaoptima_contracts/edge/read_only_integration.py`):
+
+- `ReadOnlyIntegrationProtocol` — canonical protocol identifier
+  surface (`opc_ua`, `modbus_tcp`, `modbus_rtu`, `codesys_symbol`,
+  `codesys_shared_memory`, `mqtt_sparkplug_read_only`).
+- `ReadOnlyTelemetrySource` — frozen audit record for one read-only
+  source. Carries source id, canonical protocol, endpoint label,
+  security zone / network segment label, polling cadence, freshness
+  threshold, credential reference label, access mode, and notes. Uses
+  labels / references only; no secrets, no live connection strings.
+  Explicitly marks access as `read_only` / `audit_only`.
+- `ReadOnlyTagBinding` — frozen audit record connecting a source
+  path / register / symbol label to a Sprint 42 `TelemetryTagSpec`
+  projection (axis / role / unit / target id). Carries no write
+  registers, command topics, setpoint topics, or actuator semantics.
+- `TelemetryFreshnessPolicy` — frozen audit record capturing max age,
+  stale behavior, missing-data behavior, quality flag mapping, and
+  replay-equivalence expectations. Pure audit evidence; no live
+  timer.
+- `ReadOnlyIntegrationContract` — frozen audit bundle combining
+  sources, tag bindings, freshness policy, compatibility notes, and
+  safety notes. Canonical helper
+  `default_amax_read_only_integration_contract()` enumerates an OPC
+  UA subscription, Modbus TCP poller, Modbus RTU serial poller,
+  CODESYS symbol subscription, CODESYS shared-memory mapping, and an
+  IT-zone MQTT Sparkplug read-only source.
+- `ReadOnlyIntegrationDiagnostics` — deterministic warnings / errors
+  surfaced by `diagnose_read_only_integration_contract()` for
+  duplicate binding ids, dangling binding source references,
+  unsupported protocols, missing safety notes, and unsafe vocabulary
+  in labels.
+- `ReplayToLiveEquivalenceEvidence` — frozen audit record connecting
+  a Sprint 42 `ShadowReplayDataset` to a Sprint 48 source. Default
+  status is `not_evaluated`: replay datasets are surrogate evidence
+  until a real source verification is signed off.
+- New audit-only doc:
+  `docs/hardware/amax-5580-read-only-integration.md`.
+
+What Sprint 48 **does not** ship:
+
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge;
+- no bypass of site PLC interlocks, permissives, trips, manual mode,
+  or emergency stop;
+- no live OPC UA client, no live Modbus client, no live CODESYS
+  client, no live SCADA client;
+- no HTTP / network / database / message-broker code;
+- no Edge Runtime daemon / service implementation;
+- no AI / Optimization Server runtime, no Operations Console runtime;
+- no model artifact loading from disk, no inline model weights;
+- no credentials, passwords, tokens, API keys, or connection secrets
+  in docs / tests / source;
+- no Phase 1 `aquaoptima.*` import path removals or renames;
+- no movement of `evaluate_advisory_proposals`, `run_shadow_runtime`,
+  EPANET `.inp` import, or `Network` into the SDK.
+
+The non-negotiable safety boundary stays explicit: telemetry
+freshness / staleness and replay-to-live equivalence are audit
+evidence, not a live connection. Network segmentation and credential
+handling use labels / references only; no secrets are stored.
+
+**Sprint 49 (next gate, after Sprint 48 contract evidence is
+accepted)** should be **AMAX Site Deployment Readiness / OT
+Certification Evidence Package**. Sprint 49 must not introduce live
+OT binding, PLC/PAC/SCADA write, command emission, setpoint output,
+control-loop closure, or any Edge Runtime daemon implementation. The
+site PLC retains direct VFD / pump / actuator authority for every
+Sprint 45+ AMAX deliverable until a future safety gate explicitly
+approves a supervised, bounded write surface.
