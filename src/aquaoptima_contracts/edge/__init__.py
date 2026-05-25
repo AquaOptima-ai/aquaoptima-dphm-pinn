@@ -46,6 +46,18 @@ this module. Validation and feasibility evidence are pure value
 computations over the SDK contract shapes.
 """
 
+from .benchmark import (
+    AMAX_BENCHMARK_CADENCE_BUCKETS,
+    AMAX_BENCHMARK_FRAMEWORKS,
+    AMAX_BENCHMARK_SCENARIO_BRANCH,
+    AMAX_BENCHMARK_SCENARIO_PUMP,
+    AMAX_BENCHMARK_SCENARIO_SINGLE_LOOP,
+    AMAXBenchmarkMetrics,
+    AMAXBenchmarkReport,
+    AMAXBenchmarkScenario,
+    canonical_amax_benchmark_scenarios,
+    classify_supervisory_cadence,
+)
 from .capability_declaration import (
     EdgeCapabilityDeclaration,
     default_amax_edge_capability_declaration,
@@ -85,6 +97,11 @@ from .package_validator import (
 
 __all__ = [
     "AMAX_5580_PROFILE_ID",
+    "AMAX_BENCHMARK_CADENCE_BUCKETS",
+    "AMAX_BENCHMARK_FRAMEWORKS",
+    "AMAX_BENCHMARK_SCENARIO_BRANCH",
+    "AMAX_BENCHMARK_SCENARIO_PUMP",
+    "AMAX_BENCHMARK_SCENARIO_SINGLE_LOOP",
     "AMAX_CODESYS_RUNTIMES",
     "AMAX_ML_RUNTIME_OPTIONS",
     "AMAX_OS_FAMILIES",
@@ -96,6 +113,9 @@ __all__ = [
     "AMAX_SKU_CORE_I5_6300U_8GB",
     "AMAX_SKU_CORE_I7_6600U_8GB",
     "AMAX_SKU_RECOMMENDATION_TIERS",
+    "AMAXBenchmarkMetrics",
+    "AMAXBenchmarkReport",
+    "AMAXBenchmarkScenario",
     "AMAXFeasibilityDecision",
     "AMAXRuntimeOption",
     "AMAXSkuProfile",
@@ -105,8 +125,10 @@ __all__ = [
     "EdgeHardwareProfile",
     "EdgePackageValidationResult",
     "amax_5580_cpu_profile",
+    "canonical_amax_benchmark_scenarios",
     "canonical_amax_runtime_options",
     "canonical_amax_sku_profiles",
+    "classify_supervisory_cadence",
     "default_amax_edge_capability_declaration",
     "default_amax_edge_validation_capabilities",
     "default_amax_feasibility_decision",

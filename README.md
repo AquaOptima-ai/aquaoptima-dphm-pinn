@@ -121,7 +121,7 @@ add a convergence-assertion CI test that proves
 the physics lambda, batchify, generalise the ablation harness
 across fixtures. See [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md).
 
-## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 / 45 / 46 projections)
+## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 / 45 / 46 / 47 projections)
 
 The Shared Contracts / SDK package ships under
 `src/aquaoptima_contracts/` and exposes the cross-component vocabulary
@@ -311,15 +311,51 @@ Sprint 46 additions (under `src/aquaoptima_contracts/edge/feasibility.py`):
   hardware facts to carry forward, and the recommendation /
   acceptance gate for Sprint 47.
 
-Sprint 47 (after the Sprint 46 evidence gate is accepted) should be
-a CPU inference benchmark and packaging smoke harness only —
-measuring dPHM-PINN CPU inference latency, memory envelope, and
-thread policy on a real AMAX-5580 (or representative surrogate),
-verifying Python `>= 3.10` and PyTorch CPU wheel installation on the
-chosen OS path, and producing packaging evidence the SDK can
-consume. Sprint 47 must **not** introduce live OT binding,
-PLC/PAC/SCADA write, command emission, setpoint output, control-loop
-closure, or any Edge Runtime daemon implementation.
+Sprint 47 additions (under `src/aquaoptima_contracts/edge/benchmark.py`,
+`src/aquaoptima/edge/benchmark.py`, and `scripts/run_amax_cpu_benchmark.py`):
+
+- **Sprint 47 ships an offline AMAX CPU dPHM-PINN benchmark / packaging
+  smoke harness.** Host-derived benchmarks are **surrogate** until run
+  on real AMAX-5580 hardware. The harness proves package / runtime
+  feasibility evidence only; it does **not** prove real-time control
+  safety.
+- `AMAXBenchmarkScenario` — frozen scenario record (graph size,
+  sequence length, batch size, hidden dim, framework, thread count,
+  target hardware profile id). Canonical helper:
+  `canonical_amax_benchmark_scenarios()` enumerates the branch /
+  single-loop / pump smoke scenarios.
+- `AMAXBenchmarkMetrics` — frozen latency p50 / p95 / p99 envelope
+  plus iteration / warmup counts, measured framework, Python version,
+  torch version, host label, optional max-RSS, and an explicit
+  `surrogate_hardware` flag (defaults to `True`).
+- `AMAXBenchmarkReport` — frozen scenario + metrics + supervisory
+  cadence classification + feasibility / package references +
+  warnings record. Deterministic `to_dict` / `from_dict`.
+- `classify_supervisory_cadence(p95_ms)` — pure evidence-only helper
+  that maps a measured p95 latency to one of
+  `sub_1s_supervisory` / `sub_5s_supervisory` / `sub_60s_supervisory`
+  / `slower_than_60s`. **Evidence classification only, not a
+  control-loop guarantee.**
+- `aquaoptima.edge.benchmark.run_amax_cpu_benchmark` — offline,
+  CPU-only runner that builds a `DPHMPINN` with deterministic seeds,
+  exercises the branch / single-loop / pump fixtures under
+  `torch.inference_mode()`, and returns `AMAXBenchmarkReport` records.
+  No CUDA path; no model artifact loading from disk; no HTTP /
+  network / database / message-broker dependency.
+- `scripts/run_amax_cpu_benchmark.py` — CLI smoke harness; writes a
+  deterministic JSON report to a path such as
+  `artifacts/amax_cpu_benchmark_report.json` via the SDK's canonical
+  JSON writer. Defaults to surrogate host mode and CPU-only.
+
+Sprint 47 must **not** introduce live OT binding, PLC/PAC/SCADA write,
+command emission, setpoint output, control-loop closure, Edge Runtime
+daemon code, AI / Optimization Server runtime, Operations Console
+runtime, live PLC/SCADA/OPC UA/Modbus client, HTTP / network /
+database / message-broker code, CUDA / TensorRT runtime, model
+artifact loading from disk, or inline model weights.
+
+Sprint 48 (after the Sprint 47 benchmark evidence is accepted) should
+remain a **read-only** PLC/SCADA integration contract gate.
 
 The SDK is stdlib-only at runtime and never imports any
 `aquaoptima.*` deployable module. It does not introduce live OT
@@ -348,3 +384,4 @@ Planning references:
 - [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md) — what shipped, what is next
 - [`docs/safety-boundary.md`](docs/safety-boundary.md) — read vs. write policy
 - [`docs/hardware/amax-5580-feasibility.md`](docs/hardware/amax-5580-feasibility.md) — Sprint 46 AMAX-5580 feasibility evidence / SKU & OS decision gate
+- [`docs/hardware/amax-5580-cpu-benchmarking.md`](docs/hardware/amax-5580-cpu-benchmarking.md) — Sprint 47 AMAX-5580 CPU benchmark / packaging smoke harness
