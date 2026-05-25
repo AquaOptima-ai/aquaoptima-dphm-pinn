@@ -121,7 +121,7 @@ add a convergence-assertion CI test that proves
 the physics lambda, batchify, generalise the ablation harness
 across fixtures. See [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md).
 
-## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 / 45 projections)
+## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 / 45 / 46 projections)
 
 The Shared Contracts / SDK package ships under
 `src/aquaoptima_contracts/` and exposes the cross-component vocabulary
@@ -133,7 +133,15 @@ import-quality projections; Sprint 44 adds the deployment package
 manifest contracts plus the model / artifact registry projection;
 Sprint 45 promotes the Advantech AMAX-5580 to the primary Edge target
 and ships the deny-by-default Edge package validator (CPU-first x86_64
-PAC profile) consuming a Sprint 44 `DeploymentPackageManifest`.
+PAC profile) consuming a Sprint 44 `DeploymentPackageManifest`. Sprint
+46 is an evidence and decision-gate sprint that turns AMAX-5580
+datasheet facts into deterministic SDK evidence (`AMAXSkuProfile`,
+`AMAXRuntimeOption`, `AMAXFeasibilityDecision`) and the
+`docs/hardware/amax-5580-feasibility.md` feasibility note that pins
+the recommended SKU / OS / runtime path before deeper Edge
+implementation begins; Sprint 47 is the CPU inference benchmark /
+packaging smoke harness *only after the Sprint 46 evidence gate is
+accepted*.
 
 Sprint 41 MVP:
 
@@ -268,6 +276,51 @@ Boundary for all Sprint 45 AMAX work (reaffirmed):
 - no control-loop closure;
 - no direct VFD / pump / actuator control from AquaOptima Edge.
 
+Sprint 46 additions (under `src/aquaoptima_contracts/edge/feasibility.py`):
+
+- **Sprint 46 ships the AMAX feasibility evidence / SKU & OS decision
+  gate.** The deliverables are SDK evidence shapes plus the
+  `docs/hardware/amax-5580-feasibility.md` feasibility note. No live
+  OT integration, no Edge Runtime daemon, no model loading, and no
+  HTTP / database / message-broker code is introduced.
+- `AMAXSkuProfile` — frozen Advantech AMAX-5580 CPU / RAM SKU
+  evidence record (Celeron 3955U / 4 GB constrained fallback, Core
+  i5-6300U / 8 GB serious candidate, Core i7-6600U / 8 GB recommended
+  candidate). Deterministic `to_dict` / `from_dict`. Canonical helper:
+  `canonical_amax_sku_profiles()`.
+- `AMAXRuntimeOption` — frozen OS / CODESYS / ML packaging evidence
+  record covering AdvLinuxTU v2.0.5.4 (Ubuntu 18 based) + CODESYS
+  Linux Control V3 SP20 + PyTorch CPU; Windows 10 LTSC 2019 + CODESYS
+  Control RTE V3.5 SP20 + PyTorch CPU; and a Linux container sidecar
+  low-risk fallback. Deterministic `to_dict` / `from_dict`. Canonical
+  helper: `canonical_amax_runtime_options()`.
+- `AMAXFeasibilityDecision` — frozen Sprint 46 recommendation record
+  carrying the recommended SKU profile id, OS / runtime
+  recommendation, packaging strategy, ML runtime recommendation,
+  evidence gaps that remain surrogate until real AMAX hardware
+  testing, and the next gate. Canonical helper:
+  `default_amax_feasibility_decision()`.
+- `recommended_amax_hardware_profile()` — bridge to the Sprint 45
+  `amax_5580_cpu_profile()` helper that enriches `notes` with Sprint
+  46 evidence-gap language. The Sprint 45 default helper is
+  unchanged.
+- `docs/hardware/amax-5580-feasibility.md` — feasibility evidence
+  document with executive decision summary, SKU comparison, OS /
+  CODESYS decision matrix, runtime / package strategy matrix, CODESYS
+  / PLC integration option matrix (read-only / audit-only), OT
+  hardware facts to carry forward, and the recommendation /
+  acceptance gate for Sprint 47.
+
+Sprint 47 (after the Sprint 46 evidence gate is accepted) should be
+a CPU inference benchmark and packaging smoke harness only —
+measuring dPHM-PINN CPU inference latency, memory envelope, and
+thread policy on a real AMAX-5580 (or representative surrogate),
+verifying Python `>= 3.10` and PyTorch CPU wheel installation on the
+chosen OS path, and producing packaging evidence the SDK can
+consume. Sprint 47 must **not** introduce live OT binding,
+PLC/PAC/SCADA write, command emission, setpoint output, control-loop
+closure, or any Edge Runtime daemon implementation.
+
 The SDK is stdlib-only at runtime and never imports any
 `aquaoptima.*` deployable module. It does not introduce live OT
 binding, PLC/PAC/SCADA write, command emission, setpoint output,
@@ -294,3 +347,4 @@ Planning references:
 - [`docs/testing-strategy.md`](docs/testing-strategy.md) — how we test
 - [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md) — what shipped, what is next
 - [`docs/safety-boundary.md`](docs/safety-boundary.md) — read vs. write policy
+- [`docs/hardware/amax-5580-feasibility.md`](docs/hardware/amax-5580-feasibility.md) — Sprint 46 AMAX-5580 feasibility evidence / SKU & OS decision gate
