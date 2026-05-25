@@ -409,16 +409,27 @@ Expected scope:
 - docs that state AMAX Edge is an OT-side supervisory controller while
   the site PLC / pump-station PLC remains final actuator authority.
 
-Suggested Sprint 46+ sequence after Sprint 45 passes:
+Suggested Sprint 46+ sequence after Sprint 45 passes (corrected by
+the Sprint 46 evidence gate — see the Sprint 46 section below):
 
-1. **Sprint 46 — AMAX CPU inference smoke profile.** Add benchmark /
-   evidence contracts for dPHM-PINN CPU inference latency, memory
-   envelope, thread policy, and package manifest compatibility. This
-   is still offline/mock execution, not live OT integration.
-2. **Sprint 47 — AMAX read-only PLC/SCADA adapter contract.** Define
+1. **Sprint 46 — AMAX feasibility evidence / SKU & OS decision gate.**
+   Evidence and decision-gate sprint, **not** a benchmark sprint. Turns
+   AMAX-5580 datasheet facts and the Sprint 45 SDK assumptions into a
+   feasibility note and SDK evidence projection
+   (`AMAXSkuProfile`, `AMAXRuntimeOption`, `AMAXFeasibilityDecision`)
+   so the product owner can pin a SKU / OS / runtime path before
+   deeper Edge implementation begins. No live OT integration, no
+   Edge Runtime daemon code.
+2. **Sprint 47 — AMAX CPU inference benchmark / packaging smoke
+   harness** (*after Sprint 46 evidence is accepted*). Measure
+   dPHM-PINN CPU inference latency, memory envelope, thread policy,
+   and packaging manifest compatibility on a real AMAX-5580 (or
+   representative i5-6300U / i7-6600U / 8 GB surrogate). Still
+   offline / mock OT execution, not live OT integration.
+3. **Sprint 48 — AMAX read-only PLC/SCADA adapter contract.** Define
    read-only OPC UA / Modbus / CODESYS-facing adapter contracts and
    replay fixtures. No write path, no commands, no setpoints.
-3. **Sprint 48 — AMAX supervised-control dry-run contract.** Define
+4. **Sprint 49 — AMAX supervised-control dry-run contract.** Define
    dry-run handoff records, PLC gatekeeper expectations, fallback
    evidence, and operator-enable requirements. This remains simulated
    unless a later safety gate explicitly approves supervised writes.
@@ -435,3 +446,101 @@ Boundary for all Sprint 45+ AMAX work:
   or emergency stop;
 - no assumption that AMAX certification alone certifies the full
   deployed AquaOptima control system.
+
+## Sprint 46 — AMAX Feasibility Evidence / SKU & OS Decision Gate
+
+Sprint 46 is an evidence and decision-gate sprint, **not** an
+implementation-heavy Edge Runtime sprint and **not** the CPU
+inference smoke profile that the older Sprint 45+ sequence text once
+described. It turns Advantech AMAX-5580 datasheet facts and the
+Sprint 45 SDK assumptions into a feasibility note and SDK evidence
+projection so the product owner can pin a SKU / OS / runtime path
+before deeper Edge implementation begins.
+
+Shipped in Sprint 46:
+
+- `docs/hardware/amax-5580-feasibility.md` — feasibility evidence
+  document with executive decision summary, AMAX-5580 SKU comparison
+  (Celeron 3955U / 4 GB constrained fallback vs Core i5-6300U / 8 GB
+  serious candidate vs Core i7-6600U / 8 GB recommended candidate),
+  OS / CODESYS decision matrix (AdvLinuxTU + CODESYS Linux Control
+  V3 SP20 vs Windows 10 LTSC 2019 + CODESYS Control RTE V3.5 SP20),
+  runtime / package strategy decision matrix (direct PyTorch CPU,
+  container sidecar, service sidecar outside CODESYS runtime, ONNX
+  Runtime CPU, OpenVINO), CODESYS / PLC integration option matrix
+  (OPC UA, Modbus TCP / RTU, CODESYS PLC Handler / shared memory,
+  MQTT / Sparkplug — all read-only / audit-only), OT hardware facts
+  to carry forward (2 x GbE / 4 x USB 3.0 / 2 x RS-232/422/485,
+  dual 24 VDC input with alarm output, AMAX-5000 EtherCAT Slice I/O,
+  AMAX-5400 PCIe expansion, retain / persistence memory, -10 to
+  60 °C, CE / FCC / CB / UL62368 plus shock / vibration), and the
+  recommendation / acceptance gate for Sprint 47.
+- SDK projection under `src/aquaoptima_contracts/edge/feasibility.py`:
+  - `AMAXSkuProfile` — frozen Advantech AMAX-5580 SKU evidence
+    record with deterministic `to_dict` / `from_dict`. Canonical
+    helper `canonical_amax_sku_profiles()` enumerates the three
+    in-scope SKU records and their recommendation tiers.
+  - `AMAXRuntimeOption` — frozen OS / CODESYS runtime / Python
+    packaging risk / ML runtime / integration evidence record with
+    deterministic `to_dict` / `from_dict`. Canonical helper
+    `canonical_amax_runtime_options()` enumerates the Linux +
+    CODESYS Linux Control, Windows + CODESYS RTE, and Linux
+    container sidecar options.
+  - `AMAXFeasibilityDecision` — frozen Sprint 46 recommendation
+    record carrying recommended SKU profile id, OS / runtime
+    recommendation, packaging strategy, ML runtime recommendation,
+    surrogate-evidence-gap tuple, and the next gate. Canonical
+    helper `default_amax_feasibility_decision()` recommends the
+    `advantech-amax-5580-i5-or-i7-8gb-linux-codesys-cpu-first`
+    profile.
+  - `recommended_amax_hardware_profile()` — bridge that returns an
+    `EdgeHardwareProfile` matching the Sprint 45
+    `amax_5580_cpu_profile()` identifier and enriches `notes` with
+    Sprint 46 evidence-gap language. The Sprint 45 default helper
+    is unchanged.
+
+Recommended target profile:
+`advantech-amax-5580-i5-or-i7-8gb-linux-codesys-cpu-first` — i5-6300U
+or i7-6600U at 8 GB, AdvLinuxTU v2.0.5.4 + CODESYS Linux Control V3
+SP20, direct PyTorch CPU install — unless a customer site explicitly
+requires the Windows 10 LTSC 2019 + CODESYS Control RTE V3.5 SP20
+fallback.
+
+What the Sprint 46 gate must approve before Sprint 47 starts:
+
+- SKU tier (i5-6300U / 8 GB or i7-6600U / 8 GB);
+- OS path (AdvLinuxTU + CODESYS Linux Control primary, Windows +
+  CODESYS RTE only as a site-required fallback);
+- packaging strategy (direct PyTorch CPU baseline, container sidecar
+  fallback);
+- ML runtime sequence (PyTorch CPU first, ONNX Runtime CPU and
+  OpenVINO as follow-up benchmarks);
+- surrogate evidence acceptance — every claim is surrogate until
+  real AMAX-5580 hardware is in hand.
+
+**Sprint 47 (next gate, after Sprint 46 evidence is accepted)** is a
+CPU inference benchmark / packaging smoke harness only. Sprint 47
+must not introduce live OT binding, PLC/PAC/SCADA write, command
+emission, setpoint output, control-loop closure, or any Edge Runtime
+daemon implementation.
+
+Boundary (reaffirmed):
+
+- no live OT binding;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge;
+- no bypass of site PLC interlocks, permissives, trips, manual mode,
+  or emergency stop;
+- no HTTP / network / database / message-broker code added in this
+  sprint;
+- no Edge Runtime daemon / service implementation;
+- no AI / Optimization Server runtime, no Operations Console runtime;
+- no CUDA / TensorRT runtime dependency, no model loading, no inline
+  model weights;
+- no Phase 1 `aquaoptima.*` import path removals or renames;
+- no movement of `evaluate_advisory_proposals`,
+  `run_shadow_runtime`, EPANET `.inp` import, or `Network` into the
+  SDK.
