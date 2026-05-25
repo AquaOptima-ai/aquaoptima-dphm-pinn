@@ -121,7 +121,7 @@ add a convergence-assertion CI test that proves
 the physics lambda, batchify, generalise the ablation harness
 across fixtures. See [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md).
 
-## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 projections)
+## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 / 45 projections)
 
 The Shared Contracts / SDK package ships under
 `src/aquaoptima_contracts/` and exposes the cross-component vocabulary
@@ -130,7 +130,10 @@ foundation; Sprint 42 added the first batch of contract *shape*
 projections from the Phase 1 runtime artifacts; Sprint 43 closed the
 first-batch list with calibration, advisory, and EPANET
 import-quality projections; Sprint 44 adds the deployment package
-manifest contracts plus the model / artifact registry projection.
+manifest contracts plus the model / artifact registry projection;
+Sprint 45 promotes the Advantech AMAX-5580 to the primary Edge target
+and ships the deny-by-default Edge package validator (CPU-first x86_64
+PAC profile) consuming a Sprint 44 `DeploymentPackageManifest`.
 
 Sprint 41 MVP:
 
@@ -219,6 +222,51 @@ Sprint 44 additions:
   that lifts a Sprint 42 `ShadowDeploymentManifest` into the
   Sprint 44 `DeploymentPackageManifest` shape without importing
   any `aquaoptima.*` runtime module.
+
+Sprint 45 additions (under `src/aquaoptima_contracts/edge/`):
+
+- **Primary Edge target is now the Advantech AMAX-5580** (or
+  equivalent x86_64 PAC-class industrial controller). The
+  Jetson / Orin / TensorRT path remains an optional accelerator
+  profile only — it is *not* the default Edge deployment path.
+- `EdgeHardwareProfile` — frozen hardware / runtime capability
+  metadata (profile_id, vendor, model, architecture, OS family,
+  runtime class, accelerators, supported model frameworks, Python
+  versions, audit-only notes). Ships with the canonical
+  `amax_5580_cpu_profile()` helper (x86_64, CPU-first, PAC class,
+  no CUDA / TensorRT / Jetson / Orin / ARM64 default).
+- `EdgeCapabilityDeclaration` — pairs a Sprint 41
+  `CapabilityDeclaration` with an `EdgeHardwareProfile`. Ships
+  `default_amax_edge_capability_declaration()` for the canonical
+  package-validation-only declaration. No direct write / control /
+  setpoint / actuation capability is declared (the underlying
+  allowed-token list cannot include any forbidden vocabulary
+  anyway).
+- `EdgePackageValidationResult` — deterministic
+  `accepted` / `errors` / `warnings` bundle with optional
+  `profile_id`, `package_id`, `missing_capabilities`,
+  `rejected_accelerator_tokens`, and `rejected_frameworks` evidence.
+- `validate_deployment_package_for_edge(...)` — pure value function
+  that consumes a Sprint 44 `DeploymentPackageManifest` and an
+  `EdgeCapabilityDeclaration` and returns an
+  `EdgePackageValidationResult`. Default AMAX rejection covers
+  CUDA / TensorRT / Jetson / Orin / ARM64 / aarch64 metadata,
+  runtime-loading-implied frameworks outside the profile's allow
+  list, and packages whose merged capability requirements are not
+  satisfied by the Edge declaration.
+
+Boundary for all Sprint 45 AMAX work (reaffirmed):
+
+- AMAX-5580 is the primary Edge target; Orin / TensorRT is an
+  optional accelerator profile only;
+- the site PLC / pump-station PLC remains the direct VFD / pump /
+  actuator authority;
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge.
 
 The SDK is stdlib-only at runtime and never imports any
 `aquaoptima.*` deployable module. It does not introduce live OT
