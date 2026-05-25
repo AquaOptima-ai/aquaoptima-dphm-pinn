@@ -799,3 +799,94 @@ setpoint output, control-loop closure, or any Edge Runtime daemon
 implementation. The site PLC retains direct VFD / pump / actuator
 authority for every Sprint 45+ AMAX deliverable until a future
 safety gate explicitly approves a supervised, bounded write surface.
+
+## Sprint 50 — AMAX Simulated Supervisory Proposal / PLC Gatekeeper Contract
+
+Sprint 50 defines a **simulated supervisory proposal / PLC gatekeeper
+contract** that names the structure of future autonomy work without
+enabling any of it. **Sprint 50 ships a simulated supervisory proposal
+contract, not a live write or control authorisation.** Sprint 50 is
+SDK / docs / contracts / tests only. It remains dry-run / simulation-
+only and does not emit setpoints, commands, writes, or close a
+control loop. The SDK module is stdlib-only and introduces no live
+OT, PLC, SCADA, MQTT, HTTP, database, or message-broker client.
+
+Shipped in Sprint 50 (under
+`src/aquaoptima_contracts/edge/supervisory_gatekeeper.py`):
+
+- `SupervisoryProposalValue` — frozen labels-only audit row for one
+  simulated proposal value (axis label, target id, proposed value,
+  unit, lower / upper envelope, confidence, validity window seconds,
+  rollback / fallback reference, notes). Bounds and confidence are
+  enforced.
+- `SupervisoryProposalDryRun` — frozen audit bundle of proposal
+  values with proposal id, source evidence references, created-by
+  label, validity window, expiration label, `simulation_only=True`,
+  `dry_run=True`, and safety notes.
+- `PLCGatekeeperCondition` — frozen audit row for one gate (id,
+  category, required state, observed-evidence label, status,
+  blocking flag, notes). The canonical Sprint 50 categories are
+  `operator_enable`, `mode_enabled`, `interlocks_healthy`,
+  `permissives_healthy`, `stale_data_rejection`,
+  `bounds_rate_limits`, `fallback_manual_priority`, and
+  `e_stop_manual_override`.
+- `PLCGatekeeperEvaluation` — frozen audit bundle combining a
+  proposal with a tuple of gatekeeper conditions and a deterministic
+  verdict (`not_evaluated`, `blocked`, or `simulation_accepted`).
+  Always carries `simulation_only=True`.
+- `evaluate_plc_gatekeeper_dry_run()` — pure helper producing a
+  deterministic simulation-only evaluation from a proposal plus a
+  sequence of conditions. The SDK refuses to produce any verdict
+  outside the simulation-only set.
+- `AMAXSupervisoryDryRunContract` — frozen Sprint 50 audit bundle
+  combining the proposal, the gatekeeper evaluation, Sprint 49
+  referenced evidence ids / docs, warnings / errors, and the next
+  gate. Carries explicit `live_write_authorized=False`.
+- `AMAXSupervisoryDryRunDiagnostics` — deterministic warnings /
+  errors record surfaced by
+  `diagnose_amax_supervisory_dry_run_contract()` when the contract
+  is missing gatekeeper categories, missing Sprint 49 referenced
+  evidence, missing next-gate language, attempts to declare live
+  write authorisation, or carries unsafe vocabulary in labels.
+- New audit-only doc:
+  `docs/hardware/amax-5580-supervisory-dry-run-gatekeeper.md`
+  covering proposal semantics, the PLC gatekeeper expectations,
+  the simulation-only verdict vocabulary, the relationship to
+  Sprint 49, and the Sprint 50 boundary statement.
+
+What Sprint 50 **does not** ship:
+
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge;
+- no bypass of site PLC interlocks, permissives, trips, manual mode,
+  or emergency stop;
+- no live OPC UA / Modbus / CODESYS / SCADA / PLC / MQTT / HTTP /
+  database / message-broker client;
+- no Edge Runtime daemon / service implementation;
+- no AI / Optimization Server runtime, no Operations Console runtime;
+- no model artifact loading from disk, no inline model weights;
+- no credentials, passwords, tokens, API keys, or connection secrets
+  in docs / tests / source;
+- no site install approval by default;
+- no supervised writes, no proposal-to-PLC path, no live write
+  authorisation verdict;
+- no Phase 1 `aquaoptima.*` import path removals or renames;
+- no movement of `evaluate_advisory_proposals`, `run_shadow_runtime`,
+  EPANET `.inp` import, or `Network` into the SDK.
+
+The non-negotiable safety boundary stays explicit: Sprint 50 ships
+contract shapes and a dry-run helper, not a pilot sign-off. The site
+PLC retains direct VFD / pump / actuator authority.
+
+**Sprint 51 (next gate, after Sprint 50 contracts are accepted)**
+should be an **AMAX pilot readiness review / hardware-in-the-loop
+plan**, still no live control. Sprint 51 must not introduce live OT
+binding, PLC/PAC/SCADA write, command emission, setpoint output,
+control-loop closure, or any Edge Runtime daemon implementation. The
+site PLC retains direct VFD / pump / actuator authority for every
+Sprint 45+ AMAX deliverable until a future safety gate explicitly
+approves a supervised, bounded write surface.
