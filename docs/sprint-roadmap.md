@@ -700,3 +700,102 @@ control-loop closure, or any Edge Runtime daemon implementation. The
 site PLC retains direct VFD / pump / actuator authority for every
 Sprint 45+ AMAX deliverable until a future safety gate explicitly
 approves a supervised, bounded write surface.
+
+## Sprint 49 — AMAX Site Deployment Readiness / OT Certification Evidence Package
+
+Sprint 49 defines the **site deployment readiness / OT certification
+evidence package** required before installing AquaOptima AMAX Edge in
+an OT-side environment. **Sprint 49 ships a deployment readiness /
+certification evidence package, not a site install approval.** The
+SDK module is stdlib-only and introduces no live OT, PLC, SCADA,
+MQTT, HTTP, database, or message-broker client. Sprint 49 does not
+install software, does not connect to a live site, and does not
+approve writes.
+
+Shipped in Sprint 49 (under
+`src/aquaoptima_contracts/edge/deployment_readiness.py`):
+
+- `DeploymentReadinessItem` — frozen labels-only audit row for one
+  readiness item (item id, category, description, evidence reference
+  label, owner / approver label, status, blocking flag, notes).
+- `AMAXDeploymentReadinessChecklist` — frozen audit bundle of
+  readiness items with helpers (`categories`, `items_for_category`,
+  `unresolved_blocking_items`, `is_fully_approved`). Canonical
+  helper `default_amax_deployment_readiness_checklist()` enumerates
+  twelve categories: `sku`, `os_image`, `codesys_package`,
+  `network_ports`, `physical_install`, `power`, `storage`,
+  `environment`, `rollback`, `cybersecurity`, `fat_sat`,
+  `safety_boundary`. Default items remain `pending`; real site
+  evidence is required.
+- `AMAXOTCertificationEvidence` — frozen audit record contrasting
+  AMAX hardware certification (CE, FCC, UL, EN 61131-2, IEC 61010-1,
+  Class 1 Div 2 where applicable, etc.) with AquaOptima
+  system-level qualification evidence (FAT, SAT, site cybersecurity
+  review, rollback dry-run, failure-mode walkthrough, Sprint 48
+  replay-to-live equivalence sign-off). The
+  `hardware_certifies_system` flag is fixed to `False` — AMAX
+  hardware certification is necessary but not sufficient for
+  AquaOptima system deployment.
+- `AMAXFailureMode` — frozen failure mode / effect / detection /
+  fallback record. Canonical helper `canonical_amax_failure_modes()`
+  covers stale telemetry, package install failure, CPU benchmark
+  failure, network loss, power loss, rollback failure, operator
+  disable unavailable, and CODESYS co-tenancy unresolved. Each
+  fallback narrates a fall-through to site PLC authority.
+- `AMAXSiteDeploymentEvidencePackage` — frozen Sprint 49 audit
+  bundle combining the checklist, certification evidence,
+  failure-mode matrix, Sprint 46 / 47 / 48 evidence references, and
+  the next gate. Carries explicit
+  `site_specific_approval_required=True`. Canonical helper
+  `default_amax_site_deployment_evidence_package()` returns the
+  conservative default package: every blocking item is `pending` and
+  the package is not site-approved.
+- `AMAXDeploymentReadinessDiagnostics` — deterministic warnings /
+  errors surfaced by
+  `diagnose_amax_site_deployment_evidence_package()` for unresolved
+  blocking items, missing required readiness categories, missing
+  failure-mode coverage, missing referenced evidence handles,
+  missing next-gate language, and unsafe vocabulary in labels.
+- New audit-only doc:
+  `docs/hardware/amax-5580-site-deployment-readiness.md` covering
+  the readiness checklist, cybersecurity posture, certification /
+  evidence map, FAT / SAT outline, failure-mode matrix, and the
+  explicit Sprint 49 boundary statement.
+
+What Sprint 49 **does not** ship:
+
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge;
+- no bypass of site PLC interlocks, permissives, trips, manual mode,
+  or emergency stop;
+- no live OPC UA / Modbus / CODESYS / SCADA / PLC / MQTT / HTTP /
+  database / message-broker client;
+- no Edge Runtime daemon / service implementation;
+- no AI / Optimization Server runtime, no Operations Console runtime;
+- no model artifact loading from disk, no inline model weights;
+- no credentials, passwords, tokens, API keys, or connection secrets
+  in docs / tests / source;
+- no site install approval by default;
+- no supervised writes or proposal-to-PLC path;
+- no Phase 1 `aquaoptima.*` import path removals or renames;
+- no movement of `evaluate_advisory_proposals`, `run_shadow_runtime`,
+  EPANET `.inp` import, or `Network` into the SDK.
+
+The non-negotiable safety boundary stays explicit: AMAX hardware
+certification is necessary but not sufficient for AquaOptima system
+deployment; FAT / SAT, cybersecurity, rollback, and failure-mode
+evidence are required before any pilot. The site PLC retains direct
+VFD / pump / actuator authority.
+
+**Sprint 50 (next gate, after Sprint 49 evidence is accepted)**
+should remain a **simulated supervisory proposal / PLC gatekeeper
+contract** sprint, not a live write / control sprint. Sprint 50 must
+not introduce live OT binding, PLC/PAC/SCADA write, command emission,
+setpoint output, control-loop closure, or any Edge Runtime daemon
+implementation. The site PLC retains direct VFD / pump / actuator
+authority for every Sprint 45+ AMAX deliverable until a future
+safety gate explicitly approves a supervised, bounded write surface.

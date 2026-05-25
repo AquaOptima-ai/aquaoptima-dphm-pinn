@@ -121,7 +121,7 @@ add a convergence-assertion CI test that proves
 the physics lambda, batchify, generalise the ablation harness
 across fixtures. See [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md).
 
-## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 / 45 / 46 / 47 projections)
+## Shared Contracts / SDK (Sprint 41 MVP + Sprint 42 / 43 / 44 / 45 / 46 / 47 / 48 / 49 projections)
 
 The Shared Contracts / SDK package ships under
 `src/aquaoptima_contracts/` and exposes the cross-component vocabulary
@@ -393,11 +393,60 @@ actuator control from AquaOptima Edge. Network segmentation and
 credential handling use labels / references only; no secrets are
 stored.
 
-Sprint 49 (next gate, after the Sprint 48 contract evidence is
-accepted) should be **AMAX Site Deployment Readiness / OT
-Certification Evidence Package**. Live OT binding, write paths,
-command emission, setpoint output, and control-loop closure stay out
-of scope.
+Sprint 49 additions (under
+`src/aquaoptima_contracts/edge/deployment_readiness.py`):
+
+- **Sprint 49 ships a site deployment readiness / OT certification
+  evidence package, not a site install approval.** The SDK module is
+  stdlib-only and introduces no live OT, PLC, SCADA, MQTT, HTTP,
+  database, or message-broker client. AMAX hardware certification is
+  *necessary but not sufficient* for AquaOptima system deployment.
+- `DeploymentReadinessItem` — frozen labels-only audit row (item id,
+  category, description, evidence reference label, owner / approver
+  label, status, blocking flag, notes).
+- `AMAXDeploymentReadinessChecklist` — frozen audit bundle of
+  readiness items. Canonical helper
+  `default_amax_deployment_readiness_checklist()` enumerates twelve
+  categories (`sku`, `os_image`, `codesys_package`, `network_ports`,
+  `physical_install`, `power`, `storage`, `environment`, `rollback`,
+  `cybersecurity`, `fat_sat`, `safety_boundary`). Default items
+  remain `pending`; real site evidence is required.
+- `AMAXOTCertificationEvidence` — frozen audit record contrasting
+  AMAX hardware certification with the AquaOptima system-level
+  qualification evidence (FAT, SAT, cybersecurity review, rollback
+  dry-run, failure-mode walkthrough, Sprint 48 replay-to-live
+  equivalence sign-off). The `hardware_certifies_system` flag is
+  fixed to `False`.
+- `AMAXFailureMode` — frozen failure mode / effect / detection /
+  fallback row. Canonical helper `canonical_amax_failure_modes()`
+  covers stale telemetry, package install failure, CPU benchmark
+  failure, network loss, power loss, rollback failure, operator
+  disable unavailable, and CODESYS co-tenancy unresolved.
+- `AMAXSiteDeploymentEvidencePackage` — frozen Sprint 49 audit
+  bundle combining the checklist, certification evidence,
+  failure-mode matrix, Sprint 46 / 47 / 48 evidence references, and
+  the next gate. Carries explicit
+  `site_specific_approval_required=True`.
+- `AMAXDeploymentReadinessDiagnostics` — deterministic warnings /
+  errors surfaced by
+  `diagnose_amax_site_deployment_evidence_package()` for unresolved
+  blocking items, missing required categories, missing failure-mode
+  coverage, missing referenced evidence, and unsafe vocabulary in
+  labels.
+
+Sprint 49 reaffirms the non-negotiable safety boundary: **no live OT
+binding**, **no PLC/PAC/SCADA write**, **no command emission**, **no
+setpoint output**, no control-loop closure, no site install approval
+by default, no supervised writes or proposal-to-PLC path. FAT / SAT,
+cybersecurity, rollback, and failure-mode evidence are required
+before any pilot. The site PLC retains direct VFD / pump / actuator
+authority.
+
+Sprint 50 (next gate, after the Sprint 49 evidence package is
+accepted) should remain a **simulated supervisory proposal / PLC
+gatekeeper contract** sprint, not a live write / control sprint.
+Live OT binding, write paths, command emission, setpoint output, and
+control-loop closure stay out of scope.
 
 The SDK is stdlib-only at runtime and never imports any
 `aquaoptima.*` deployable module. It does not introduce live OT
@@ -428,3 +477,4 @@ Planning references:
 - [`docs/hardware/amax-5580-feasibility.md`](docs/hardware/amax-5580-feasibility.md) — Sprint 46 AMAX-5580 feasibility evidence / SKU & OS decision gate
 - [`docs/hardware/amax-5580-cpu-benchmarking.md`](docs/hardware/amax-5580-cpu-benchmarking.md) — Sprint 47 AMAX-5580 CPU benchmark / packaging smoke harness
 - [`docs/hardware/amax-5580-read-only-integration.md`](docs/hardware/amax-5580-read-only-integration.md) — Sprint 48 AMAX-5580 read-only PLC/SCADA integration contract
+- [`docs/hardware/amax-5580-site-deployment-readiness.md`](docs/hardware/amax-5580-site-deployment-readiness.md) — Sprint 49 AMAX-5580 site deployment readiness / OT certification evidence package
