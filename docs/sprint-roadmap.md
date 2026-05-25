@@ -890,3 +890,97 @@ control-loop closure, or any Edge Runtime daemon implementation. The
 site PLC retains direct VFD / pump / actuator authority for every
 Sprint 45+ AMAX deliverable until a future safety gate explicitly
 approves a supervised, bounded write surface.
+
+## Sprint 51 — AMAX Pilot Readiness Review / Hardware-in-the-loop Plan
+
+Sprint 51 is the final AMAX evidence-ladder sprint. It defines an
+**AMAX pilot readiness review / hardware-in-the-loop (HIL) plan**:
+a deterministic, audit-only structure that maps the Sprint 46–50
+evidence ladder onto a concrete HIL test matrix and a go / no-go
+gate that must pass before any real lab or pilot is considered.
+**Sprint 51 ships an AMAX pilot readiness review / HIL plan
+contract, not a live write or control authorisation.** Sprint 51
+remains planning-only / HIL-readiness-only. It does not emit
+setpoints, commands, writes, or close a control loop. The SDK
+module is stdlib-only and introduces no live OT, PLC, SCADA, MQTT,
+HTTP, database, or message-broker client.
+
+Shipped in Sprint 51 (under
+`src/aquaoptima_contracts/edge/pilot_readiness.py`):
+
+- `HILTestCase` — frozen labels-only audit row for one HIL test
+  case (id, category, objective, required evidence references,
+  expected result, blocking flag, simulation_only flag, notes).
+  Always carries `simulation_only=True`. Categories cover package
+  install, CPU benchmark, read-only adapter, telemetry replay,
+  stale-data failure, package rollback, operator disable, network
+  loss, PLC gatekeeper dry-run, and deployment readiness review.
+- `HILTestMatrix` — frozen audit bundle of HIL test cases with a
+  matrix id, target hardware profile label, target OS / runtime
+  label, bench (or simulated) PLC label, references to Sprint 46–50
+  evidence, and audit notes.
+- `PilotReadinessEvidenceItem` — frozen audit row for one Sprint 51
+  evidence-ledger entry (id, source sprint / doc, status, owner /
+  reviewer label, blocking flag, notes). Status tokens are
+  `pending`, `available`, or `blocked`.
+- `PilotReadinessReview` — frozen Sprint 51 audit bundle combining
+  the HIL matrix, evidence items, open risks, verdict
+  (`not_ready`, `ready_for_lab_simulation`, or `blocked`),
+  referenced Sprint 46–50 evidence, next gate, and the reaffirmed
+  safety boundary. Carries explicit `live_control_authorized=False`.
+- `evaluate_amax_pilot_readiness_review()` — pure helper producing
+  a deterministic lab / simulation-only review from a matrix plus
+  a sequence of evidence items. The SDK refuses to produce any
+  verdict outside the lab / simulation vocabulary.
+- `AMAXPilotReadinessDiagnostics` — deterministic warnings / errors
+  record surfaced by `diagnose_amax_pilot_readiness_review()` when
+  the review is missing required HIL categories, missing Sprint
+  46–50 evidence references, attempts to declare live-control
+  authorisation, or carries unsafe vocabulary in identifier / label
+  fields.
+- New audit-only doc:
+  `docs/hardware/amax-5580-pilot-readiness-hil-plan.md` covering
+  the Sprint 46–50 evidence ladder, the HIL lab setup, the test
+  matrix, the evidence ledger, the go / no-go verdict vocabulary,
+  the evidence required before any real pilot, and the Sprint 51
+  boundary statement.
+
+What Sprint 51 **does not** ship:
+
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control from AquaOptima Edge;
+- no bypass of site PLC interlocks, permissives, trips, manual mode,
+  or emergency stop;
+- no live OPC UA / Modbus / CODESYS / SCADA / PLC / MQTT / HTTP /
+  database / message-broker client;
+- no Edge Runtime daemon / service implementation;
+- no AI / Optimization Server runtime, no Operations Console runtime;
+- no model artifact loading from disk, no inline model weights;
+- no credentials, passwords, tokens, API keys, or connection secrets
+  in docs / tests / source;
+- no site install approval by default;
+- no supervised writes, no proposal-to-PLC path, no live write or
+  control authorisation verdict;
+- no Phase 1 `aquaoptima.*` import path removals or renames;
+- no movement of `evaluate_advisory_proposals`, `run_shadow_runtime`,
+  EPANET `.inp` import, or `Network` into the SDK.
+
+The non-negotiable safety boundary stays explicit: Sprint 51 ships
+planning / HIL-readiness contracts, not a pilot sign-off. The site
+PLC retains direct VFD / pump / actuator authority.
+
+**After Sprint 51, Sprints 52+ are not yet well-planned and should
+be replanned before any implementation.** The recommended next step
+after Sprint 51 is a **phase checkpoint / Sprint 52–60 replanning
+gate**, not automatic live-control implementation. That checkpoint
+should re-examine whether the AMAX evidence ladder is sufficient to
+authorise a supervised-write pilot at all, which Phase 2 deployable
+should be advanced first (Edge Runtime, AI / Optimization Server, or
+Operations Console), whether the read-only adapter family should
+expand (e.g. an actual Modbus or OPC UA shim) before any write-
+surface conversation, and the staffing / safety / customer
+engagement context that must exist before a real pilot is scheduled.
