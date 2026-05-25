@@ -442,11 +442,65 @@ cybersecurity, rollback, and failure-mode evidence are required
 before any pilot. The site PLC retains direct VFD / pump / actuator
 authority.
 
-Sprint 50 (next gate, after the Sprint 49 evidence package is
-accepted) should remain a **simulated supervisory proposal / PLC
-gatekeeper contract** sprint, not a live write / control sprint.
-Live OT binding, write paths, command emission, setpoint output, and
-control-loop closure stay out of scope.
+Sprint 50 additions (under
+`src/aquaoptima_contracts/edge/supervisory_gatekeeper.py`):
+
+- **Sprint 50 ships a simulated supervisory proposal / PLC gatekeeper
+  contract, not a live write or control authorisation.** The SDK
+  module is stdlib-only and introduces no live OT, PLC, SCADA, MQTT,
+  HTTP, database, or message-broker client. The default contract is
+  conservative: every gatekeeper condition starts in
+  `not_evaluated`, the evaluation verdict is `not_evaluated`, and
+  `live_write_authorized` is fixed to `False`.
+- `SupervisoryProposalValue` — frozen labels-only audit row for one
+  simulated proposal value (axis label, target id, proposed value,
+  unit, lower / upper envelope, confidence, validity window seconds,
+  rollback / fallback reference, notes). Bounds are enforced
+  (`lower_envelope <= proposed_value <= upper_envelope`); confidence
+  is restricted to `[0.0, 1.0]`.
+- `SupervisoryProposalDryRun` — frozen audit bundle of proposal
+  values with proposal id, source evidence references, created-by
+  label, overall validity window, expiration label,
+  `simulation_only=True`, `dry_run=True`, and safety notes.
+- `PLCGatekeeperCondition` — frozen audit row for one gate (id,
+  category, required state, observed evidence label, status,
+  blocking flag, notes). Categories cover operator enable, mode
+  enabled, interlocks healthy, permissives healthy, stale-data
+  rejection, bounds / rate limits, fallback / manual priority, and
+  E-stop / manual override.
+- `PLCGatekeeperEvaluation` — frozen audit bundle combining a
+  proposal with a tuple of gatekeeper conditions and a deterministic
+  verdict (`not_evaluated`, `blocked`, or `simulation_accepted`).
+  Always carries `simulation_only=True`; the SDK refuses to produce
+  any live-write / control verdict.
+- `evaluate_plc_gatekeeper_dry_run()` — pure helper producing a
+  deterministic simulation-only evaluation from a proposal plus a
+  sequence of conditions.
+- `AMAXSupervisoryDryRunContract` — frozen Sprint 50 audit bundle
+  combining the proposal, the gatekeeper evaluation, Sprint 49
+  referenced evidence ids / docs, warnings / errors, and the next
+  gate (Sprint 51 — AMAX pilot readiness review / hardware-in-the-
+  loop plan, still no live control). Carries explicit
+  `live_write_authorized=False`.
+- `AMAXSupervisoryDryRunDiagnostics` — deterministic warnings /
+  errors record surfaced by
+  `diagnose_amax_supervisory_dry_run_contract()` when the contract
+  is missing gatekeeper categories, missing Sprint 49 referenced
+  evidence, missing next-gate language, attempts to declare live
+  write authorisation, or carries unsafe vocabulary in labels.
+
+Sprint 50 reaffirms the non-negotiable safety boundary: **no live OT
+binding**, **no PLC/PAC/SCADA write**, **no command emission**, **no
+setpoint output**, no control-loop closure, no supervised writes, no
+proposal-to-PLC path, no live write authorisation verdict. The site
+PLC retains direct VFD / pump / actuator authority. Sprint 50 ships
+contract shapes and a dry-run helper, not a pilot sign-off.
+
+Sprint 51 (next gate, after Sprint 50 contracts are accepted) should
+be an **AMAX pilot readiness review / hardware-in-the-loop plan**,
+still no live control. Sprint 51 must not introduce live OT binding,
+PLC/PAC/SCADA write, command emission, setpoint output, control-loop
+closure, or any Edge Runtime daemon implementation.
 
 The SDK is stdlib-only at runtime and never imports any
 `aquaoptima.*` deployable module. It does not introduce live OT
@@ -478,3 +532,4 @@ Planning references:
 - [`docs/hardware/amax-5580-cpu-benchmarking.md`](docs/hardware/amax-5580-cpu-benchmarking.md) — Sprint 47 AMAX-5580 CPU benchmark / packaging smoke harness
 - [`docs/hardware/amax-5580-read-only-integration.md`](docs/hardware/amax-5580-read-only-integration.md) — Sprint 48 AMAX-5580 read-only PLC/SCADA integration contract
 - [`docs/hardware/amax-5580-site-deployment-readiness.md`](docs/hardware/amax-5580-site-deployment-readiness.md) — Sprint 49 AMAX-5580 site deployment readiness / OT certification evidence package
+- [`docs/hardware/amax-5580-supervisory-dry-run-gatekeeper.md`](docs/hardware/amax-5580-supervisory-dry-run-gatekeeper.md) — Sprint 50 AMAX-5580 simulated supervisory proposal / PLC gatekeeper contract
