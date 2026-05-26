@@ -1040,3 +1040,72 @@ complete. Therefore:
 The safety boundary is unchanged: no live OT binding, no PLC/PAC/SCADA
 write, no command emission, no setpoint output, and no control-loop
 closure.
+
+## Sprint 53 — Site Data Validation / dPHM Readiness
+
+Sprint 53 starts a hardware-independent **Site Data Validation / dPHM
+Readiness** phase. AMAX-specific work is paused until AMAX-8580
+documentation and vendor details are mature. Sprint 53 lets AquaOptima
+ask a customer for a minimum viable pump-system dataset and grade
+whether the dataset is `good`, `usable`, `poor`, or `blocked` for
+testing dPHM / dPL / dPHM-PINN **without AMAX** and **without live OT
+integration**.
+
+Shipped in Sprint 53 (under
+`src/aquaoptima_contracts/site_data/intake.py`):
+
+- `SiteDataFieldRequirement` — frozen audit row for one expected
+  telemetry field (id, display name, telemetry role,
+  required / optional flag, accepted units, expected type,
+  description, example tags, quality notes). Deterministic
+  `to_dict` / `from_dict`.
+- `SiteDataExportSchema` — frozen audit bundle describing a minimum
+  viable export (schema id, site type, timestamp field, timezone
+  policy, sampling policy, required + optional fields, unit
+  normalisation notes, source evidence notes, safety notes).
+- `SiteTagMapTemplate` — frozen mapping from customer / site tag
+  names to canonical AquaOptima pump-system roles. Roles include
+  timestamp, pump_status, pump_speed_rpm, suction_pressure,
+  discharge_pressure, flow_rate, tank_level, valve_status,
+  pump_power_kw, current_amp, alarm_state, operating_mode.
+- `SiteDataQualityRule` — frozen audit row for one data-quality
+  check (coverage, missingness, unit presence, timestamp
+  monotonicity, duplicate timestamps, sampling interval drift,
+  pressure / flow plausibility, pump state availability, timezone
+  clarity).
+- `SiteDataReadinessAssessment` — frozen verdict carrying grade
+  (`good`, `usable`, `poor`, `blocked`), blocking gaps, warnings,
+  available fields, missing required fields, optional fields
+  present, recommendation, and safety notes.
+- Canonical helpers: `default_pump_site_data_export_schema()`,
+  `default_site_tag_map_template()`,
+  `default_site_data_quality_rules()`, and
+  `assess_site_data_readiness(...)`.
+- New audit-only docs:
+  `docs/site-data/site-data-intake-contract.md`,
+  `docs/site-data/site-data-request-template.md`, and
+  `docs/site-data/site-data-quality-grading.md`.
+- New synthetic fixture
+  `tests/fixtures/site_data/minimum_pump_site_export.csv` and tests
+  `tests/aquaoptima_contracts/test_site_data_intake.py`.
+
+What Sprint 53 **does not** ship:
+
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control;
+- no live OPC UA / Modbus / CODESYS / SCADA / PLC / MQTT / HTTP /
+  database / message-broker client;
+- no Edge Runtime daemon / service implementation;
+- no AMAX hardware probing;
+- no credentials, passwords, tokens, API keys, license keys, or
+  connection secrets in docs / tests / source;
+- no resumption of AMAX-8580 contracts (paused / backlog until vendor
+  details mature).
+
+The non-negotiable safety boundary stays explicit: Sprint 53 grades
+exported / uploaded site data only. The site PLC retains direct VFD /
+pump / actuator authority.
