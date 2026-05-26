@@ -1109,3 +1109,28 @@ What Sprint 53 **does not** ship:
 The non-negotiable safety boundary stays explicit: Sprint 53 grades
 exported / uploaded site data only. The site PLC retains direct VFD /
 pump / actuator authority.
+
+## MVP v1 real-site baseline — `water-pump-opt`
+
+A review of the deployed MVP v1 repository
+(`https://github.com/aquaoptima/water-pump-opt`, reviewed at `main` /
+`0210c22`) is captured in
+[`docs/integration/mvp-v1-water-pump-opt-baseline.md`](integration/mvp-v1-water-pump-opt-baseline.md).
+
+Planning decision:
+
+- Treat MVP v1 as the real-site legacy controller / field I/O baseline.
+- Do not describe it as a classical PID controller; it is better framed
+  as a deterministic multi-goal supervisory control policy with ramping,
+  hysteresis/confirmation windows, table-driven pump-combination
+  selection, and efficiency-aware frequency adjustments.
+- dPHM-PINN should not duplicate direct ThingsBoard / Modbus / MQTT
+  write-back or pump-switching control authority.
+- The first integration step should be a read-only shadow-mode adapter
+  contract: consume the same demand / sensor / pump-state / MVP-output
+  snapshots, compare dPHM-PINN advisory evidence against MVP decisions,
+  and log safety / residual / efficiency deltas.
+- Any MVP v1 adapter work should remain Backlog / Candidate until
+  execution-ready and must preserve the safety boundary: no live OT
+  binding, no PLC/PAC/SCADA write, no command emission, no setpoint
+  output, and no control-loop closure.
