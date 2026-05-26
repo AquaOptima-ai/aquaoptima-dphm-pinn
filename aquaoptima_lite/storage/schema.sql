@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS audit_cycle (
     snapshot_json   TEXT    NOT NULL,
     quality_json    TEXT    NOT NULL,
     recommendation_json TEXT NOT NULL,
-    authority_json  TEXT    NOT NULL
+    authority_json  TEXT    NOT NULL,
+    learner_shadow_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_cycle_site_created

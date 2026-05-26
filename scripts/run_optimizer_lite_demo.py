@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--replay", required=True)
     parser.add_argument("--cycles", type=int, default=4)
     parser.add_argument("--audit-db", default=None)
+    parser.add_argument("--learner-shadow", action="store_true")
     args = parser.parse_args()
 
     summary = run_demo(
@@ -28,11 +29,23 @@ def main() -> None:
         replay_path=Path(args.replay),
         cycles=args.cycles,
         audit_db=args.audit_db,
+        enable_learner_shadow=args.learner_shadow,
     )
     lines = cast(list[str], summary["lines"])
     for line in lines:
         print(line)
     print(f"audit_count={summary['audit_count']}")
+    if "learner_shadow" in summary:
+        learner = cast(dict[str, Any], summary["learner_shadow"])
+        learner_summary = cast(dict[str, Any], learner["summary"])
+        print(
+            "learner_shadow="
+            f"{learner['status']} "
+            f"confidence={learner['confidence']} "
+            f"accepted={learner_summary['accepted_samples']} "
+            f"rejected={learner_summary['rejected_samples']} "
+            f"influences_control={learner['influences_control']}"
+        )
     print(f"audit_db={summary['audit_db']}")
 
 

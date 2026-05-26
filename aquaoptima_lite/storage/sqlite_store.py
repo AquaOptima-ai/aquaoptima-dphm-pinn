@@ -63,6 +63,7 @@ class AuditRecord:
     quality: Mapping[str, Any] = field(default_factory=dict)
     recommendation: Mapping[str, Any] = field(default_factory=dict)
     authority: Mapping[str, Any] = field(default_factory=dict)
+    learner_shadow: Mapping[str, Any] = field(default_factory=dict)
 
 
 class SQLiteAuditStore:
@@ -109,6 +110,7 @@ class SQLiteAuditStore:
         quality: Any,
         recommendation: Any,
         authority: Any,
+        learner_shadow: Any = None,
         created_at: Optional[str] = None,
     ) -> int:
         ts = created_at or _isoformat_utc()
@@ -117,8 +119,9 @@ class SQLiteAuditStore:
                 """
                 INSERT INTO audit_cycle (
                     created_at, site_id, runtime_mode, config_hash,
-                    snapshot_json, quality_json, recommendation_json, authority_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    snapshot_json, quality_json, recommendation_json, authority_json,
+                    learner_shadow_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts,
@@ -129,9 +132,19 @@ class SQLiteAuditStore:
                     _json_dumps(quality),
                     _json_dumps(recommendation),
                     _json_dumps(authority),
+                    None if learner_shadow is None else _json_dumps(learner_shadow),
                 ),
             )
         return int(cur.lastrowid)
+
+    def attach_learner_shadow(self, audit_id: int, learner_shadow: Any) -> None:
+        """Attach shadow-only learner evidence to an existing audit row."""
+
+        with self._conn:
+            self._conn.execute(
+                "UPDATE audit_cycle SET learner_shadow_json = ? WHERE id = ?",
+                (_json_dumps(learner_shadow), int(audit_id)),
+            )
 
     # ------------------------------------------------------------------
     # Reads
@@ -147,6 +160,12 @@ class SQLiteAuditStore:
             quality=json.loads(row["quality_json"]),
             recommendation=json.loads(row["recommendation_json"]),
             authority=json.loads(row["authority_json"]),
+            learner_shadow=(
+                {}
+                if "learner_shadow_json" not in row.keys()
+                or row["learner_shadow_json"] is None
+                else json.loads(row["learner_shadow_json"])
+            ),
         )
 
     def count(self) -> int:
