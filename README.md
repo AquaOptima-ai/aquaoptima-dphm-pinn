@@ -74,6 +74,32 @@ Positive flow follows the directed edge orientation
 `source → target`. Demands: positive = consumer, negative = supplier.
 Full details: [`docs/units-and-sign-conventions.md`](docs/units-and-sign-conventions.md).
 
+
+
+## Sprint 52 - AMAX vendor PAC software inventory
+
+Sprint 52 adds a manual-grounded AMAX vendor PAC software inventory and
+integration-boundary contract. It is not replan-only: it ships SDK
+records, tests, and `docs/hardware/amax-5580-vendor-pac-software-inventory.md`.
+
+The important architecture correction is that AMAX/CODESYS is the
+PAC/control substrate. The AMAX-5580 CODESYS Ready PAC manual entry
+lists Windows 10 LTSC, 128 GB M.2, 2 MB NVRAM, and CODESYS V3 Pure
+Control with Visu(HMI). AquaOptima remains a sidecar advisory/evidence
+layer for model inference, validation, dry-run proposals, and read-only
+health/status evidence.
+
+The Linux driver package does not prove CODESYS Linux availability or
+licensing. It confirms EC/platform support such as watchdog, hwmon,
+LED, GPIO, and EEPROM. Vendor confirmation is still required before
+assuming CODESYS Linux Control or protocol package availability on a
+Linux AMAX image.
+
+Sprint 52 preserves the safety boundary: no live OT binding, no
+PLC/PAC/SCADA write, no command emission, no setpoint output, no
+control-loop closure, no CODESYS project generation, and no Python
+EtherCAT master/control implementation.
+
 ## Limitations (Sprint 4.5)
 
 - **No live PLC / PAC client.** Only the metadata layer

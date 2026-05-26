@@ -984,3 +984,39 @@ Operations Console), whether the read-only adapter family should
 expand (e.g. an actual Modbus or OPC UA shim) before any write-
 surface conversation, and the staffing / safety / customer
 engagement context that must exist before a real pilot is scheduled.
+
+## Sprint 52 - AMAX Vendor PAC Software Inventory / Integration Boundary Contracts
+
+Sprint 52 is a concrete artifact sprint, not a replan-only sprint. It
+ships the stdlib-only `vendor_pac_inventory` SDK projection, contract
+tests, and `docs/hardware/amax-5580-vendor-pac-software-inventory.md`.
+
+The sprint encodes manual-grounded findings from the AMAX-5580 user
+manual, AMAX-5000 I/O manual, and AMAX5580 Linux driver package:
+
+- Control IPC Barebone and CODESYS Ready PAC are distinct AMAX-5580
+  product personalities.
+- The CODESYS Ready PAC table lists Windows 10 LTSC, 128 GB M.2, 2 MB
+  NVRAM, and CODESYS V3 Pure Control with Visu(HMI).
+- AMAX/CODESYS is the PAC/control substrate for hard real-time control,
+  EtherCAT field I/O, CODESYS Visu/HMI, interlocks/permissives, and
+  actuator authority.
+- AquaOptima is a sidecar advisory/evidence layer for model inference,
+  validation, dry-run proposal records, advisory/evidence records, and
+  read-only health/status evidence.
+- The Linux driver package does not prove CODESYS Linux availability or
+  licensing; it only proves EC/platform driver support such as watchdog,
+  hwmon, LED, GPIO, and EEPROM.
+
+What Sprint 52 does not ship:
+
+- no live OT binding;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no live OPC UA / Modbus / CODESYS / SCADA client;
+- no CODESYS project generation;
+- no Python EtherCAT master/control implementation;
+- no hardware probing;
+- no credentials or license keys.
