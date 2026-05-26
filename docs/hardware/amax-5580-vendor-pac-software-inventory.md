@@ -198,3 +198,32 @@ Before purchasing or piloting, confirm with Advantech:
 Sprint 52 therefore grounds the next phase: AquaOptima should be a
 sidecar advisory/evidence layer beside AMAX/CODESYS, not a competing
 PAC runtime.
+
+## Supplier update: AMAX-8580 replaces AMAX-5580
+
+After Sprint 52 was prepared, the supplier advised that AMAX-5580 will
+stop production and that the replacement platform is **AMAX-8580**. The
+AMAX-8580 product is expected to release in approximately three months,
+and detailed user-manual / ordering / licensing evidence is not yet
+available beyond the current datasheet-level information.
+
+This document therefore remains the final AMAX-5580 vendor inventory,
+but it should now be read as **legacy fallback / historical evidence**.
+The forward AquaOptima Edge target should move to AMAX-8580 once vendor
+availability, exact SKU, OS image, CODESYS license/package, RAM/storage,
+real-time BIOS, and MRAM/NVRAM details are confirmed.
+
+The architecture boundary does not change:
+
+- AMAX/CODESYS remains the PAC/control substrate;
+- AquaOptima remains the sidecar advisory / inference / validation /
+  dry-run proposal / evidence layer;
+- no live OT binding;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure.
+
+Until AMAX-8580 details are confirmed, do not encode AMAX-8580 as a
+qualified deployment target. Treat it as the intended successor target
+with open vendor-confirmation gates.

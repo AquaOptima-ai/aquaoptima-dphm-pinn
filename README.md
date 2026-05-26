@@ -100,6 +100,21 @@ PLC/PAC/SCADA write, no command emission, no setpoint output, no
 control-loop closure, no CODESYS project generation, and no Python
 EtherCAT master/control implementation.
 
+
+
+### AMAX-8580 supplier update
+
+Supplier guidance after Sprint 52 indicates that **AMAX-5580 will stop
+production** and that **AMAX-8580** is the replacement platform, with
+product release expected in approximately three months. Detailed
+AMAX-8580 user-manual / ordering / licensing evidence is not yet fully
+available, so AMAX-8580 is now the intended forward Edge hardware target
+but remains behind vendor-confirmation gates.
+
+The AMAX-5580 inventory remains useful as historical / fallback evidence
+for the PAC boundary: AMAX/CODESYS owns PAC/control/HMI/EtherCAT field
+I/O, while AquaOptima remains the sidecar advisory/evidence layer.
+
 ## Limitations (Sprint 4.5)
 
 - **No live PLC / PAC client.** Only the metadata layer

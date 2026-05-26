@@ -1020,3 +1020,23 @@ What Sprint 52 does not ship:
 - no Python EtherCAT master/control implementation;
 - no hardware probing;
 - no credentials or license keys.
+
+### AMAX-8580 supplier update after Sprint 52
+
+Supplier guidance now says AMAX-5580 will stop production and the
+replacement model is AMAX-8580. AMAX-8580 is expected to release in
+approximately three months, and detailed vendor materials are not yet
+complete. Therefore:
+
+- AMAX-8580 becomes the intended forward AquaOptima Edge hardware target.
+- AMAX-5580 becomes legacy fallback / historical evidence.
+- Sprint 52 remains valid as a PAC-boundary correction, but future
+  sprints should generalize the inventory from AMAX-5580 to AMAX-8580
+  once vendor-confirmed details arrive.
+- No deployment qualification is implied until the exact AMAX-8580 SKU,
+  OS image, CODESYS package/license, real-time BIOS, MRAM/NVRAM,
+  RAM/storage, and sidecar support are confirmed.
+
+The safety boundary is unchanged: no live OT binding, no PLC/PAC/SCADA
+write, no command emission, no setpoint output, and no control-loop
+closure.
