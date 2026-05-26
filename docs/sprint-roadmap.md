@@ -984,3 +984,128 @@ Operations Console), whether the read-only adapter family should
 expand (e.g. an actual Modbus or OPC UA shim) before any write-
 surface conversation, and the staffing / safety / customer
 engagement context that must exist before a real pilot is scheduled.
+
+## Sprint 52 - AMAX Vendor PAC Software Inventory / Integration Boundary Contracts
+
+Sprint 52 is a concrete artifact sprint, not a replan-only sprint. It
+ships the stdlib-only `vendor_pac_inventory` SDK projection, contract
+tests, and `docs/hardware/amax-5580-vendor-pac-software-inventory.md`.
+
+The sprint encodes manual-grounded findings from the AMAX-5580 user
+manual, AMAX-5000 I/O manual, and AMAX5580 Linux driver package:
+
+- Control IPC Barebone and CODESYS Ready PAC are distinct AMAX-5580
+  product personalities.
+- The CODESYS Ready PAC table lists Windows 10 LTSC, 128 GB M.2, 2 MB
+  NVRAM, and CODESYS V3 Pure Control with Visu(HMI).
+- AMAX/CODESYS is the PAC/control substrate for hard real-time control,
+  EtherCAT field I/O, CODESYS Visu/HMI, interlocks/permissives, and
+  actuator authority.
+- AquaOptima is a sidecar advisory/evidence layer for model inference,
+  validation, dry-run proposal records, advisory/evidence records, and
+  read-only health/status evidence.
+- The Linux driver package does not prove CODESYS Linux availability or
+  licensing; it only proves EC/platform driver support such as watchdog,
+  hwmon, LED, GPIO, and EEPROM.
+
+What Sprint 52 does not ship:
+
+- no live OT binding;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no live OPC UA / Modbus / CODESYS / SCADA client;
+- no CODESYS project generation;
+- no Python EtherCAT master/control implementation;
+- no hardware probing;
+- no credentials or license keys.
+
+### AMAX-8580 supplier update after Sprint 52
+
+Supplier guidance now says AMAX-5580 will stop production and the
+replacement model is AMAX-8580. AMAX-8580 is expected to release in
+approximately three months, and detailed vendor materials are not yet
+complete. Therefore:
+
+- AMAX-8580 becomes the intended forward AquaOptima Edge hardware target.
+- AMAX-5580 becomes legacy fallback / historical evidence.
+- Sprint 52 remains valid as a PAC-boundary correction, but future
+  sprints should generalize the inventory from AMAX-5580 to AMAX-8580
+  once vendor-confirmed details arrive.
+- No deployment qualification is implied until the exact AMAX-8580 SKU,
+  OS image, CODESYS package/license, real-time BIOS, MRAM/NVRAM,
+  RAM/storage, and sidecar support are confirmed.
+
+The safety boundary is unchanged: no live OT binding, no PLC/PAC/SCADA
+write, no command emission, no setpoint output, and no control-loop
+closure.
+
+## Sprint 53 — Site Data Validation / dPHM Readiness
+
+Sprint 53 starts a hardware-independent **Site Data Validation / dPHM
+Readiness** phase. AMAX-specific work is paused until AMAX-8580
+documentation and vendor details are mature. Sprint 53 lets AquaOptima
+ask a customer for a minimum viable pump-system dataset and grade
+whether the dataset is `good`, `usable`, `poor`, or `blocked` for
+testing dPHM / dPL / dPHM-PINN **without AMAX** and **without live OT
+integration**.
+
+Shipped in Sprint 53 (under
+`src/aquaoptima_contracts/site_data/intake.py`):
+
+- `SiteDataFieldRequirement` — frozen audit row for one expected
+  telemetry field (id, display name, telemetry role,
+  required / optional flag, accepted units, expected type,
+  description, example tags, quality notes). Deterministic
+  `to_dict` / `from_dict`.
+- `SiteDataExportSchema` — frozen audit bundle describing a minimum
+  viable export (schema id, site type, timestamp field, timezone
+  policy, sampling policy, required + optional fields, unit
+  normalisation notes, source evidence notes, safety notes).
+- `SiteTagMapTemplate` — frozen mapping from customer / site tag
+  names to canonical AquaOptima pump-system roles. Roles include
+  timestamp, pump_status, pump_speed_rpm, suction_pressure,
+  discharge_pressure, flow_rate, tank_level, valve_status,
+  pump_power_kw, current_amp, alarm_state, operating_mode.
+- `SiteDataQualityRule` — frozen audit row for one data-quality
+  check (coverage, missingness, unit presence, timestamp
+  monotonicity, duplicate timestamps, sampling interval drift,
+  pressure / flow plausibility, pump state availability, timezone
+  clarity).
+- `SiteDataReadinessAssessment` — frozen verdict carrying grade
+  (`good`, `usable`, `poor`, `blocked`), blocking gaps, warnings,
+  available fields, missing required fields, optional fields
+  present, recommendation, and safety notes.
+- Canonical helpers: `default_pump_site_data_export_schema()`,
+  `default_site_tag_map_template()`,
+  `default_site_data_quality_rules()`, and
+  `assess_site_data_readiness(...)`.
+- New audit-only docs:
+  `docs/site-data/site-data-intake-contract.md`,
+  `docs/site-data/site-data-request-template.md`, and
+  `docs/site-data/site-data-quality-grading.md`.
+- New synthetic fixture
+  `tests/fixtures/site_data/minimum_pump_site_export.csv` and tests
+  `tests/aquaoptima_contracts/test_site_data_intake.py`.
+
+What Sprint 53 **does not** ship:
+
+- no live OT binding by default;
+- no PLC/PAC/SCADA write;
+- no command emission;
+- no setpoint output;
+- no control-loop closure;
+- no direct VFD / pump / actuator control;
+- no live OPC UA / Modbus / CODESYS / SCADA / PLC / MQTT / HTTP /
+  database / message-broker client;
+- no Edge Runtime daemon / service implementation;
+- no AMAX hardware probing;
+- no credentials, passwords, tokens, API keys, license keys, or
+  connection secrets in docs / tests / source;
+- no resumption of AMAX-8580 contracts (paused / backlog until vendor
+  details mature).
+
+The non-negotiable safety boundary stays explicit: Sprint 53 grades
+exported / uploaded site data only. The site PLC retains direct VFD /
+pump / actuator authority.
