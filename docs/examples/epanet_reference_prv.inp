@@ -1,0 +1,57 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 15 — small reference EPANET .inp fixture
+with a pressure-reducing valve (PRV). Four-node topology:
+
+    R1 (suction reservoir, fixed head 50 m)
+      |
+      +-- P1 (pipe 2000 m, 80 mm, C=130) --> J1 (elev 0, no consumer)
+                                                |
+                                                +-- V1 (PRV setting 20 m, 80 mm)
+                                                      |
+                                                      +-> J2 (elev 0; pinned by PRV)
+                                                            |
+                                                            +-- P2 (pipe 200 m, 80 mm)
+                                                                  |
+                                                                  +-> J3 (2 L/s consumer)
+
+The dPHM importer routes the PRV row through the conservative
+pressure-boundary surrogate. The downstream node J2 is pinned as a
+fixed-head boundary at ``elev_J2 + setting = 20 m``; the PRV edge
+itself becomes a short, permissive pipe-like resistance. This is NOT
+a faithful PRV — the demand / pressure-regulation invariant is not
+enforced. Mass balance on the now-fixed J2 is dropped from the
+residual, so flow through V1 may differ from downstream demand. See
+docs/epanet-inp-import.md for the exact assumptions and limitations.
+
+The fixture's upstream pipe (P1) is deliberately long and narrow so
+the upstream pressure budget caps the flow through V1 to a value
+close to the downstream demand. This gives a physically sensible
+solve even with the documented limitation.
+
+SI flow units (LPS), Hazen-Williams head loss. Solvable by
+aquaoptima.dphm.newton_solve with jacobian_mode="analytic".
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0    0.0      ;     ; upstream of PRV; no consumer
+ J2   0.0    0.0      ;     ; downstream of PRV (pinned to 20 m by import)
+ J3   0.0    2.0      ;     ; 2 L/s consumer
+
+[RESERVOIRS]
+;ID   Head   Pattern
+ R1   50.0   ;          ; 50 m fixed-head suction reservoir
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   R1      J1      2000.0   80.0       130.0       0.0         OPEN
+ P2   J2      J3       200.0   80.0       130.0       0.0         OPEN
+
+[VALVES]
+;ID   Node1   Node2   Diameter   Type   Setting   MinorLoss
+ V1   J1      J2      80         PRV    20.0      0
+
+[OPTIONS]
+ Units                LPS
+ Headloss             H-W
+
+[END]

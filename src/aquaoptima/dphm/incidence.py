@@ -47,6 +47,34 @@ def incidence_matrix(edge_index: torch.Tensor, num_nodes: int) -> torch.Tensor:
     return A
 
 
+def cached_incidence_matrix(network, dtype: torch.dtype) -> torch.Tensor:
+    """Per-``Network`` cached dense incidence matrix at the given ``dtype``.
+
+    Repeated Newton iterations and batched residual assembly invoke
+    :func:`incidence_matrix` once per call, rebuilding the same dense
+    ``[N, E]`` matrix each time. This helper memoises the result on a
+    lazily-created ``_incidence_cache`` dict attached to the
+    ``Network`` instance, keyed by ``dtype``. The cache is invisible to
+    the dataclass contract and to external readers, and stays cheap
+    because dPHM networks reuse a fixed topology across batches.
+
+    Falls back transparently to :func:`incidence_matrix` if the
+    network object disallows attribute assignment.
+    """
+    cache = getattr(network, "_incidence_cache", None)
+    if cache is None:
+        cache = {}
+        try:
+            object.__setattr__(network, "_incidence_cache", cache)
+        except (AttributeError, TypeError):
+            return incidence_matrix(network.edge_index, network.num_nodes).to(dtype)
+    A = cache.get(dtype)
+    if A is None:
+        A = incidence_matrix(network.edge_index, network.num_nodes).to(dtype)
+        cache[dtype] = A
+    return A
+
+
 def node_flow_balance(
     edge_index: torch.Tensor,
     flows: torch.Tensor,

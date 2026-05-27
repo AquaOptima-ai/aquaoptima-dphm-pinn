@@ -1,0 +1,3599 @@
+# EPANET `.inp` Topology Import (Sprint 11–33)
+
+Sprint 11 extends the dPHM topology loader stack with optional
+EPANET-style `.inp` import, alongside the Sprint 8 JSON loader.
+Sprint 12 adds HEAD-curve pump translation to the fallback parser
+(see "Pump HEAD curves" below). Sprint 13 brings the optional
+WNTR-backed parser into parity with the fallback parser for the same
+HEAD-curve pumps. Sprint 14 adds `POWER`-pump support to both
+back-ends via a bounded quadratic surrogate (see "POWER pumps"
+below). Sprint 15 adds conservative `[VALVES]` translation for the
+two steady-state-compatible forms `PRV` and `TCV` (see "Valves"
+below). Sprint 16 widens the fallback parser to handle the
+US-customary EPANET flow-unit family (`GPM`, `CFS`, `MGD`, `IMGD`,
+`AFD`) on top of the SI family (see "Unit conventions" below).
+Sprint 17 adds explicit `[OPTIONS] Pressure` parsing so PRV settings
+can be declared in psi / kPa / bar / metres / feet independently of
+the flow-unit family (see "Pressure units" below). Sprint 18 adds
+fallback support for the `[OPTIONS] Demand Multiplier` directive
+(see "Demand multiplier" below). Sprint 19 adds fallback support for
+the `[OPTIONS] Specific Gravity` directive and propagates the fluid
+density ratio to PRV pressure-unit conversions (for `PSI`/`KPA`/`BAR`)
+and to the POWER pump surrogate (see "Specific gravity" below).
+Sprint 20 adds fallback support for the `[OPTIONS] Viscosity`
+directive as a parser-only compatibility feature; the dPHM core uses
+Hazen-Williams head loss, which has no viscosity term, so the
+directive is parsed and validated but never propagated to any
+hydraulic field (see "Viscosity" below).
+Sprint 21 makes the fallback parser's ignored-section contract
+*explicit*: the public `IGNORED_SECTIONS` frozenset enumerates every
+EPANET section the parser deliberately treats as a silent no-op
+(`[TIMES]`, `[REPORT]`, `[CONTROLS]`, `[RULES]`, `[EMITTERS]`,
+`[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]`, plus the inert
+layout sections), and ships explicit tests pinning the invariance
+that adding any of those sections to a fixture leaves the loaded
+`Network` byte-for-byte unchanged (see "Ignored sections" below).
+Sprint 22 narrows the Sprint 21 contract for `[STATUS]`: the
+fallback parser now actively validates `[STATUS]` rows so EPANET-
+exported files that declare explicit `<link_id> OPEN` rows load
+without pretending to implement closed-link or active status physics
+(see "Explicit [STATUS] no-op rows (Sprint 22)" below).
+Sprint 23 builds on Sprint 22 by surfacing accepted `[STATUS] OPEN`
+rows as a read-only diagnostics container (`EpanetImportDiagnostics`),
+accessed via the new `load_inp_diagnostics(path)` accessor or via
+`load_network_from_inp(path, return_diagnostics=True)`. Diagnostics
+are hydraulically inert — the returned `Network` is unchanged — and
+the Sprint 22 rejection behaviour for status-changing rows is
+preserved (see "Read-only [STATUS] diagnostics (Sprint 23)" below).
+Sprint 24 extends the same `EpanetImportDiagnostics` container with
+an `ignored_sections` field carrying one read-only
+`EpanetIgnoredSectionDiagnostic` per `IGNORED_SECTIONS` member that
+was actually declared in the imported file (e.g. `[CONTROLS]`,
+`[RULES]`, `[PATTERNS]`, `[ENERGY]`). Sprint 24 only adds visibility
+— every ignored section remains dropped on the floor at parse time,
+the Sprint 21 invariance contract still holds, and `[STATUS]` is
+never surfaced through `ignored_sections` because Sprint 22 already
+removed it from `IGNORED_SECTIONS` (see "Read-only ignored-section
+diagnostics (Sprint 24)" below).
+Sprint 25 narrows the per-row visibility surface for two ignored
+sections only — `[CONTROLS]` and `[RULES]` — by adding a
+`control_rule_rows` field on the same `EpanetImportDiagnostics`
+container. Each row inside those two sections produces one read-only
+`EpanetControlRuleDiagnostic` (`section`, `row_index`, `tokens`,
+`text`, `message`) in source order. Sprint 25 still does NOT
+activate any control or rule logic — rows remain dropped on the
+floor at parse time, the loaded `Network` is byte-for-byte
+identical to one loaded from a fixture with no `[CONTROLS]` /
+`[RULES]` block, and the Sprint 22 `[STATUS]` rejection behaviour is
+preserved (see "Read-only [CONTROLS] / [RULES] row diagnostics
+(Sprint 25)" below).
+Sprint 26 extends the same per-row visibility model to two more
+ignored sections — `[PATTERNS]` and `[ENERGY]` — by adding a
+`pattern_energy_rows` field on the same `EpanetImportDiagnostics`
+container. Each row inside those two sections produces one read-only
+`EpanetPatternEnergyDiagnostic` (`section`, `row_index`, `tokens`,
+`text`, `message`) in source order. Sprint 26 still does NOT
+activate time-varying demand support or energy-cost modelling —
+rows remain dropped on the floor at parse time, the loaded `Network`
+is byte-for-byte identical to one loaded from a fixture with no
+`[PATTERNS]` / `[ENERGY]` block, and every earlier-sprint contract
+(`[STATUS]` rejection, `[CONTROLS]` / `[RULES]` no-op, etc.) is
+preserved (see "Read-only [PATTERNS] / [ENERGY] row diagnostics
+(Sprint 26)" below).
+Sprint 27 tags each `[CONTROLS]` row with a conservative,
+deterministic classification (`LINK_SETTING`, `PUMP_SETTING`,
+`VALVE_SETTING`, or `UNKNOWN`) on top of the Sprint 25 per-row
+`control_rule_rows` channel. Classification is link-type-aware: the
+fallback parser uses the declared `[PIPES]` / `[PUMPS]` / `[VALVES]`
+ids to distinguish what kind of link a control row would target, but
+it never evaluates conditions or settings. `[RULES]` rows always
+classify as `UNKNOWN` because the importer does not interpret rule
+structure. Sprint 27 still does NOT activate any control or rule
+logic — unknown `[CONTROLS]` rows are diagnosed (not rejected), the
+loaded `Network` is byte-for-byte identical to a fixture without
+`[CONTROLS]` / `[RULES]`, and every earlier-sprint contract holds
+(see "Read-only [CONTROLS] row classification (Sprint 27)" below).
+Sprint 28 extends the per-row visibility model to a third pair of
+ignored sections — `[EMITTERS]` and `[DEMANDS]` — by adding an
+`emitter_demand_rows` field on the same `EpanetImportDiagnostics`
+container. Each row inside those two sections produces one read-only
+`EpanetEmitterDemandDiagnostic` (`section`, `row_index`, `tokens`,
+`text`, `message`) in source order. Sprint 28 still does NOT activate
+pressure-dependent emitter / leakage modelling, multi-category demand
+parsing, or pattern-keyed demand support — rows remain dropped on
+the floor at parse time, the loaded `Network` is byte-for-byte
+identical to one loaded from a fixture with no `[EMITTERS]` /
+`[DEMANDS]` block, and every earlier-sprint contract (`[STATUS]`
+rejection, `[CONTROLS]` / `[RULES]` no-op, `[PATTERNS]` / `[ENERGY]`
+no-op, etc.) is preserved (see "Read-only [EMITTERS] / [DEMANDS] row
+diagnostics (Sprint 28)" below).
+Sprint 29 closes the per-row visibility ladder for the remaining
+content-bearing members of `IGNORED_SECTIONS` — the four water-
+quality-family sections `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, and
+`[MIXING]` — by adding a `water_quality_rows` field on the same
+`EpanetImportDiagnostics` container. Each row inside those four
+sections produces one read-only `EpanetWaterQualityDiagnostic`
+(`section`, `row_index`, `tokens`, `text`, `message`) in source
+order. Sprint 29 still does NOT activate water-quality simulation,
+source injection, reaction / decay modelling, or tank-mixing
+modelling — rows remain dropped on the floor at parse time, the
+loaded `Network` is byte-for-byte identical to one loaded from a
+fixture with no water-quality block, and every earlier-sprint
+contract (`[STATUS]` rejection, `[CONTROLS]` / `[RULES]` no-op,
+`[PATTERNS]` / `[ENERGY]` no-op, `[EMITTERS]` / `[DEMANDS]` no-op,
+etc.) is preserved (see "Read-only water-quality row diagnostics
+(Sprint 29)" below).
+The public entry point is one function:
+
+```python
+from aquaoptima.dphm import load_network_from_inp
+
+network = load_network_from_inp(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="auto",        # "auto" | "fallback" | "wntr"
+    units="si",           # only "si" supported in Sprint 11
+    default_c_factor=130, # used when a pipe row omits roughness
+)
+```
+
+`load_network_from_inp` returns the same `aquaoptima.dphm.Network`
+dataclass every other loader and fixture produces — so any code that
+already consumes a `Network` from the JSON loader, the hand-built
+fixtures, or `make_grid_network` works with an INP-loaded network
+unchanged.
+
+This is **topology import only**. The loader does not:
+
+- start or talk to an EPANET binary / runtime;
+- run a hydraulic simulation;
+- bind PLC / PAC / SCADA tags (that responsibility stays in
+  `aquaoptima.dataio.tag_map`);
+- provide any write or control path.
+
+See `docs/safety-boundary.md` for the full safety / boundary diagram.
+
+## Back-ends
+
+| `parser`     | Behaviour                                                                                                         |
+|--------------|-------------------------------------------------------------------------------------------------------------------|
+| `"auto"`     | Prefer the WNTR back-end if `wntr` is importable, otherwise use the built-in fallback parser. **Default.**        |
+| `"fallback"` | Always use the built-in fallback parser. Dependency-free.                                                          |
+| `"wntr"`     | Use the upstream [WNTR](https://github.com/USEPA/WNTR) loader. Raises `ImportError` if `wntr` is not installed.    |
+
+WNTR is an **optional** dependency. The base test suite and base
+install never require it. To opt in:
+
+```bash
+pip install 'aquaoptima-dphm-pinn[epanet]'    # pulls in wntr>=1.0
+# or
+pip install wntr
+```
+
+When WNTR is not installed, the optional test module
+`tests/dphm/test_wntr_optional_import.py` skips cleanly via
+`pytest.importorskip("wntr")`.
+
+## Fallback parser — supported INP subset
+
+The fallback parser is intentionally small. It supports the subset
+needed to load steady-state reference fixtures.
+
+### Honoured sections
+
+| Section          | Notes                                                                                                    |
+|------------------|----------------------------------------------------------------------------------------------------------|
+| `[JUNCTIONS]`    | id, elevation, baseline demand. Pattern column is ignored (steady-state).                                |
+| `[RESERVOIRS]`   | id, head. Pattern column is ignored.                                                                     |
+| `[TANKS]`        | id, elevation, init-level → mapped to a fixed-head boundary at `elev + init_level`. Curves ignored.       |
+| `[PIPES]`        | id, node1, node2, length, diameter, roughness, optional minor-loss (ignored), optional status (`OPEN`).  |
+| `[OPTIONS]`      | `Units` (flow-unit family), `Headloss` (must be `H-W`), `Pressure` (Sprint 17: optional pressure-display unit for PRV settings), `Demand Multiplier` (Sprint 18: optional non-negative scalar that scales every junction's baseline demand at load time), `Specific Gravity` (Sprint 19: optional strictly-positive density ratio that scales PRV pressure conversions for `PSI`/`KPA`/`BAR` and the POWER pump surrogate's effective density), and `Viscosity` (Sprint 20: optional strictly-positive kinematic-viscosity ratio — parsed and validated but NOT propagated to any hydraulic field because the dPHM core is Hazen-Williams). |
+| `[PUMPS]`        | Sprint 12: `HEAD curve_id` pump rows translate via least-squares curve fit. Sprint 14: `POWER value` pump rows translate via the constant-power surrogate. |
+| `[VALVES]`       | Sprint 15: `PRV` and `TCV` valve rows translate via the conservative pressure-boundary / resistance surrogates. See "Valves" below.   |
+| `[CURVES]`       | Sprint 12: pump HEAD curves are parsed into `(Q, H)` points. The X column is converted to m³/s using the file's flow-unit factor. Unused curves are tolerated. |
+| `[TITLE]`, `[COORDINATES]`, `[PATTERNS]`, `[REPORT]`, `[TIMES]`, `[END]`, ... | Silently ignored.                                  |
+
+### Sections that fail loudly
+
+| Section          | Reason                                                                                                                                |
+|------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `[PUMPS]` (unsupported keyword) | Raises `ValueError`. The parser supports `HEAD curve_id` (Sprint 12) and `POWER value` (Sprint 14). `SPEED` and any custom keyword still raise. |
+| `[VALVES]` (unsupported type)   | Raises `ValueError` with the valve id. Sprint 15 supports `PRV` and `TCV` only; `FCV`, `PSV`, `PBV`, and `GPV` are deferred (they impose constraints — flow setpoints, pressure-sustaining / breaker, custom head-loss curves — that don't map cleanly onto the steady-state core). |
+
+As of Sprint 15, the WNTR back-end mirrors the fallback parser's
+valve translation: `PRV` and `TCV` route through the same
+`translate_valve_to_surrogate` helper, and other valve types raise
+a clear `ValueError` referencing the valve id. As of Sprint 14, the
+WNTR back-end translates both HEAD-curve and POWER pumps; any
+remaining pump type (custom strings, future EPANET extensions)
+raises `ValueError` from the WNTR adapter, matching the fallback
+parser's behaviour.
+
+## Pump HEAD curves (Sprint 12)
+
+EPANET pump rows can specify their characteristic as a `HEAD` curve:
+
+```text
+[PUMPS]
+;ID    Node1   Node2   Parameters
+ PU1   R1      J1      HEAD   PUMPCURVE1
+
+[CURVES]
+;ID          X-Value   Y-Value
+ PUMPCURVE1   0.0      45.00
+ PUMPCURVE1  20.0      44.68
+ PUMPCURVE1  50.0      43.00
+```
+
+The Sprint 12 fallback parser translates each such pump into a
+single dPHM pump edge via the helper
+`aquaoptima.dphm.fit_pump_head_curve`. The fit is a 3-parameter
+least-squares solve against the dPHM affinity quadratic at the
+static nominal speed `s = 1`:
+
+```
+H(Q) = a0 + a1·Q + a2·Q²
+```
+
+The X-column of the curve is converted from the file-declared
+flow unit (e.g. L/s under `LPS`) to m³/s **before** fitting, so the
+resulting `[a0, a1, a2]` are directly compatible with the dPHM
+pump-affinity API (which consumes flows in m³/s).
+
+`fit_pump_head_curve` returns the coefficients together with a
+diagnostics dict:
+
+| key              | meaning                                                                  |
+|------------------|--------------------------------------------------------------------------|
+| `a0`, `a1`, `a2` | Fitted dPHM quadratic coefficients (at `s = 1`).                         |
+| `rmse`           | Root-mean-square residual of the fit against the input points (m).      |
+| `max_abs_error`  | Maximum absolute residual of the fit (m).                                |
+| `num_points`     | Number of `(Q, H)` points consumed.                                      |
+| `q_min`, `q_max` | Flow domain spanned by the input points (m³/s).                          |
+| `droop_ok`       | `1.0` iff `a2 ≤ 0` (physically sensible centrifugal-pump droop).         |
+
+### Constraints and failure modes
+
+The fitter and pump-row parser fail loudly on input that cannot
+sustain a credible dPHM pump model:
+
+- Fewer than 3 curve points → `ValueError` (quadratic fit is
+  under-determined).
+- Negative or non-finite flow values → `ValueError`.
+- Non-positive or non-finite head values → `ValueError`.
+- Fitted shut-off head `a0 ≤ 0` → `ValueError` (no curve EPANET
+  considers valid would produce this; the data is almost certainly
+  mislabeled).
+- Pump row references a curve id not declared under `[CURVES]` →
+  `ValueError`.
+- Pump row uses any keyword other than `HEAD` (e.g. `POWER`,
+  `SPEED`) → `ValueError`.
+- Duplicate pump id (with another pump or with a pipe) → `ValueError`.
+
+The fitter additionally records `droop_ok = 0` when the fit produces
+`a2 > 0` (head rises with flow). Sprint 12 *accepts* such fits — the
+solver does not require `a2 ≤ 0` — but the diagnostic is exposed so
+downstream code can warn on physically suspicious curves.
+
+### Edge ordering
+
+Pipes come first, then pumps, in file order within each section.
+A file with `[PIPES]` rows `P1, P2` followed by `[PUMPS]` rows
+`PU1, PU2` produces an edge index `[P1, P2, PU1, PU2]`. The
+`pipe_mask` / `pump_mask` partition is preserved exactly.
+
+### Shipped pump fixture
+
+`docs/examples/epanet_reference_pump.inp` is a tiny three-node
+topology (one reservoir, one pump, one pipe, two junctions) with a
+6-point HEAD curve. The curve points lie exactly on
+`H = 45 − 800·Q²` so the fit recovers `[a0, a1, a2] = [45, 0, −800]`
+to float-precision tolerances. The network solves with
+`newton_solve(..., jacobian_mode="analytic")` to a residual norm at
+or below the working tolerance.
+
+## POWER pumps (Sprint 14)
+
+EPANET also accepts a constant-power pump declaration:
+
+```text
+[PUMPS]
+;ID    Node1   Node2   Parameters
+ PU1   R1      J1      POWER   7.5     ; 7.5 kW shaft power
+```
+
+A constant-power pump describes its shaft power as
+
+```
+P = rho * g * Q * H
+=> H = P / (rho * g * Q)
+```
+
+That curve is **hyperbolic** in `Q` and **singular** at `Q -> 0`,
+which is fundamentally incompatible with the dPHM core's quadratic
+pump characteristic `H(Q, s) = a0 s² + a1 s Q + a2 Q²`. Sprint 14
+therefore does **not** translate POWER pumps faithfully. Instead it
+ships a deliberately conservative, bounded **surrogate**:
+
+`aquaoptima.dphm.fit_power_pump_surrogate(power_kw, nominal_flow_m3s,
+*, shutoff_multiplier=1.5)` returns `[a0, a1, a2]` constructed so:
+
+1. The surrogate passes through one anchor operating point
+   `(Q_nom, H_nom)` where `H_nom = P_watts / (rho * g * Q_nom)`.
+2. The shut-off head is fixed at `a0 = shutoff_multiplier * H_nom`
+   (default 1.5×, i.e. 50% above the operating head).
+3. The linear term `a1 = 0` — a constant-power declaration carries
+   no information about it.
+4. The quadratic term `a2 = (H_nom - a0) / Q_nom²` is therefore
+   strictly negative (drooping curve) whenever
+   `shutoff_multiplier > 1`.
+
+Internally the helper uses `rho = 1000 kg/m³` and `g = 9.80665 m/s²`,
+matching EPANET's defaults.
+
+### Nominal-flow anchor
+
+The most important input to the surrogate is the nominal-flow
+anchor `Q_nom`. The fallback parser and the WNTR adapter both pick
+it from the loaded network in the same order:
+
+1. **Downstream node's base demand**, if positive — when the pump
+   directly feeds a single consumer.
+2. **Total positive demand** across the network, if positive —
+   when the pump is the only source.
+3. **1 L/s default**, as a finite last-resort anchor. The
+   surrogate diagnostics record `nominal_flow_m3s = 1e-3` so
+   downstream code can detect this branch.
+
+### Conventions and assumptions
+
+| Assumption                            | Reason                                                                            |
+|---------------------------------------|-----------------------------------------------------------------------------------|
+| EPANET `POWER` value is in **kW**     | The standard EPANET SI convention. Both parsers convert to W internally.          |
+| WNTR `Pump.power` is in **W**         | WNTR normalises all hydraulic quantities to SI on load. We divide by 1000 to get kW. |
+| `rho = 1000 kg/m³`, `g = 9.80665 m/s²` | Matches EPANET's internal pump-energy calculation.                                |
+| `shutoff_multiplier = 1.5`            | A conservative droop default. Tuneable via the keyword argument.                  |
+
+### `fit_power_pump_surrogate` diagnostics
+
+| key                  | meaning                                                  |
+|----------------------|----------------------------------------------------------|
+| `approximation`      | Always `"constant_power_surrogate"`.                     |
+| `power_kw`           | Input shaft power in kW.                                 |
+| `nominal_flow_m3s`   | Anchor flow used to compute `H_nom`.                     |
+| `head_at_nominal_m`  | `H_nom = P / (rho * g * Q_nom)`.                         |
+| `shutoff_head_m`     | `a0 = shutoff_multiplier * H_nom`.                       |
+| `shutoff_multiplier` | The ratio `a0 / H_nom`.                                  |
+| `a0`, `a1`, `a2`     | Resulting dPHM quadratic coefficients.                   |
+
+No `rmse` is reported: the surrogate is constructed analytically
+from one point and a shape choice, not fitted to multiple points.
+
+### Failure modes
+
+- `power_kw <= 0` or non-finite → `ValueError`.
+- `nominal_flow_m3s <= 0` or non-finite → `ValueError`.
+- `shutoff_multiplier <= 1` → `ValueError` (would not produce a
+  drooping curve).
+- Fallback parser: `POWER` value column is non-numeric or
+  non-positive → `ValueError`.
+- WNTR adapter: missing `power` attribute, non-numeric, or
+  non-positive → `ValueError`.
+
+### What the surrogate is NOT
+
+- It is **not** a faithful translation of the constant-power
+  declaration away from `Q_nom`. The product `Q * H(Q)` is not
+  constant under the surrogate; only the operating point matches.
+- It is **not** a substitute for a real HEAD curve. If the source
+  network has a known pump curve, replace the `POWER` row with a
+  `HEAD curve_id` declaration and the matching `[CURVES]` rows.
+- It does **not** model power loss, efficiency, or motor curves.
+
+### Shipped POWER fixture
+
+`docs/examples/epanet_reference_power_pump.inp` is a three-node
+topology (one reservoir, one pump, one pipe, two junctions). The
+pump declares `POWER 7.5` (kW). With the default
+`shutoff_multiplier = 1.5` and the anchor flow `Q_nom = 15 L/s`
+(total positive demand), the surrogate evaluates to:
+
+- `H_nom = 7500 / (1000 * 9.80665 * 0.015) ≈ 50.99 m`
+- `a0 = 1.5 * H_nom ≈ 76.48 m`
+- `a1 = 0`
+- `a2 = (H_nom - a0) / Q_nom² ≈ -113,288 m·s²/m⁶`
+
+The network solves with `newton_solve(jacobian_mode="analytic")` to a
+residual norm at or below the working tolerance, and round-trips
+through `generate_physics_consistent_telemetry`.
+
+## Valves (Sprint 15)
+
+EPANET valve rows live in a `[VALVES]` section:
+
+```text
+[VALVES]
+;ID  Node1  Node2  Diameter  Type  Setting  MinorLoss
+ V1  J1     J2     150       PRV   35       0
+ V2  J2     J3     150       TCV   2.5      0
+```
+
+The dPHM steady-state core does not model active valve-control
+state as a first-class hydraulic constraint. Sprint 15 therefore
+imports the two **conservative, steady-state-compatible** valve
+forms via a deliberately approximate translation:
+
+- `PRV` — pressure-reducing valve — translated as a **pressure-
+  boundary surrogate**.
+- `TCV` — throttle control valve — translated as a **resistance
+  surrogate** (an equivalent Hazen-Williams pipe edge).
+
+Other valve forms (`FCV` flow-control, `PSV` pressure-sustaining,
+`PBV` pressure-breaker, `GPV` general-purpose) raise a clear
+`ValueError` with the valve id.
+
+The public translator is `translate_valve_to_surrogate(...)`. The
+public TCV helper is `fit_tcv_resistance_surrogate(...)`. Both are
+re-exported from `aquaoptima.dphm`.
+
+### PRV — pressure-boundary surrogate
+
+For a `PRV` row `V1 N1 N2 D PRV setting K_minor`:
+
+1. The downstream node `N2` is pinned as a fixed-head boundary at
+   `head = elev(N2) + setting`. The setting is interpreted in
+   metres of pressure head (the EPANET SI convention).
+2. The valve edge itself becomes a short, permissive pipe-like
+   resistance edge (`length = max(2 * D, 1 m)`, file diameter,
+   `c_factor = 130`).
+3. The translation records `approximation =
+   "prv_pressure_boundary_surrogate"` in the helper's diagnostics.
+
+Hard constraints:
+
+- `N2` must not already be a fixed-head boundary (reservoir or
+  tank). Overwriting an existing boundary would silently change
+  the network's physics, so the parser refuses with a clear error
+  referencing the valve id.
+- `setting` must be strictly positive and finite.
+- `diameter` must be strictly positive and finite.
+
+**What the PRV surrogate is NOT:**
+
+- It does **not** enforce active flow / pressure regulation. Mass
+  balance on the now-fixed downstream node is dropped from the
+  residual, so the flow through the PRV edge is determined by the
+  upstream pressure budget, *not* by downstream demand. The two
+  may differ.
+- It does **not** model the EPANET active-control state machine
+  (active / open / closed branches).
+- The shipped fixture `epanet_reference_prv.inp` deliberately uses
+  a long, narrow upstream pipe so the upstream pressure budget
+  caps the through-valve flow close to the downstream demand —
+  this is the recommended pattern when building hand-crafted PRV
+  fixtures.
+
+### TCV — resistance surrogate
+
+For a `TCV` row `V1 N1 N2 D TCV K K_minor`:
+
+1. `K_total = K + K_minor`.
+2. Anchor flow `Q_nom` = network's total positive demand (or 1 L/s
+   default if the network has no positive demand; the diagnostic
+   field `nominal_flow_m3s` records the actual value used).
+3. Minor-loss head loss at anchor:
+   `h_minor = K_total * Q_nom² / (2 g A²)`, where `A = π D² / 4`.
+4. Equivalent Hazen-Williams pipe length so the HW head loss at
+   `Q_nom` matches `h_minor`:
+   `L_eff = h_minor / (10.67 * Q_nom^1.852 / (C^1.852 * D^4.87))`.
+5. The surrogate edge has `length = L_eff` (floored at 1e-6 m to
+   keep the `Network` invariants intact), the file diameter, and
+   the default `c_factor = 130`.
+6. The translation records `approximation =
+   "tcv_resistance_surrogate"` and the chosen anchor in the
+   helper's diagnostics.
+
+Hard constraints:
+
+- `setting` (K) must be non-negative and finite.
+- `K_minor` must be non-negative and finite.
+- `diameter` must be strictly positive and finite.
+
+**What the TCV surrogate is NOT:**
+
+- HW scales as `|Q|^1.852` while the true minor-loss term scales
+  as `K * Q²`. The two match exactly at `Q_nom` and diverge as
+  `Q` moves away from the anchor. The surrogate is therefore a
+  *single-anchor* approximation, not a faithful valve model.
+- It does not model the valve as an active control element. The
+  effective length is fixed at parse time and the dPHM solver
+  treats the edge as an ordinary pipe.
+
+### `fit_tcv_resistance_surrogate` diagnostics
+
+| key                  | meaning                                                  |
+|----------------------|----------------------------------------------------------|
+| `approximation`      | Always `"tcv_resistance_surrogate"`.                     |
+| `valve_type`         | Always `"TCV"`.                                          |
+| `diameter_m`         | Input diameter in metres.                                |
+| `setting`            | Input minor-loss coefficient `K`.                        |
+| `minor_loss`         | Input `K_minor` column.                                  |
+| `nominal_flow_m3s`   | Anchor flow used for `L_eff`.                            |
+| `effective_length_m` | Resulting `L_eff` (after the 1e-6 m floor).              |
+| `effective_c_factor` | Roughness used for the surrogate pipe.                   |
+| `head_loss_at_nominal_m` | `K_total * V_nom² / (2 g)` at the anchor.             |
+| `limitations`        | Free-text reminder of the off-design divergence.         |
+
+### `translate_valve_to_surrogate` failure modes
+
+- Unsupported valve types (`FCV`, `PSV`, `PBV`, `GPV`): `ValueError`
+  tagged with the valve id and the list of supported types.
+- Unknown valve type string: `ValueError` tagged with the valve id
+  and the literal token from the file.
+- Non-positive / non-finite `diameter_m`: `ValueError`.
+- Non-positive / non-finite PRV `setting`: `ValueError`.
+- Negative / non-finite TCV `setting` or `minor_loss`: `ValueError`.
+- PRV `downstream_elev_m` is non-finite: `ValueError`.
+- TCV without a `nominal_flow_m3s`: `ValueError` (the parser always
+  supplies one — at worst the 1 L/s default).
+- PRV whose downstream is already a fixed-head boundary: the
+  *parser* raises before calling the translator, because that
+  state cannot be represented without overwriting an existing
+  reservoir / tank.
+
+### Shipped valve fixtures
+
+- `docs/examples/epanet_reference_tcv.inp` — three-node TCV
+  fixture: 50 m reservoir → TCV (K = 2.5, 150 mm) → J1 → 200 m
+  pipe → J2 (15 L/s consumer). Solves with analytic Newton; the
+  TCV head loss at the solved flow matches the closed-form
+  minor-loss head loss at `Q_nom = 15 L/s`.
+- `docs/examples/epanet_reference_prv.inp` — four-node PRV
+  fixture: 50 m reservoir → 2000 m / 80 mm pipe → J1 → PRV (setting
+  20 m, 80 mm) → J2 (pinned at 20 m) → 200 m / 80 mm pipe → J3
+  (2 L/s consumer). Solves with analytic Newton; J2's head equals
+  the PRV setting. The flow through the PRV does *not* equal the
+  downstream demand — that is the documented pressure-boundary
+  limitation, asserted explicitly in the test suite.
+
+### WNTR-side valve translation
+
+When `parser="wntr"` (or `parser="auto"` with WNTR installed), the
+adapter iterates `wn.valve_name_list` and routes each valve via
+`_wntr_translate_valve`, which calls the same
+`translate_valve_to_surrogate` helper the fallback parser uses.
+
+The adapter touches only the **stable** WNTR public surface:
+
+| WNTR attribute / method               | Use                                                     |
+|---------------------------------------|---------------------------------------------------------|
+| `wn.valve_name_list`                  | Iterate valves                                          |
+| `wn.get_link(name)`                   | Resolve a valve by name                                 |
+| `valve.start_node_name` / `.end_node_name` | Edge endpoints                                     |
+| `valve.valve_type`                    | `"PRV"` / `"TCV"` / unsupported discrimination          |
+| `valve.diameter`                      | SI metres                                               |
+| `valve.initial_setting` (preferred) / `valve.setting` (fallback) | Numeric setting (m of head for PRV, K for TCV) |
+| `valve.minor_loss`                    | Additional minor-loss coefficient                       |
+
+WNTR itself refuses `PRV` / `PSV` / `FCV` valves directly connected
+to a reservoir or tank (it requires a separating pipe). Author your
+fixtures with a buffer pipe upstream of those valve types, or use
+the fallback parser which has no such restriction.
+
+WNTR-side fixture parity:
+
+- The shipped TCV and PRV fixtures load identically through both
+  back-ends.
+- Solved heads and flows agree to 1e-5 absolute.
+- Unsupported valve types raise `ValueError` referencing the valve
+  id from both back-ends.
+
+## WNTR-backed pump translation (Sprint 13)
+
+When `parser="wntr"` (or `parser="auto"` with WNTR installed), the
+adapter iterates `wn.pump_name_list` and routes each pump by its
+`pump_type`:
+
+- `"HEAD"` pumps share the fallback parser's `fit_pump_head_curve`
+  helper. The two back-ends therefore produce numerically
+  identical pump coefficients for the same curve points.
+- `"POWER"` pumps (Sprint 14) share the fallback parser's
+  `fit_power_pump_surrogate` helper with the same downstream- /
+  total-positive-demand anchor rule. WNTR exposes the constant
+  power as `Pump.power` in SI watts; the adapter divides by 1000
+  before invoking the surrogate.
+
+Any other `pump_type` raises `ValueError`.
+
+### Unit conversion in the WNTR path
+
+WNTR normalises all hydraulic quantities to its internal SI
+representation when a `WaterNetworkModel` is loaded — regardless of
+the file's `[OPTIONS] Units` directive. That means
+`pump.get_pump_curve().points` are already `(Q in m³/s, H in m)`
+when our adapter reads them. The WNTR path therefore **does not**
+apply the fallback parser's `[OPTIONS] Units`-driven `demand_factor`
+to curve points; doing so would double-convert and yield
+nonsense coefficients. The fallback parser performs the conversion
+itself; the WNTR adapter trusts WNTR's conversion.
+
+### WNTR API surface assumed
+
+The adapter touches only the WNTR public surface that has been
+stable across recent WNTR releases:
+
+| WNTR attribute / method               | Use                                                         |
+|---------------------------------------|-------------------------------------------------------------|
+| `wn.pump_name_list`                   | Iterate pumps                                               |
+| `wn.get_link(name)`                   | Resolve a pump by name                                      |
+| `pump.start_node_name` / `.end_node_name` | Edge endpoints                                          |
+| `pump.pump_type`                      | `"HEAD"` / `"POWER"` discrimination (string-typed)         |
+| `pump.get_pump_curve()`               | Returns a `Curve` object for HEAD-curve pumps               |
+| `pump.base_speed`                     | Static nominal speed; defaults to `1.0` if missing or bad   |
+| `Curve.points`                        | List of `(Q, H)` tuples in SI                               |
+| `Curve.curve_type`                    | Sanity check — must be `"HEAD"` when present                |
+| `wn.valve_name_list`                  | Reject valves                                               |
+
+Sprint 14: in addition, the adapter touches `pump.power` (SI watts)
+for `pump_type == "POWER"` pumps. Any other pump form
+(multi-point efficiency, custom future strings) raises a clear
+`ValueError` referencing the WNTR `pump_type`. Speed patterns
+(`speed_pattern_name`) are silently ignored — the dPHM core is
+steady-state, so only `base_speed` is consumed.
+
+### Sprint 13 fixture parity
+
+On `docs/examples/epanet_reference_pump.inp`, the WNTR-backed and
+fallback parsers produce:
+
+- Identical structural fields (`num_nodes`, `num_edges`,
+  `num_fixed_heads`, `pipe_mask`, `pump_mask`).
+- Pump coefficients agreeing to ~1e-6 absolute on `a0`/`a1` and
+  ~1e-3 absolute on the large-magnitude `a2`.
+- Solved heads and flows from `newton_solve(jacobian_mode="analytic")`
+  agreeing to 1e-6 absolute.
+
+## Unit conventions
+
+Sprint 16 centralises every per-flow-unit conversion the fallback
+parser needs into a single frozen dataclass,
+`aquaoptima.dphm.inp_io.EpanetUnitSystem`, returned by
+`resolve_unit_system(unit_name)`. The parser passes that manifest
+to every section that scales a file-declared value, so no ad-hoc
+unit constants are sprinkled across the parser body. Lookup is
+case-insensitive (`gpm`, `GPM`, and `Gpm` all resolve to the same
+manifest).
+
+EPANET picks per-flow-unit conventions for length and diameter:
+
+- **SI flow units** (`LPS`, `LPM`, `MLD`, `CMH`, `CMD`):
+  length in metres, diameter in **millimetres**, head/elevation in
+  metres. Supported.
+- **US-customary flow units** (`CFS`, `GPM`, `MGD`, `IMGD`, `AFD`):
+  length in feet, diameter in inches, head/elevation in feet.
+  Supported from Sprint 16 onwards.
+
+Flow-to-m³/s conversions implemented in the unit manifest. All
+constants are exact (NIST conversion factors / EPANET 2.2 user
+manual section 4.2):
+
+| `Units` directive | factor (× → m³/s)                          |
+|-------------------|---------------------------------------------|
+| `LPS`             | `× 1e-3`                                    |
+| `LPM`             | `× 1 / 60_000`                              |
+| `MLD`             | `× 1000 / 86_400`                           |
+| `CMH`             | `× 1 / 3600`                                |
+| `CMD`             | `× 1 / 86_400`                              |
+| `CFS`             | `× 0.3048³` (≈ 0.028316846592)              |
+| `GPM`             | `× 0.003785411784 / 60` (≈ 6.30901964e-5)   |
+| `MGD`             | `× 1e6 × 0.003785411784 / 86_400`           |
+| `IMGD`            | `× 1e6 × 0.00454609 / 86_400`               |
+| `AFD`             | `× 1233.48183754752 / 86_400`               |
+
+Length / diameter / head conversions, also captured in the manifest:
+
+| Family   | length     | diameter           | head/elevation | PRV setting    |
+|----------|------------|--------------------|----------------|----------------|
+| SI       | `× 1.0`    | `× 1e-3` (mm → m)  | `× 1.0`        | `× 1.0`        |
+| US       | `× 0.3048` | `× 0.0254` (in → m)| `× 0.3048`     | `× 0.3048`     |
+
+`TCV` settings (the dimensionless minor-loss coefficient `K`) and
+the `MinorLoss` column are **never** scaled by the unit system.
+`POWER` pump values are declared in **kW** under SI flow units and
+**HP** under US flow units; the parser converts HP → kW using the
+EPANET-internal constant `0.7457 kW/HP` before invoking the bounded
+quadratic surrogate (`fit_power_pump_surrogate`).
+
+If `[OPTIONS]` is absent or omits `Units`, the parser assumes the
+EPANET default of `LPS`. If `Headloss` is not `H-W`, the parser
+raises — the dPHM core is Hazen-Williams.
+
+Unsupported tokens (e.g. `CMS`, `BARRELS`) raise a clear
+`ValueError` listing the ten supported units.
+
+## Pressure units (Sprint 17)
+
+EPANET's `[OPTIONS]` section accepts an orthogonal `Pressure`
+directive that selects the pressure-display unit used for pressure-
+related fields, most importantly the `PRV` valve `Setting` column.
+The flow-unit family alone does not pin the pressure unit: a GPM
+network can still declare its PRV setting in psi, kPa, or metres of
+head, and an LPS network can declare its setting in bar.
+
+Sprint 17 captures every supported pressure unit in
+`aquaoptima.dphm.inp_io.EpanetPressureUnit`, a frozen dataclass with
+one field (`pressure_to_head_m`) that converts a file-declared
+pressure to metres of water head:
+
+```python
+from aquaoptima.dphm.inp_io import (
+    SUPPORTED_PRESSURE_UNITS,
+    resolve_pressure_unit,
+)
+
+resolve_pressure_unit("PSI").pressure_to_head_m
+# 0.7030695796...
+```
+
+Conversion factors. All Pa-pivot derivations use the EPANET pump-
+energy constants `rho = 1000 kg/m³` and `g = 9.80665 m/s²`, so
+`1 m of water head = 9806.65 Pa`:
+
+| `Pressure` directive | factor (× → metres of water head)                |
+|----------------------|--------------------------------------------------|
+| `METERS`             | `× 1.0`                                          |
+| `M`                  | `× 1.0` (alias for `METERS`)                     |
+| `FEET`               | `× 0.3048`                                       |
+| `FT`                 | `× 0.3048` (alias for `FEET`)                    |
+| `KPA`                | `× 1000 / 9806.65` ≈ `0.10197162129779281`       |
+| `PSI`                | `× 6894.757293168 / 9806.65` ≈ `0.7030695796`    |
+| `BAR`                | `× 100000 / 9806.65` ≈ `10.197162129779281`      |
+
+`SUPPORTED_PRESSURE_UNITS` is the tuple of the canonical (upper-case)
+tokens the resolver accepts. Lookup is case-insensitive (`PSI`,
+`psi`, and `Psi` all resolve to the same manifest entry).
+Unsupported tokens (e.g. `PASCAL`, `MMHG`) raise a clear
+`ValueError` listing the supported units.
+
+### Parser semantics
+
+- When `[OPTIONS] Pressure` is **present**, every PRV setting in the
+  file is multiplied by `pressure_to_head_m` before being interpreted
+  as a downstream fixed-head boundary. The flow-unit family's
+  `head_to_m` factor is bypassed for PRV settings only.
+- When `[OPTIONS] Pressure` is **absent**, the parser falls back to
+  the Sprint 16 contract: PRV settings follow the flow-unit family's
+  `pressure_setting_to_m` (= `head_to_m` — metres for SI flow units,
+  feet for US flow units). Existing fixtures load unchanged.
+- TCV settings (the dimensionless minor-loss coefficient `K`) and
+  the `MinorLoss` column are **never** scaled by either the flow-unit
+  manifest or the pressure-unit manifest. They remain dimensionless.
+- Junction / reservoir / tank elevations and heads continue to use
+  the flow-unit family's `head_to_m`. The pressure-unit manifest
+  applies only to PRV setting columns.
+
+### Shipped PSI fixture
+
+`docs/examples/epanet_reference_prv_gpm_psi.inp` is a four-node
+topology in GPM/ft/in with the PRV setting declared in PSI:
+
+- `R1` reservoir at 164 ft (~50 m).
+- `P1`: long, narrow upstream pipe (6562 ft, 3.15 in, C = 130).
+- `V1`: PRV with setting **30 PSI**, 3.15 in diameter.
+- `J2`: downstream of the PRV (pinned by the import).
+- `P2`: short downstream pipe (656 ft, 3.15 in, C = 130).
+- `J3`: 32 GPM consumer (~2 L/s).
+
+The fallback parser converts the 30 PSI setting via the Sprint 17
+pressure-unit manifest to ~21.09 m of water head — NOT via the
+flow-unit family's feet → m factor, which would silently give
+30 × 0.3048 = 9.144 m. The network solves with
+`newton_solve(..., jacobian_mode="analytic")` to a residual norm
+below the working tolerance.
+
+### WNTR adapter behaviour
+
+WNTR normalises all hydraulic quantities (including PRV settings) to
+its internal SI representation when a `WaterNetworkModel` is loaded,
+regardless of the source file's `[OPTIONS] Pressure` directive. The
+WNTR adapter therefore **does not** apply a second pressure-unit
+conversion in Sprint 17 — doing so would double-convert and yield
+nonsense. The fallback parser performs the conversion itself; the
+WNTR adapter trusts WNTR's conversion.
+
+Implication: on a `[OPTIONS] Units GPM` / `[OPTIONS] Pressure PSI`
+file, the two back-ends agree on the downstream-pinned fixed-head
+value only when WNTR's `[OPTIONS] Pressure` interpretation matches
+the dPHM pressure manifest. The shipped SI PRV fixture (with no
+`Pressure` directive) demonstrates byte-for-byte fallback-vs-WNTR
+parity on the pinned fixed-head value; for arbitrary `Pressure`
+declarations, the parity is constrained by WNTR's own pressure-unit
+table. The fallback parser remains the authoritative path for
+Sprint 17 behaviour and is exercised by both shipped and tmp-path
+test fixtures.
+
+## Demand multiplier (Sprint 18)
+
+EPANET's `[OPTIONS]` section accepts an optional `Demand Multiplier`
+directive — a single non-negative scalar that scales every junction's
+baseline demand at load time, regardless of the active flow-unit
+family. The directive's option key is the only shipped EPANET option
+whose canonical form spans two whitespace-separated tokens. The
+fallback parser collapses extra whitespace and accepts any
+case-insensitive spelling (`Demand Multiplier 2.0`,
+`DEMAND  MULTIPLIER 2.0`, `demand multiplier 2.0`).
+
+The public resolver is `resolve_demand_multiplier(opts)`:
+
+```python
+from aquaoptima.dphm.inp_io import resolve_demand_multiplier
+
+resolve_demand_multiplier({})                              # 1.0 (default)
+resolve_demand_multiplier({"DEMAND MULTIPLIER": "2.0"})    # 2.0
+resolve_demand_multiplier({"DEMAND MULTIPLIER": "0"})      # 0.0 (allowed)
+resolve_demand_multiplier({"DEMAND MULTIPLIER": "-1"})     # ValueError
+```
+
+### Parser semantics
+
+- When `[OPTIONS] Demand Multiplier` is **present**, every junction's
+  baseline demand is multiplied by the directive value **after** the
+  flow-unit conversion:
+
+  ```
+  base_demand_m3s = raw_demand * flow_to_m3s * demand_multiplier
+  ```
+
+- When the directive is **absent**, the EPANET default of `1.0`
+  applies; Sprint 11–17 behaviour on existing fixtures is preserved
+  byte-for-byte.
+- The multiplier scales **junction demands only**. Reservoir and tank
+  fixed-head boundaries, pipe / pump / valve dimensions, pump `HEAD`
+  curve points (`[CURVES]`), `TCV` settings (`K`), and the `MinorLoss`
+  column are **never** touched.
+- The POWER pump nominal-flow anchor sees the **multiplied** demand,
+  because the anchor is resolved from the parser's normalised
+  junction-demand list after the multiplier has been applied. A
+  multiplier of `2.0` therefore doubles `Q_nom`, which halves
+  `H_nom = P / (rho g Q_nom)` and halves the surrogate's shut-off
+  head `a0`. The TCV resistance surrogate is similarly anchored on
+  total positive demand and shifts accordingly.
+
+### Validation
+
+The resolver and the fallback parser fail loudly on:
+
+- Negative multipliers → `ValueError` ("must be non-negative").
+- Non-finite multipliers (NaN or Inf) → `ValueError` ("must be finite").
+- Non-numeric multipliers → `ValueError` ("is not numeric").
+
+`0.0` is **accepted**: the parser loads a network whose junctions all
+have zero baseline demand. Whether such a network solves depends on
+its topology — the parser will load it cleanly regardless.
+
+### Shipped fixture
+
+`docs/examples/epanet_reference_loop_gpm_demand_multiplier.inp` is a
+GPM/ft/in copy of the Sprint 16 loop fixture with the single added
+row `Demand Multiplier 2.0`. The fallback parser loads it with every
+junction demand exactly twice that of `epanet_reference_loop_gpm.inp`,
+while pipe and reservoir dimensions remain identical. The network
+solves with `newton_solve(..., jacobian_mode="analytic")` to a
+residual norm below the working tolerance.
+
+### WNTR adapter behaviour
+
+WNTR loads the `[OPTIONS] Demand Multiplier` directive into
+`wn.options.hydraulic.demand_multiplier` and stores it as a separate
+option; `Junction.base_demand` returns the **raw** baseline demand
+without the multiplier applied (WNTR's internal simulator multiplies
+later, but the dPHM core never invokes that simulator).
+
+Sprint 18 therefore extracts the multiplier from
+`wn.options.hydraulic.demand_multiplier` and applies it explicitly to
+each junction's `base_demand` in the WNTR adapter. The fallback parser
+and the WNTR adapter then produce identical demand sums on the shipped
+GPM-with-multiplier fixture (asserted in the optional WNTR parity
+test).
+
+Existing WNTR fixtures (Sprints 11–17) do not declare a
+`Demand Multiplier`, so WNTR defaults the option to `1.0` and the
+adapter is a no-op for them — pre-Sprint-18 parity is preserved.
+
+## Specific gravity (Sprint 19)
+
+EPANET's `[OPTIONS]` section accepts an optional `Specific Gravity`
+directive — a single strictly-positive scalar describing the ratio
+of fluid density to that of water. The directive's option key is a
+two-word form (mirroring `Demand Multiplier`); the fallback parser
+collapses extra whitespace and accepts any case-insensitive spelling
+(`Specific Gravity 0.85`, `SPECIFIC  GRAVITY 0.85`,
+`specific gravity 0.85`).
+
+The public resolver is `resolve_specific_gravity(opts)`:
+
+```python
+from aquaoptima.dphm.inp_io import resolve_specific_gravity
+
+resolve_specific_gravity({})                             # 1.0 (default, water)
+resolve_specific_gravity({"SPECIFIC GRAVITY": "2.0"})    # 2.0 (e.g. brine)
+resolve_specific_gravity({"SPECIFIC GRAVITY": "0"})      # ValueError
+resolve_specific_gravity({"SPECIFIC GRAVITY": "-1"})     # ValueError
+```
+
+### What specific gravity does scale
+
+The fallback parser propagates the directive to the two places where
+fluid density appears in the current importer / surrogates:
+
+1. **PRV `[OPTIONS] Pressure` conversion for true pressure units.**
+   When `[OPTIONS] Pressure` is one of `PSI`, `KPA`, or `BAR`, the
+   PRV setting converts to metres of *fluid* head by:
+
+   ```
+   head_m = setting * pressure_to_head_m / specific_gravity
+   ```
+
+   For a denser-than-water fluid (`sg = 2.0`), the same pressure
+   produces half as many metres of fluid head; for a lighter fluid
+   (`sg = 0.5`), twice as many.
+
+2. **POWER pump surrogate effective density.** The Sprint 14 surrogate
+   evaluates `H_nom = P / (rho_eff * g * Q_nom)` with
+   `rho_eff = rho_water * sg`. For the same `P` and `Q_nom`, doubling
+   `sg` halves `H_nom` (and the surrogate's `a0`/`a2` magnitudes);
+   halving `sg` doubles them. The helper exposes a keyword-only
+   `specific_gravity=` argument with default `1.0` so Sprint 14
+   numerics are preserved when the directive is absent.
+
+### What specific gravity does NOT scale
+
+The directive must NOT touch any of the following, by design:
+
+- Junction elevations and reservoir / tank fixed-head boundaries.
+  Reservoirs and tanks are *length* boundaries (metres or feet of
+  surface elevation); SG is dimensionless density and cannot scale
+  geometric height.
+- PRV settings under head-length pressure units (`METERS`, `M`,
+  `FEET`, `FT`). Those aliases already declare metres / feet of head
+  directly, so the conversion is a pure length conversion.
+- HEAD-curve pump coefficients (`[CURVES]`). EPANET HEAD curves are
+  head-vs-flow tables — already metres of head — so SG is a no-op.
+- TCV settings (the dimensionless minor-loss coefficient `K`) and the
+  `MinorLoss` column.
+- Pipe / pump / valve dimensions (length, diameter, c_factor).
+- Junction demands (Demand Multiplier remains the orthogonal axis
+  on demand scaling and is unaffected by SG).
+
+### Validation
+
+The resolver and the fallback parser fail loudly on:
+
+- Zero specific gravity → `ValueError` ("must be strictly positive").
+  Zero density would singularise the pressure-to-head and POWER-pump
+  conversions.
+- Negative specific gravity → `ValueError` ("must be strictly
+  positive").
+- Non-finite specific gravity (NaN or Inf) → `ValueError` ("must be
+  finite").
+- Non-numeric values → `ValueError` ("is not numeric").
+
+### WNTR adapter behaviour
+
+WNTR's handling of `[OPTIONS] Specific Gravity` has shifted across
+releases (the directive may be stored under
+`wn.options.hydraulic.specific_gravity` in some versions, ignored in
+others, or applied internally during simulation). Sprint 19
+**leaves the WNTR adapter structurally unchanged** to avoid
+double-conversion or hidden discrepancies: the fallback parser is
+authoritative for Sprint 19 SG behaviour, and the documented
+WNTR-fallback parity tests cover only fixtures without an
+`[OPTIONS] Specific Gravity` directive (where the default `1.0`
+trivially matches across back-ends). Future sprints may add explicit
+WNTR-side SG handling once the WNTR API is pinned to a stable
+release surface.
+
+### Tests
+
+- `tests/dphm/test_inp_specific_gravity.py` — Sprint 19 specific
+  gravity resolver (defaults, validation surface, case / whitespace
+  tolerance), fallback parser PRV PSI/KPA/BAR scaling, head-length
+  alias invariants, POWER pump surrogate SG scaling (helper +
+  parser), HEAD-curve / TCV / reservoir / tank / pipe-geometry /
+  demand-multiplier invariants, and existing-fixture preservation.
+
+## Viscosity (Sprint 20)
+
+EPANET's `[OPTIONS]` section accepts an optional `Viscosity` directive
+— a single strictly-positive scalar describing the ratio of fluid
+kinematic viscosity to that of water at 20 °C. The directive's option
+key is a single token; the fallback parser's standard single-token
+`[OPTIONS]` branch handles it case-insensitively (`Viscosity 1.0`,
+`VISCOSITY 0.8`, `viscosity   2.0`).
+
+The public resolver is `resolve_viscosity(opts)`:
+
+```python
+from aquaoptima.dphm.inp_io import resolve_viscosity
+
+resolve_viscosity({})                       # 1.0 (default, water at 20 °C)
+resolve_viscosity({"VISCOSITY": "0.8"})     # 0.8 (warmer / less viscous)
+resolve_viscosity({"VISCOSITY": "2.0"})     # 2.0 (cooler / more viscous)
+resolve_viscosity({"VISCOSITY": "0"})       # ValueError
+resolve_viscosity({"VISCOSITY": "-1"})      # ValueError
+```
+
+### Why Hazen-Williams is viscosity-independent
+
+EPANET's `Viscosity` directive only affects friction calculations that
+involve a Reynolds number, i.e. the Darcy-Weisbach head-loss model
+through the Colebrook-White / Swamee-Jain explicit friction factor.
+Hazen-Williams head loss
+
+```
+h_L = 10.67 · L · Q^1.852 / (C^1.852 · D^4.87)
+```
+
+has **no viscosity term**: the empirical roughness coefficient `C`
+absorbs the fluid's frictional behaviour, and the exponent on flow is
+fixed at `1.852` independent of Reynolds number. The current dPHM
+core (`aquaoptima.dphm.hazen_williams`, `residuals.py`, the analytic
+Jacobian, and `newton_solve`) implements only the Hazen-Williams
+branch. Adding viscosity to any of those would have no mathematical
+meaning under H-W; Sprint 20 therefore treats viscosity strictly as a
+parser-compatibility surface.
+
+### What Sprint 20 does with the directive
+
+The fallback parser:
+
+1. Reads `[OPTIONS] Viscosity` through `_parse_options` (single-token
+   key path).
+2. Resolves it via `resolve_viscosity(opts)`, which validates the
+   value (defaults to `1.0`, must be finite and strictly positive)
+   and raises `ValueError` on zero, negative, NaN, Inf, or
+   non-numeric input. This preserves the fail-fast contract for
+   EPANET-produced fixtures even though the value is never consumed.
+3. Discards the resolved value. No demand, fixed head, geometry,
+   HEAD pump coefficient, POWER pump surrogate coefficient, PRV or
+   TCV surrogate parameter, or Newton-solve output is a function of
+   viscosity under Hazen-Williams.
+
+The Sprint 20 test suite asserts hydraulic invariance across a
+representative cross-section of fixtures (LPS loop, GPM loop, HEAD
+pump, POWER pump, PRV with PSI + SG, TCV) by loading each fixture
+with and without the directive and comparing demands / fixed heads /
+geometry / pump coefficients / Newton-solve heads & flows.
+
+### What Sprint 20 does NOT do
+
+- It does **not** add a Darcy-Weisbach head-loss branch. Viscosity
+  would matter there but is deferred.
+- It does **not** add a Reynolds / friction-factor model.
+- It does **not** propagate viscosity into Specific Gravity / Demand
+  Multiplier / Pressure directive behaviour — the three axes are
+  orthogonal under the current H-W core.
+- It does **not** ship a `Viscosity` example fixture under
+  `docs/examples/`; tmp-path fixtures cover the parser surface
+  without growing the shipped-fixture inventory.
+
+### Validation
+
+The resolver and the fallback parser fail loudly on:
+
+- Zero viscosity → `ValueError` ("must be strictly positive"). Zero
+  viscosity would imply an inviscid fluid and would singularise any
+  future Reynolds calculation.
+- Negative viscosity → `ValueError` ("must be strictly positive").
+- Non-finite viscosity (NaN or Inf) → `ValueError` ("must be finite").
+- Non-numeric values → `ValueError` ("is not numeric").
+
+### WNTR adapter behaviour
+
+WNTR's treatment of `[OPTIONS] Viscosity` is **ambiguous across
+releases**: some versions parse it into
+`wn.options.hydraulic.viscosity`, others into the deprecated
+`wn.options.hydraulic.viscosity` alias, others ignore it, and the
+simulator itself only consults the value when the Darcy-Weisbach
+formula is selected. Sprint 20 therefore **leaves the WNTR adapter
+structurally unchanged**:
+
+- The fallback parser is authoritative for Sprint 20 viscosity
+  parsing and validation.
+- WNTR's HEAD / POWER / PRV / TCV / demand-multiplier parity from
+  Sprints 13–19 remains green.
+- The optional WNTR parity test
+  (`test_wntr_fallback_parity_with_viscosity_directive`) only
+  asserts that adding a `Viscosity` directive does not break either
+  back-end; it does not assert agreement on a viscosity-derived
+  quantity (because, under Hazen-Williams, no such quantity exists).
+
+A future sprint may pin WNTR to a stable surface and add explicit
+WNTR-side viscosity handling at the same time it adds a
+Darcy-Weisbach branch to the dPHM core.
+
+### Tests
+
+- `tests/dphm/test_inp_viscosity.py` — Sprint 20 viscosity resolver
+  (defaults, validation surface, case / whitespace tolerance),
+  fallback parser invalid-value rejection, hydraulic invariance under
+  Hazen-Williams across SI and US flow-unit families (demands,
+  fixed heads, geometry, HEAD pump coefficients, POWER pump
+  coefficients, PRV PSI conversion with and without SG, TCV
+  effective resistance, Newton-solve heads / flows), orthogonality
+  with Demand Multiplier and Specific Gravity, and existing-fixture
+  preservation.
+
+## Ignored sections (Sprint 21)
+
+Sprint 21 makes the fallback parser's *no-op* behaviour for every
+out-of-scope EPANET section explicit, tested, and documented.
+
+The constant `aquaoptima.dphm.inp_io.IGNORED_SECTIONS` is the public
+surface for this contract — a `frozenset[str]` enumerating every
+section header the parser tolerates and then deliberately drops:
+
+| Section        | Reason it is ignored                                                                                                 |
+|----------------|---------------------------------------------------------------------------------------------------------------------|
+| `[TIMES]`      | Simulation timestep / duration. Only meaningful to an EPANET runtime; the dPHM importer never spawns one.            |
+| `[REPORT]`     | EPANET report-file directives. Output formatting, no hydraulic content.                                              |
+| `[CONTROLS]`   | Simple link-status / pump-speed controls. Active controls are not modelled by the steady-state dPHM core.            |
+| `[RULES]`      | Rule-based controls. Same limitation as `[CONTROLS]` — deferred.                                                     |
+| `[EMITTERS]`   | Pressure-driven leakage. Not modelled in the steady-state Hazen-Williams branch.                                     |
+| `[QUALITY]`    | Initial water-quality concentrations. Outside the current hydraulic scope.                                            |
+| `[SOURCES]`    | Quality source declarations. Outside the current hydraulic scope.                                                     |
+| `[REACTIONS]`  | Bulk / wall reaction-rate coefficients. Outside the current hydraulic scope.                                          |
+| `[MIXING]`     | Tank mixing model. The dPHM core does not integrate tank volumes; mixing is moot.                                     |
+| `[TITLE]`      | Free-form network description.                                                                                       |
+| `[END]`        | EPANET file terminator.                                                                                              |
+| `[PATTERNS]`   | Time-varying demand patterns. The dPHM core is steady-state; the Sprint 18 `Demand Multiplier` is the only honoured scalar. |
+| `[COORDINATES]`| Node positions for plotting.                                                                                         |
+| `[VERTICES]`   | Mid-pipe vertex positions for plotting.                                                                              |
+| `[LABELS]`     | Free-text labels for the network plot.                                                                               |
+| `[BACKDROP]`   | Background image / drawing dimensions for the EPANET GUI.                                                            |
+| `[TAGS]`       | Free-form node / link annotations.                                                                                   |
+| `[ENERGY]`     | Energy-cost / efficiency definitions. Active controls would consume these; deferred with `[CONTROLS]` / `[RULES]`.   |
+| `[DEMANDS]`    | Per-junction supplemental demand list. The Sprint 11 importer reads junction demand from the `[JUNCTIONS]` column.   |
+
+> **`[STATUS]` is no longer ignored.** Sprint 22 removed `[STATUS]` from
+> the no-op set and validates it actively — see
+> "Explicit [STATUS] no-op rows (Sprint 22)" below.
+
+### Contract
+
+Adding any section in `IGNORED_SECTIONS` to a fixture must leave the
+loaded `Network` byte-for-byte unchanged:
+
+- node count, edge count, fixed-head count, `edge_index`;
+- `demands`, `fixed_head_values`, `fixed_head_mask`;
+- `pipe_mask`, `pump_mask`, `lengths`, `diameters`, `c_factors`;
+- `pump_coeffs`, `pump_speeds`.
+
+This holds regardless of where the section appears (before, after, or
+interleaved with the hydraulic sections), how many such sections are
+stacked into one file, and how malformed-looking the per-section rows
+are. The parser does not validate the body of any ignored section —
+it tokenises every row through `_split_sections` and never reads the
+result.
+
+`[CURVES]` is **not** in this set: Sprint 12's HEAD-curve pump
+translation consumes it. Sprint 21 ships an explicit regression test
+that adding every target ignored section to a HEAD-pump fixture
+still produces identical pump coefficients, so the active /
+ignored distinction cannot drift silently.
+
+### Documented limitations
+
+`[CONTROLS]` and `[RULES]` are ignored, **not** enforced. A control
+rule that would close a pipe, change a pump speed, or modify a
+fixed-head boundary is dropped on the floor at parse time. Importing
+EPANET fixtures whose hydraulics depend on active control logic will
+therefore *not* reproduce EPANET's solved state under the dPHM
+steady-state core. A future sprint that adds control-state logic
+will be the place this changes.
+
+`[EMITTERS]`, `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, and `[MIXING]`
+are similarly dropped. None of these contribute to the
+Hazen-Williams steady-state residual; the relevant physics
+(pressure-driven demand for emitters, advection-reaction transport
+for the quality family) is out of scope for the current core.
+
+### WNTR adapter behaviour
+
+Sprint 21 documents but does not enforce WNTR-side handling of the
+target ignored sections. WNTR has its own parsers for several of
+them (e.g. `[MIXING]` is validated against the network's tank set,
+`[CONTROLS]` is validated against link / node references). The
+Sprint 21 contract is about *our* fallback parser's no-op behaviour;
+the optional WNTR back-end is exercised in
+`tests/dphm/test_inp_ignored_sections.py::test_wntr_smoke_ignored_sections_do_not_break_back_end`
+only for the subset of ignored sections WNTR is happy to round-trip
+(`[TIMES]`, `[REPORT]`, `[QUALITY]` against an existing node).
+
+### Tests
+
+- `tests/dphm/test_inp_ignored_sections.py` — Sprint 21:
+  - public-surface checks (every target section in
+    `IGNORED_SECTIONS`, every hydraulically-active section NOT in
+    `IGNORED_SECTIONS`, `[CURVES]` not globally ignored,
+    `IGNORED_SECTIONS` is a `frozenset`);
+  - per-section invariance (loaded `Network` byte-for-byte identical
+    between baseline and baseline + ignored section);
+  - all-target-sections-at-once invariance;
+  - position robustness (ignored section before hydraulic sections,
+    after hydraulic sections, interleaved between them, repeated
+    headers);
+  - malformed-row tolerance for every target section;
+  - documented `[CONTROLS]` / `[RULES]` limitation (link-close rules
+    dropped, network and Newton-solve state unchanged);
+  - `[CURVES]` still active under ignored-section noise (HEAD pump
+    and PRV / TCV surrogate invariants);
+  - optional WNTR back-end smoke check on the subset WNTR
+    round-trips cleanly.
+
+## Explicit `[STATUS]` no-op rows (Sprint 22)
+
+Sprint 22 narrows the Sprint 21 ignored-section contract for the
+`[STATUS]` section. Through Sprint 21 `[STATUS]` was a global no-op —
+the parser tokenised the rows and then never read them. Sprint 22
+keeps the *steady-state hydraulic boundary* in place but starts
+validating the section so EPANET-exported files that include explicit
+`<link_id> OPEN` declarations load without pretending to implement
+closed-link or active status physics.
+
+### What Sprint 22 accepts
+
+Rows of the form
+
+```text
+[STATUS]
+ <link_id>   OPEN
+ <link_id>   open       ; case-insensitive
+   <link_id>    OPEN    ; extra whitespace is tolerated
+```
+
+are accepted as **redundant no-ops**. Every pipe, pump, and valve the
+fallback parser loads is already implicitly open, so a `<link_id> OPEN`
+row carries no new information — but the validator still:
+
+1. Confirms the row has at least two tokens (link id + status token).
+2. Confirms the link id appears in the union of parsed
+   `[PIPES]` / `[PUMPS]` / `[VALVES]` ids. The `[STATUS]` section may
+   appear before or after those sections in the file; validation runs
+   after every link is known, so the ordering does not matter.
+3. Confirms the status token (case-folded) is `OPEN`.
+
+Accepted `[STATUS]` rows leave the loaded `Network` **byte-for-byte
+identical** to the same fixture with no `[STATUS]` section.
+
+### What Sprint 22 rejects
+
+| Row shape                              | Behaviour                                                                                                  |
+|----------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `<link_id>` (single token)             | `ValueError` — "row needs at least 2 tokens".                                                              |
+| `<unknown_id> OPEN`                    | `ValueError` — "references unknown link id".                                                               |
+| `<link_id> CLOSED` / `closed`          | `ValueError` — the steady-state core does not model closed links.                                          |
+| `<link_id> CV`                         | `ValueError` — the steady-state core does not model check valves.                                          |
+| `<link_id> 1.0` / `0` (numeric)        | `ValueError` — the steady-state core does not consume per-link pump speed/status multipliers from `[STATUS]`. |
+| `<link_id> MAYBE_LATER` (other token)  | `ValueError` — the only accepted token is `OPEN`.                                                          |
+
+Every error message names `[STATUS]`, the link id, and the offending
+token so the source row is easy to find. Case-folding applies only to
+the comparison — the original-case token is echoed back in the message.
+
+### What Sprint 22 does NOT do
+
+- It does **not** model closed-link behaviour. `[STATUS] P1 CLOSED`
+  raises rather than silently dropping pipe `P1` from the flow
+  equation.
+- It does **not** model check valves. `[STATUS] P1 CV` raises rather
+  than adding a sign-restricted unilateral edge.
+- It does **not** model pump speed/status multipliers from `[STATUS]`.
+  Numeric values raise — pump speed in the steady-state core is the
+  `s = 1` static nominal speed used by `fit_pump_head_curve`.
+- It does **not** alter the per-row `[PIPES]` status column. A
+  `[PIPES] ... CLOSED` / `CV` row continues to raise from the pipe-row
+  loop exactly as it did from Sprint 11 onwards.
+- It does **not** activate `[CONTROLS]` or `[RULES]`. The Sprint 21
+  documented limitation (control-state logic deferred) is unchanged.
+- It does **not** change the WNTR back-end. WNTR has its own
+  `[STATUS]` parser that validates link references and applies any
+  closed-state semantics to its internal link state; the dPHM
+  WNTR adapter reads the resulting pipe/pump/valve list but does not
+  re-validate `[STATUS]`. The fallback parser is therefore
+  authoritative for Sprint 22 `[STATUS]` behaviour. The optional
+  WNTR smoke test in `tests/dphm/test_inp_status.py` only confirms
+  that the demand sum / node / edge counts agree between back-ends
+  on `[STATUS] <id> OPEN` fixtures.
+
+### Public surface change
+
+`aquaoptima.dphm.inp_io.IGNORED_SECTIONS` no longer contains
+`"STATUS"`. The Sprint 21 ignored-section invariance tests still pass
+because they iterate over the documented Sprint 21 target list which
+never included `STATUS`. An explicit regression test in
+`tests/dphm/test_inp_ignored_sections.py::test_status_is_not_globally_ignored_after_sprint_22`
+pins this removal — a future sprint that reintroduces global
+`[STATUS]` ignoring will trip that test.
+
+### Tests
+
+- `tests/dphm/test_inp_status.py` — Sprint 22:
+  - public-surface check (`STATUS` not in `IGNORED_SECTIONS`);
+  - accepted-no-op invariance on pipes, HEAD-curve pumps, PRV
+    valves, and TCV valves (loaded `Network` byte-for-byte
+    identical to baseline);
+  - case-insensitive `OPEN` token (every spelling accepted);
+  - extra-whitespace tolerance;
+  - multiple `OPEN` rows in one block;
+  - `[STATUS]` section before and after the link sections;
+  - unknown link id raises with id in message;
+  - short row (< 2 tokens) raises with shape error;
+  - `CLOSED` / `closed` raises with link id and token in message;
+  - `CV` raises with link id and token in message;
+  - numeric pump speed `1.0` and `0` both raise;
+  - arbitrary token raises with link id and token in message;
+  - mixed `OPEN`/`CLOSED` block raises on the closed row;
+  - per-row `[PIPES] ... CLOSED` / `CV` rejection still raises
+    (Sprint 11 behaviour preserved);
+  - `[CONTROLS]` / `[RULES]` still ignored alongside `[STATUS] OPEN`
+    (Sprint 21 limitation preserved);
+  - HEAD pump `[CURVES]` resolution unaffected by `[STATUS] PU1 OPEN`;
+  - empty `[STATUS]` section accepted;
+  - optional WNTR back-end smoke check (`pytest.importorskip("wntr")`).
+
+## Read-only `[STATUS]` diagnostics (Sprint 23)
+
+Sprint 22 made accepted `[STATUS] OPEN` rows validated no-ops — the
+loaded `Network` is byte-for-byte identical with or without
+`[STATUS]`. Sprint 23 adds a small, explicit *diagnostics surface*
+so analysts can see **which** status rows were declared in an
+imported file. The diagnostics are deliberately read-only and
+hydraulically inert: they do not change any field on the returned
+`Network`, and the Sprint 22 rejection behaviour for status-changing
+rows (`CLOSED`, `CV`, numeric pump speed/status, unknown link id,
+short row, arbitrary token) is unchanged — rejected rows still
+raise `ValueError` and never appear as diagnostics.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportDiagnostics,
+    EpanetStatusDiagnostic,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# Option A — explicit, read-only diagnostics accessor.
+diagnostics = load_inp_diagnostics(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="fallback",   # "auto" | "fallback" | "wntr"
+)
+for row in diagnostics.status_rows:
+    print(row.link_id, row.status, row.is_noop, row.message)
+
+# Option B — fetch the Network and the diagnostics together.
+network, diagnostics = load_network_from_inp(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="fallback",
+    return_diagnostics=True,
+)
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–22 caller works unchanged.
+
+### Shape
+
+```python
+@dataclass(frozen=True)
+class EpanetStatusDiagnostic:
+    link_id: str            # spelling preserved from the source file
+    status: str             # normalised, e.g. "OPEN"
+    section: str = "STATUS"
+    is_noop: bool = True
+    message: str = "OPEN accepted as a no-op; status-changing semantics are unsupported."
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+```
+
+Both dataclasses are `frozen=True`. `status_rows` is a `tuple`
+(not a list) so the diagnostics surface is structurally read-only:
+attempting to reassign a field raises
+`dataclasses.FrozenInstanceError`.
+
+### What gets recorded
+
+The fallback parser emits **one `EpanetStatusDiagnostic` per
+accepted `<link_id> OPEN` row**, in source order:
+
+- the `link_id` is echoed verbatim from the file (link ids are
+  case-sensitive in the dPHM fallback parser);
+- the `status` token is normalised to upper-case `OPEN`
+  (case-insensitive matching: `OPEN` / `open` / `Open` all
+  normalise here);
+- `is_noop=True` and the no-op `message` are set so consumers can
+  filter without re-checking the string;
+- the row order in `status_rows` matches the row order in the
+  source `[STATUS]` block.
+
+Diagnostics are empty when:
+
+- the file has no `[STATUS]` section, or
+- the `[STATUS]` section header is present but the body is empty.
+
+Rejected rows (Sprint 22) abort the validator **before** any
+diagnostic is appended — a block mixing `OPEN` and `CLOSED` rows
+raises with no partial diagnostics leaking out.
+
+### Hydraulic inertness
+
+The diagnostics path **does not** mutate the loaded `Network`:
+
+- `load_network_from_inp(path, return_diagnostics=True)` returns
+  the *exact same* `Network` object shape that
+  `load_network_from_inp(path)` does — same `edge_index`, same
+  `pipe_mask` / `pump_mask`, same `demands`, `fixed_head_values`,
+  `lengths`, `diameters`, `c_factors`, `pump_coeffs`, and
+  `pump_speeds`.
+- `load_inp_diagnostics(path)` returns *only* an
+  `EpanetImportDiagnostics` — never a `Network`.
+- The diagnostic records themselves are frozen, so consumers
+  cannot mutate them in place and accidentally inject state back
+  into a future parse.
+
+Tests in
+`tests/dphm/test_inp_status_diagnostics.py` pin the byte-for-byte
+network-equality contract on top of the Sprint 22 invariance tests.
+
+### What Sprint 23 does NOT do
+
+- It does **not** model closed-link, check-valve, or pump-speed
+  semantics. Sprint 22 rejections are unchanged.
+- It does **not** activate `[CONTROLS]` or `[RULES]`. Those
+  sections remain in `IGNORED_SECTIONS` and are explicitly *not*
+  emitted as diagnostics — even in a file that also declares
+  `[STATUS] OPEN`, `[CONTROLS]` and `[RULES]` rows are silently
+  ignored exactly as in Sprint 21.
+- It does **not** attach diagnostic state to `Network`. The
+  `Network` dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit diagnostics. The
+  fallback parser is authoritative for Sprint 23 `[STATUS]`
+  diagnostics. When `parser="wntr"` is requested, the WNTR
+  back-end relies on WNTR's own `[STATUS]` parser (which handles
+  closed-link state internally inside the WNTR engine) and the
+  dPHM WNTR adapter returns an **empty**
+  `EpanetImportDiagnostics`. Asymmetry between back-ends is
+  documented rather than papered over — see also
+  `SPRINT22_REPORT.md` for the same fallback-authoritative split.
+
+### Tests
+
+`tests/dphm/test_inp_status_diagnostics.py` — Sprint 23:
+
+- public-surface checks: dataclasses are importable, frozen, and
+  use a tuple-backed container;
+- accepted-row records for pipes, HEAD-curve pumps, and PRV
+  valves;
+- case-insensitive `OPEN` normalisation; link id casing preserved;
+- multiple-row count + order invariance;
+- empty diagnostics for files with no `[STATUS]` and for an
+  empty `[STATUS]` section;
+- `Network` equality between default and `return_diagnostics=True`
+  loads, and between fixtures with and without `[STATUS]`;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- every Sprint 22 rejection (CLOSED / CV / numeric / unknown id /
+  short row / arbitrary token) still raises through both
+  `load_inp_diagnostics` and `load_network_from_inp(..., return_diagnostics=True)`;
+- mixed OPEN+CLOSED blocks raise with no partial diagnostics
+  leaked out;
+- `[CONTROLS]` / `[RULES]` content does **not** appear in
+  diagnostics, even in files that also declare `[STATUS] OPEN`;
+- parser selector + units kwargs reach the diagnostics path
+  (unknown parser / non-SI units raise);
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`) confirms the API does not raise
+  and returns the read-only container shape — it does **not**
+  require diagnostic parity with the fallback back-end.
+
+## Read-only ignored-section diagnostics (Sprint 24)
+
+Sprint 21 documented the parser's ignored-section contract via the
+public `IGNORED_SECTIONS` frozenset. Sprint 23 added a diagnostics
+surface for accepted `[STATUS] OPEN` rows. Sprint 24 closes the last
+visibility gap on the diagnostics surface: **which `IGNORED_SECTIONS`
+were actually present in the imported file**. Sprint 24 only adds
+visibility — every ignored section is still dropped on the floor at
+parse time, the Sprint 21 byte-for-byte invariance contract still
+holds, and no new hydraulic semantics are activated.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetIgnoredSectionDiagnostic,
+    EpanetImportDiagnostics,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+from aquaoptima.dphm.inp_io import IGNORED_SECTIONS
+
+# Option A — explicit, read-only diagnostics accessor.
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+for rec in diagnostics.ignored_sections:
+    print(rec.section, rec.row_count, rec.message)
+
+# Option B — fetch the Network and the diagnostics together.
+network, diagnostics = load_network_from_inp(
+    path, parser="fallback", return_diagnostics=True,
+)
+ignored = {rec.section for rec in diagnostics.ignored_sections}
+print(sorted(ignored & IGNORED_SECTIONS))
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–23 caller works unchanged.
+
+### Shape
+
+```python
+@dataclass(frozen=True)
+class EpanetIgnoredSectionDiagnostic:
+    section: str                   # canonical upper-case section name
+    row_count: int                 # non-blank, comment-stripped rows
+    message: str = "Section present but ignored by the steady-state dPHM importer."
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()
+```
+
+Both dataclasses are `frozen=True`. `ignored_sections` is a `tuple`
+(not a list) so the diagnostics surface is structurally read-only:
+attempting to reassign a field raises
+`dataclasses.FrozenInstanceError`.
+
+### What gets recorded
+
+The fallback parser emits **one
+`EpanetIgnoredSectionDiagnostic` per `IGNORED_SECTIONS` member that
+is actually declared in the file**, in source order:
+
+- the `section` is the upper-case section name as it appears in
+  `IGNORED_SECTIONS` (`"CONTROLS"`, `"RULES"`, `"PATTERNS"`,
+  `"ENERGY"`, …);
+- the `row_count` is the number of non-blank, comment-stripped rows
+  the parser saw inside the section body; **a bare header with no
+  body still counts as present** (`row_count = 0`) because the file
+  declared the section;
+- repeated headers (e.g. two `[CONTROLS]` blocks in one file)
+  collapse to a single record because `_split_sections` already
+  accumulates rows into a single bucket — `row_count` reflects the
+  total;
+- the order in `ignored_sections` matches the order each header is
+  first declared in the source file.
+
+`[STATUS]` is **not** in `IGNORED_SECTIONS` from Sprint 22 onwards
+and is therefore **never** surfaced through `ignored_sections`.
+Accepted `[STATUS] OPEN` rows continue to surface through
+`status_rows` (Sprint 23).
+
+Active hydraulic sections (`[JUNCTIONS]`, `[RESERVOIRS]`, `[TANKS]`,
+`[PIPES]`, `[PUMPS]`, `[VALVES]`, `[OPTIONS]`, `[CURVES]`) are also
+excluded by construction because they are not in `IGNORED_SECTIONS`.
+
+### Hydraulic inertness
+
+The diagnostics path **does not** mutate the loaded `Network`. Adding
+any combination of ignored sections to a fixture leaves every field
+(`edge_index`, `pipe_mask`, `pump_mask`, `demands`,
+`fixed_head_values`, `lengths`, `diameters`, `c_factors`,
+`pump_coeffs`, `pump_speeds`) byte-for-byte identical to the
+Sprint 21 baseline. `tests/dphm/test_inp_ignored_section_diagnostics.py`
+pins this invariance on top of the Sprint 21 contract.
+
+### What Sprint 24 does NOT do
+
+- It does **not** activate `[CONTROLS]` / `[RULES]` / `[PATTERNS]` /
+  `[ENERGY]` semantics. The Sprint 21 limitation stands — these
+  sections are still dropped on the floor at parse time.
+- It does **not** add new hydraulic physics. No Darcy-Weisbach, no
+  time-varying demand, no closed-link / pump-speed modelling, no
+  energy-cost modelling.
+- It does **not** surface `[STATUS]` as an ignored-section
+  diagnostic. Sprint 22 actively validates `[STATUS]`; accepted
+  rows go through `status_rows`, rejected rows still raise.
+- It does **not** attach diagnostic state to `Network`. The
+  `Network` dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit ignored-section
+  diagnostics. The fallback parser is authoritative for Sprint 24
+  diagnostics. When `parser="wntr"` is requested, the WNTR back-end
+  relies on WNTR's own per-section handling (WNTR validates several
+  of these sections internally) and the dPHM WNTR adapter returns an
+  **empty** `ignored_sections` tuple. The asymmetry mirrors Sprint
+  23 — fallback authoritative; WNTR documented rather than papered
+  over.
+
+### Tests
+
+`tests/dphm/test_inp_ignored_section_diagnostics.py` — Sprint 24:
+
+- public-surface checks: `EpanetIgnoredSectionDiagnostic` is a frozen
+  dataclass; `EpanetImportDiagnostics.ignored_sections` defaults to
+  `()` and is tuple-backed and frozen;
+- empty diagnostics for fixtures with no ignored sections declared;
+- per-section presence records for `CONTROLS`, `RULES`, `PATTERNS`,
+  `ENERGY`, `EMITTERS`, `QUALITY`, `SOURCES`, `REACTIONS`, `MIXING`,
+  `TIMES`, `REPORT`;
+- empty `[CONTROLS]` header (no body) still produces a record with
+  `row_count = 0`;
+- multiple ignored sections recorded together; source-order
+  preservation;
+- repeated `[CONTROLS]` headers collapse to one record with the
+  combined row count;
+- `[STATUS]` never appears in `ignored_sections`, even when both
+  `[STATUS] OPEN` and `[CONTROLS]` are present in the same file;
+- hydraulically-active sections never appear in `ignored_sections`;
+- every emitted record's `section` is a member of
+  `IGNORED_SECTIONS`;
+- `Network` byte-for-byte invariance against the Sprint 21 baseline
+  with `[CONTROLS]` / `[RULES]` / `[PATTERNS]` / `[ENERGY]` added;
+- `return_diagnostics=True` returns the same `Network` as the
+  default `load_network_from_inp(path)` call;
+- backward compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- `[CONTROLS]` remains a dropped no-op — Newton-solve heads / flows
+  match the baseline to 1e-9 / 1e-12 with controls present;
+- Sprint 22 rejection paths still raise when ignored sections are
+  also present in the file;
+- optional WNTR back-end smoke check (`pytest.importorskip("wntr")`)
+  — the WNTR back-end returns an `EpanetImportDiagnostics` without
+  raising; diagnostic parity with the fallback parser is **not**
+  required.
+
+## Read-only [CONTROLS] / [RULES] row diagnostics (Sprint 25)
+
+Sprint 24 surfaced *which* `IGNORED_SECTIONS` were present in an
+imported `.inp` file. Sprint 25 narrows that surface for two ignored
+sections only — `[CONTROLS]` and `[RULES]` — by emitting one
+read-only record **per tokenised parser row** inside those sections.
+Analysts can inspect the exact unsupported rows declared in an
+imported file without changing any hydraulic field on the loaded
+`Network`. Sprint 25 still does NOT activate any control or rule
+logic — the rows remain dropped on the floor at parse time, the
+Sprint 21 byte-for-byte invariance contract still holds, and the
+Sprint 22 `[STATUS]` rejection behaviour is preserved.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetControlRuleDiagnostic,
+    EpanetImportDiagnostics,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# Option A — explicit, read-only diagnostics accessor.
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+for rec in diagnostics.control_rule_rows:
+    print(rec.section, rec.row_index, rec.tokens, rec.text)
+
+# Option B — fetch the Network and the diagnostics together.
+network, diagnostics = load_network_from_inp(
+    path, parser="fallback", return_diagnostics=True,
+)
+controls = [r for r in diagnostics.control_rule_rows if r.section == "CONTROLS"]
+rules = [r for r in diagnostics.control_rule_rows if r.section == "RULES"]
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–24 caller works unchanged.
+
+### Shape
+
+```python
+@dataclass(frozen=True)
+class EpanetControlRuleDiagnostic:
+    section: str                   # "CONTROLS" or "RULES"
+    row_index: int                 # 0-based, resets per section
+    tokens: tuple[str, ...]        # parser-tokenised row, single-space split
+    text: str                      # tokens joined by a single space
+    message: str = "Row present but ignored by the steady-state dPHM importer."
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()
+    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()
+```
+
+Both dataclasses are `frozen=True`. `control_rule_rows` is a `tuple`
+(not a list) and its `tokens` field is also a tuple, so the
+diagnostics surface is structurally read-only — reassigning a field
+raises `dataclasses.FrozenInstanceError`.
+
+### What gets recorded
+
+The fallback parser emits **one `EpanetControlRuleDiagnostic` per
+row inside a `[CONTROLS]` or `[RULES]` section**:
+
+- the `section` is `"CONTROLS"` or `"RULES"` (upper-case);
+- the `row_index` is the 0-based index into the section bucket
+  `_split_sections` produced; it resets per section and preserves
+  source-file row order within each section;
+- the `tokens` field carries the exact parser tokens for the row
+  (a tuple of strings), preserving token order;
+- the `text` field is the tokens joined by a single space — useful
+  for logging / display;
+- the `message` field is a pinned module-level constant explaining
+  the read-only / no-op contract.
+
+Section ordering follows the source file: whichever of
+`[CONTROLS]` / `[RULES]` is declared first appears first in
+`control_rule_rows`. Repeated `[CONTROLS]` headers collapse into one
+bucket because `_split_sections` already accumulates rows under
+the section's first occurrence; the records preserve their combined
+source order.
+
+EPANET rules span multiple lines (`RULE` / `IF` / `THEN` …). Sprint
+25 records each **tokenised parser line** as one record — the
+helper does **not** attempt to reconstruct semantic rule blocks. A
+three-line rule block produces three records with `row_index`
+`0`, `1`, `2`.
+
+Inline `; …` comments are stripped before tokenisation (the
+underlying `_strip_comment` runs first), so they never appear in
+`tokens` or `text`. Blank rows are dropped by `_split_sections` and
+therefore not surfaced as records.
+
+### Sections explicitly excluded
+
+- `[STATUS]` — never appears in `control_rule_rows`. Sprint 22
+  removed it from `IGNORED_SECTIONS`; accepted `OPEN` rows go through
+  `status_rows`, rejected rows raise.
+- `[PATTERNS]`, `[ENERGY]`, `[EMITTERS]`, `[QUALITY]`, `[SOURCES]`,
+  `[REACTIONS]`, `[MIXING]`, `[DEMANDS]`, `[TIMES]`, `[REPORT]`,
+  and the inert layout sections — these are still surfaced at the
+  section level via `ignored_sections` (Sprint 24), but **not**
+  per-row through `control_rule_rows`. The dPHM importer has no use
+  for their row content, so the diagnostics surface is kept narrow.
+- `[JUNCTIONS]`, `[RESERVOIRS]`, `[TANKS]`, `[PIPES]`, `[PUMPS]`,
+  `[VALVES]`, `[OPTIONS]`, `[CURVES]` — hydraulically active and
+  consumed by the parser; never surfaced as diagnostics.
+
+### Hydraulic inertness
+
+`control_rule_rows` is a side channel only. Adding `[CONTROLS]` or
+`[RULES]` blocks to a fixture leaves every `Network` field
+(`edge_index`, `pipe_mask`, `pump_mask`, `demands`,
+`fixed_head_values`, `lengths`, `diameters`, `c_factors`,
+`pump_coeffs`, `pump_speeds`) byte-for-byte identical to the
+Sprint 21 baseline. Newton-solving the perturbed network reproduces
+the baseline heads / flows to 1e-9 / 1e-12.
+`tests/dphm/test_inp_control_rule_row_diagnostics.py` pins this
+invariance.
+
+### What Sprint 25 does NOT do
+
+- It does **not** activate `[CONTROLS]` / `[RULES]` semantics. The
+  Sprint 21 limitation stands — both sections are still dropped on
+  the floor at parse time. Rows that would close a link, change a
+  pump speed, or modify a fixed-head boundary are recorded as
+  visibility only; the loaded `Network` and its Newton solve are
+  unchanged.
+- It does **not** interpret EPANET rule structure. A multi-line
+  `RULE` / `IF` / `THEN` block surfaces as one record per line, not
+  one record per semantic rule.
+- It does **not** surface per-row content for any other ignored
+  section. `[PATTERNS]`, `[ENERGY]`, `[EMITTERS]`, `[QUALITY]`,
+  `[SOURCES]`, `[REACTIONS]`, `[MIXING]`, `[DEMANDS]`, `[TIMES]`,
+  `[REPORT]` remain visible only at the section level via
+  `ignored_sections` (Sprint 24).
+- It does **not** add new hydraulic physics. No Darcy-Weisbach, no
+  time-varying demand, no closed-link / pump-speed modelling, no
+  energy-cost modelling, no rule engine.
+- It does **not** attach diagnostic state to `Network`. The
+  `Network` dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit `control_rule_rows`.
+  The fallback parser is authoritative for Sprint 25 diagnostics.
+  WNTR has its own `[CONTROLS]` / `[RULES]` parser and interprets
+  some of those rows internally; the dPHM WNTR adapter does not
+  re-emit any rows and returns an **empty** `control_rule_rows`
+  tuple when `parser="wntr"` is requested. The asymmetry mirrors
+  Sprint 23 / 24 — fallback authoritative, WNTR documented rather
+  than papered over.
+
+### Tests
+
+`tests/dphm/test_inp_control_rule_row_diagnostics.py` — Sprint 25:
+
+- public-surface checks: `EpanetControlRuleDiagnostic` is a frozen
+  dataclass with the expected fields; `tokens` is a tuple;
+  `EpanetImportDiagnostics.control_rule_rows` defaults to `()` and
+  is tuple-backed and frozen;
+- empty `control_rule_rows` for fixtures without `[CONTROLS]` /
+  `[RULES]`;
+- bare `[CONTROLS]` / `[RULES]` header (no body) yields no per-row
+  records (the section still appears in `ignored_sections`);
+- single `[CONTROLS]` row produces one record with the expected
+  `tokens` and reconstructed `text`;
+- multiple `[CONTROLS]` rows preserve source order and `row_index`
+  resets correctly per section;
+- `[RULES]` multi-line block surfaces as one record per line;
+- mixed `[CONTROLS]` + `[RULES]` blocks preserve source order in
+  both directions (controls-first and rules-first);
+- inline `; comment` is stripped from `tokens` (the underlying
+  tokeniser strips it before records can be emitted);
+- blank rows inside `[CONTROLS]` are dropped;
+- other ignored sections (`PATTERNS`, `ENERGY`, `EMITTERS`,
+  `QUALITY`, `SOURCES`, `REACTIONS`, `MIXING`, `TIMES`, `REPORT`,
+  `DEMANDS`) never appear in `control_rule_rows` — they still
+  surface at the section level via `ignored_sections`;
+- `[STATUS]` is never surfaced through `control_rule_rows`;
+- hydraulically active sections never surface through
+  `control_rule_rows`;
+- `ignored_sections` still lists `CONTROLS` / `RULES` when those
+  sections are present;
+- `Network` byte-for-byte invariance against the Sprint 21 baseline
+  with `[CONTROLS]` / `[RULES]` rows added;
+- Newton-solve heads / flows match the baseline to 1e-9 / 1e-12 with
+  `[CONTROLS]` present;
+- `return_diagnostics=True` returns the same `Network` as the
+  default `load_network_from_inp(path)` call, with `control_rule_rows`
+  populated;
+- backward compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- `load_inp_diagnostics(path)` and `load_network_from_inp(path,
+  return_diagnostics=True)` return identical `control_rule_rows`,
+  `status_rows`, and `ignored_sections`;
+- Sprint 23 + 24 + 25 diagnostics coexist on a single file (with
+  `[STATUS] OPEN`, `[CONTROLS]`, `[RULES]`, `[PATTERNS]`,
+  `[ENERGY]` all present);
+- Sprint 22 rejection paths still raise when `[CONTROLS]` is also
+  present in the file; no partial diagnostics leak out;
+- optional WNTR back-end smoke check (`pytest.importorskip("wntr")`)
+  — the WNTR back-end returns an `EpanetImportDiagnostics` with an
+  empty `control_rule_rows` tuple; diagnostic parity with the
+  fallback parser is **not** required.
+
+## Read-only [PATTERNS] / [ENERGY] row diagnostics (Sprint 26)
+
+Sprint 25 surfaced one record per tokenised parser row inside
+`[CONTROLS]` and `[RULES]`. Sprint 26 extends that pattern to two more
+ignored sections — `[PATTERNS]` and `[ENERGY]` — by adding a
+`pattern_energy_rows` field on the same `EpanetImportDiagnostics`
+container. Analysts can inspect the exact unsupported pattern /
+energy rows declared in an imported `.inp` file without changing any
+hydraulic field on the loaded `Network`. Sprint 26 still does NOT
+activate `[PATTERNS]` time-varying demand support or `[ENERGY]`
+energy-cost modelling — the rows remain dropped on the floor at parse
+time, the Sprint 21 byte-for-byte invariance contract still holds,
+and every earlier-sprint behaviour (`[STATUS]` rejection,
+`[CONTROLS]` / `[RULES]` no-op) is preserved.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportDiagnostics,
+    EpanetPatternEnergyDiagnostic,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# Option A — explicit, read-only diagnostics accessor.
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+for rec in diagnostics.pattern_energy_rows:
+    print(rec.section, rec.row_index, rec.tokens, rec.text)
+
+# Option B — fetch the Network and the diagnostics together.
+network, diagnostics = load_network_from_inp(
+    path, parser="fallback", return_diagnostics=True,
+)
+patterns = [r for r in diagnostics.pattern_energy_rows if r.section == "PATTERNS"]
+energy = [r for r in diagnostics.pattern_energy_rows if r.section == "ENERGY"]
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–25 caller works unchanged.
+
+### Shape
+
+```python
+@dataclass(frozen=True)
+class EpanetPatternEnergyDiagnostic:
+    section: str                   # "PATTERNS" or "ENERGY"
+    row_index: int                 # 0-based, resets per section
+    tokens: tuple[str, ...]        # parser-tokenised row, single-space split
+    text: str                      # tokens joined by a single space
+    message: str = "Row present but ignored by the steady-state dPHM importer."
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()
+    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()
+    pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()
+```
+
+Both dataclasses are `frozen=True`. `pattern_energy_rows` is a `tuple`
+(not a list) and its `tokens` field is also a tuple, so the
+diagnostics surface is structurally read-only — reassigning a field
+raises `dataclasses.FrozenInstanceError`.
+
+### What gets recorded
+
+The fallback parser emits **one `EpanetPatternEnergyDiagnostic` per
+row inside a `[PATTERNS]` or `[ENERGY]` section**:
+
+- the `section` is `"PATTERNS"` or `"ENERGY"` (upper-case);
+- the `row_index` is the 0-based index into the section bucket
+  `_split_sections` produced; it resets per section and preserves
+  source-file row order within each section;
+- the `tokens` field carries the exact parser tokens for the row
+  (a tuple of strings), preserving token order;
+- the `text` field is the tokens joined by a single space — useful
+  for logging / display;
+- the `message` field is a pinned module-level constant explaining
+  the read-only / no-op contract.
+
+Section ordering follows the source file: whichever of
+`[PATTERNS]` / `[ENERGY]` is declared first appears first in
+`pattern_energy_rows`.
+
+Records are **tokenised parser rows**, not semantic EPANET pattern /
+energy evaluations. EPANET `[PATTERNS]` rows can carry multiple
+multipliers per line, and `[ENERGY]` rows take several forms
+(`GLOBAL PRICE`, `GLOBAL EFFIC`, `PUMP <id> PRICE`, …). Sprint 26
+records each tokenised parser line as one record — the helper does
+**not** attempt to reconstruct semantic pattern profiles or
+energy-cost structures.
+
+Inline `; …` comments are stripped before tokenisation (the
+underlying `_strip_comment` runs first), so they never appear in
+`tokens` or `text`. Blank rows are dropped by `_split_sections` and
+therefore not surfaced as records.
+
+### Sections explicitly excluded
+
+- `[STATUS]` — never appears in `pattern_energy_rows`. Sprint 22
+  removed it from `IGNORED_SECTIONS`; accepted `OPEN` rows go through
+  `status_rows`, rejected rows raise.
+- `[CONTROLS]` and `[RULES]` — surface per-row through their
+  dedicated Sprint 25 channel `control_rule_rows`, **not** through
+  `pattern_energy_rows`. The two channels are disjoint by
+  construction.
+- `[EMITTERS]`, `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]`,
+  `[DEMANDS]`, `[TIMES]`, `[REPORT]`, and the inert layout sections
+  — still surfaced at the section level via `ignored_sections`
+  (Sprint 24), but **not** per-row through `pattern_energy_rows`.
+  The dPHM importer has no use for their row content, so the
+  diagnostics surface is kept narrow.
+- `[JUNCTIONS]`, `[RESERVOIRS]`, `[TANKS]`, `[PIPES]`, `[PUMPS]`,
+  `[VALVES]`, `[OPTIONS]`, `[CURVES]` — hydraulically active and
+  consumed by the parser; never surfaced as diagnostics.
+
+### Hydraulic inertness
+
+`pattern_energy_rows` is a side channel only. Adding `[PATTERNS]` or
+`[ENERGY]` blocks to a fixture leaves every `Network` field
+(`edge_index`, `pipe_mask`, `pump_mask`, `demands`,
+`fixed_head_values`, `lengths`, `diameters`, `c_factors`,
+`pump_coeffs`, `pump_speeds`) byte-for-byte identical to the
+Sprint 21 baseline. Newton-solving the perturbed network reproduces
+the baseline heads / flows to 1e-9 / 1e-12.
+`tests/dphm/test_inp_pattern_energy_row_diagnostics.py` pins this
+invariance.
+
+### What Sprint 26 does NOT do
+
+- It does **not** activate `[PATTERNS]` time-varying demand support.
+  The dPHM core remains steady-state; the Sprint 18 `[OPTIONS] Demand
+  Multiplier` scalar is still the only honoured demand-scaling axis.
+  Pattern-multiplier rows are recorded as visibility only; the
+  loaded `Network` and its Newton solve are unchanged.
+- It does **not** activate `[ENERGY]` parsing or energy-cost
+  modelling. `GLOBAL PRICE`, `GLOBAL EFFIC`, and `PUMP <id> PRICE`
+  rows are recorded but never propagated into the surrogate pump
+  models, fluid-density calculations, or any other hydraulic field.
+- It does **not** interpret EPANET pattern / energy structure. A
+  multi-row `PAT1` declaration surfaces as one record per source
+  line, not one record per semantic profile.
+- It does **not** surface per-row content for any other ignored
+  section. `[EMITTERS]`, `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`,
+  `[MIXING]`, `[DEMANDS]`, `[TIMES]`, `[REPORT]` remain visible only
+  at the section level via `ignored_sections` (Sprint 24).
+- It does **not** add new hydraulic physics. No Darcy-Weisbach, no
+  time-varying demand, no closed-link / pump-speed modelling, no
+  energy-cost modelling, no rule engine, no PLC / PAC / SCADA
+  adapter, no write/control path.
+- It does **not** attach diagnostic state to `Network`. The
+  `Network` dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit `pattern_energy_rows`.
+  The fallback parser is authoritative for Sprint 26 diagnostics.
+  WNTR has its own `[PATTERNS]` / `[ENERGY]` parser and stores those
+  declarations internally; the dPHM WNTR adapter does not re-emit any
+  rows and returns an **empty** `pattern_energy_rows` tuple when
+  `parser="wntr"` is requested. The asymmetry mirrors Sprints 23 /
+  24 / 25 — fallback authoritative, WNTR documented rather than
+  papered over.
+
+### Tests
+
+`tests/dphm/test_inp_pattern_energy_row_diagnostics.py` — Sprint 26:
+
+- public-surface checks: `EpanetPatternEnergyDiagnostic` is a frozen
+  dataclass with the expected fields; `tokens` is a tuple;
+  `EpanetImportDiagnostics.pattern_energy_rows` defaults to `()` and
+  is tuple-backed and frozen;
+- empty `pattern_energy_rows` for fixtures without `[PATTERNS]` /
+  `[ENERGY]`;
+- bare `[PATTERNS]` / `[ENERGY]` header (no body) yields no per-row
+  records (the section still appears in `ignored_sections`);
+- single `[PATTERNS]` and `[ENERGY]` rows each produce one record
+  with the expected `tokens` and reconstructed `text`;
+- multiple `[PATTERNS]` rows preserve source order and `row_index`
+  resets correctly per section;
+- multiple `[ENERGY]` rows preserve source order and `row_index`
+  resets correctly per section;
+- mixed `[PATTERNS]` + `[ENERGY]` blocks preserve source order in
+  both directions (patterns-first and energy-first);
+- inline `; comment` is stripped from `tokens` (the underlying
+  tokeniser strips it before records can be emitted);
+- blank rows inside `[ENERGY]` are dropped;
+- other ignored sections (`CONTROLS`, `RULES`, `EMITTERS`, `QUALITY`,
+  `SOURCES`, `REACTIONS`, `MIXING`, `TIMES`, `REPORT`, `DEMANDS`)
+  never appear in `pattern_energy_rows` — they still surface at the
+  section level via `ignored_sections`;
+- `[STATUS]` is never surfaced through `pattern_energy_rows` or
+  `ignored_sections`;
+- hydraulically active sections never surface through
+  `pattern_energy_rows`;
+- Sprint 25 `control_rule_rows` still excludes `[PATTERNS]` /
+  `[ENERGY]`;
+- `ignored_sections` still lists `PATTERNS` / `ENERGY` when those
+  sections are present;
+- `Network` byte-for-byte invariance against the Sprint 21 baseline
+  with `[PATTERNS]` / `[ENERGY]` rows added;
+- Newton-solve heads / flows match the baseline to 1e-9 / 1e-12 with
+  `[PATTERNS]` and `[ENERGY]` present;
+- `return_diagnostics=True` returns the same `Network` as the
+  default `load_network_from_inp(path)` call, with
+  `pattern_energy_rows` populated;
+- backward compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- `load_inp_diagnostics(path)` and `load_network_from_inp(path,
+  return_diagnostics=True)` return identical `pattern_energy_rows`,
+  `control_rule_rows`, `status_rows`, and `ignored_sections`;
+- Sprint 23 + 24 + 25 + 26 diagnostics coexist on a single file (with
+  `[STATUS] OPEN`, `[CONTROLS]`, `[RULES]`, `[PATTERNS]`, `[ENERGY]`
+  all present);
+- Sprint 22 rejection paths still raise when `[PATTERNS]` / `[ENERGY]`
+  are also present in the file; no partial diagnostics leak out;
+- optional WNTR back-end smoke check (`pytest.importorskip("wntr")`)
+  — the WNTR back-end returns an `EpanetImportDiagnostics` with an
+  empty `pattern_energy_rows` tuple; diagnostic parity with the
+  fallback parser is **not** required.
+
+## Read-only [CONTROLS] row classification (Sprint 27)
+
+Sprint 25 surfaced one record per tokenised parser row inside
+`[CONTROLS]` / `[RULES]`. Sprint 27 layers a conservative,
+deterministic **classification** on top of that surface. Each emitted
+`EpanetControlRuleDiagnostic` now carries a `kind` field that tags
+the row by its leading tokens *and* by the parsed network's
+link-type context, without changing any hydraulic field on the
+loaded `Network` and without rejecting any unfamiliar control row.
+Sprint 27 still does NOT activate control semantics, evaluate
+conditions / settings, or interpret EPANET rule structure — the
+classification is visibility only.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetControlKind,
+    EpanetControlRuleDiagnostic,
+    EpanetImportDiagnostics,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+for rec in diagnostics.control_rule_rows:
+    print(rec.section, rec.row_index, rec.kind, rec.text)
+
+# Filter by classification.
+pump_rows = [
+    r for r in diagnostics.control_rule_rows
+    if r.kind == EpanetControlKind.PUMP_SETTING
+]
+valve_rows = [
+    r for r in diagnostics.control_rule_rows
+    if r.kind == EpanetControlKind.VALVE_SETTING
+]
+```
+
+The default `load_network_from_inp(path)` (without
+`return_diagnostics=True`) **continues to return only a `Network`**,
+so every Sprint 11–26 caller works unchanged.
+
+### Shape
+
+```python
+class EpanetControlKind(str, Enum):
+    LINK_SETTING = "LINK_SETTING"     # known pipe id
+    PUMP_SETTING = "PUMP_SETTING"     # known pump id
+    VALVE_SETTING = "VALVE_SETTING"   # known valve id
+    UNKNOWN = "UNKNOWN"               # anything else
+
+
+@dataclass(frozen=True)
+class EpanetControlRuleDiagnostic:
+    section: str                   # "CONTROLS" or "RULES"
+    row_index: int                 # 0-based, resets per section
+    tokens: tuple[str, ...]        # parser-tokenised row
+    text: str                      # tokens joined by a single space
+    message: str = "Row present but ignored by the steady-state dPHM importer."
+    kind: str = "UNKNOWN"          # Sprint 27 — defaults to UNKNOWN
+```
+
+`EpanetControlKind` is a `str` subclass, so `rec.kind == "PUMP_SETTING"`
+and `rec.kind == EpanetControlKind.PUMP_SETTING` are both true. The
+`kind` field has a default of `"UNKNOWN"`, so the Sprint 25
+constructor call (no `kind` kwarg) keeps working — the field is
+backwards-compatible by default.
+
+### Classification rules
+
+The fallback parser applies one deterministic rule per section:
+
+- `[RULES]` rows **always** classify as `UNKNOWN`. The dPHM importer
+  does not interpret multi-line EPANET rule structure, so even a
+  `THEN LINK <known_id> ...` line inside `[RULES]` does not become
+  a semantic classification. Per-row visibility is preserved; the
+  classification simply is not narrowed.
+- `[CONTROLS]` rows are classified by their first two tokens against
+  the declared pipe / pump / valve id sets:
+  - `LINK <id> ...` with `<id>` in `[PUMPS]` → `PUMP_SETTING`
+  - `LINK <id> ...` with `<id>` in `[VALVES]` → `VALVE_SETTING`
+  - `LINK <id> ...` with `<id>` in `[PIPES]` → `LINK_SETTING`
+  - Anything else → `UNKNOWN` (unknown link id, non-`LINK` leading
+    token, short row, malformed shape).
+
+The leading `LINK` keyword is matched case-insensitively (EPANET's
+convention); the link id itself is matched case-sensitively (dPHM
+link ids are case-sensitive).
+
+**Unknown rows are not rejected.** A `[CONTROLS]` row that targets a
+link the file never declared in `[PIPES]` / `[PUMPS]` / `[VALVES]`
+still surfaces as an ignored diagnostic with `kind = UNKNOWN`. The
+Sprint 22 `[STATUS]` rejection contract is unaffected.
+
+### Hydraulic inertness
+
+The classification is a side channel only. Adding any combination of
+`[CONTROLS]` / `[RULES]` rows (including rows that target known pumps
+or valves) leaves every `Network` field byte-for-byte identical to
+the Sprint 21 baseline: `edge_index`, `pipe_mask`, `pump_mask`,
+`demands`, `fixed_head_values`, `lengths`, `diameters`, `c_factors`,
+`pump_coeffs`, and `pump_speeds`. Newton-solving the perturbed
+network reproduces the baseline heads / flows to 1e-9 / 1e-12.
+`tests/dphm/test_inp_control_row_classification.py` pins this
+invariance.
+
+### What Sprint 27 does NOT do
+
+- It does **not** evaluate EPANET conditions. `IF NODE <id> BELOW
+  <value>`, `IF TIME <t>`, `AT TIME <t>`, `AT CLOCKTIME <t>` are all
+  ignored — two rows that differ only in their condition body
+  classify identically.
+- It does **not** evaluate or apply settings. `LINK PU1 1.2 ...` and
+  `LINK PU1 OPEN ...` both classify as `PUMP_SETTING`; no pump speed
+  is changed.
+- It does **not** activate any `[CONTROLS]` semantics. Closed-link
+  modelling, pump speed changes, check valves, and active-status
+  physics remain deferred.
+- It does **not** activate `[RULES]` semantics. Multi-line rule
+  blocks remain per-row visibility only; the `kind` is always
+  `UNKNOWN` for `[RULES]`.
+- It does **not** add new hydraulic physics. No Darcy-Weisbach, no
+  time-varying demand, no closed-link / pump-speed modelling, no
+  energy-cost modelling, no rule engine.
+- It does **not** reject unfamiliar control rows. `UNKNOWN` is a
+  diagnostic tag, never a rejection trigger.
+- It does **not** attach diagnostic state to `Network`. The `Network`
+  dataclass surface is unchanged.
+- It does **not** make the WNTR back-end emit classified
+  `control_rule_rows`. The fallback parser is authoritative for
+  Sprint 25 / 27 control-row diagnostics. WNTR has its own
+  `[CONTROLS]` / `[RULES]` parser and interprets some of those rows
+  internally; the dPHM WNTR adapter does not re-emit any rows and
+  returns an **empty** `control_rule_rows` tuple when `parser="wntr"`
+  is requested. The asymmetry mirrors Sprint 23 / 24 / 25 / 26 —
+  fallback authoritative, WNTR documented rather than papered over.
+
+### Tests
+
+`tests/dphm/test_inp_control_row_classification.py` — Sprint 27:
+
+- public-surface checks: `EpanetControlKind` exists with the four
+  expected members and is a `str` subclass; the `kind` field is
+  present on `EpanetControlRuleDiagnostic` with a default of
+  `"UNKNOWN"`; the field participates in dataclass freezing;
+  Sprint 25 constructor calls without a `kind` kwarg still work;
+- classification: `LINK <pipe_id>` → `LINK_SETTING`,
+  `LINK <pump_id>` → `PUMP_SETTING`, `LINK <valve_id>` →
+  `VALVE_SETTING`, unknown link id → `UNKNOWN`, non-`LINK` leading
+  token → `UNKNOWN`, short row → `UNKNOWN`;
+- case-insensitive leading `LINK` keyword;
+- `[RULES]` rows always classify as `UNKNOWN`, even when the row
+  body would otherwise match a known link;
+- classification preserves Sprint 25 `tokens`, `text`, `row_index`,
+  and section ordering;
+- classification is hydraulically inert — `Network` byte-for-byte
+  invariance with classified `[CONTROLS]` / `[RULES]` rows added,
+  Newton-solve heads / flows match the baseline to 1e-9 / 1e-12;
+- pump fixture: classified `[CONTROLS]` rows that target the pump do
+  not mutate `demands` / `pump_coeffs`;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` return the
+  same `kind` per row;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`;
+- coexistence: Sprint 23 `status_rows`, Sprint 24
+  `ignored_sections`, and Sprint 26 `pattern_energy_rows` channels
+  remain populated when classification fires;
+- Sprint 22 rejection paths still raise when classified
+  `[CONTROLS]` rows are also present; no partial diagnostics leak out;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`) — the WNTR back-end returns an
+  `EpanetImportDiagnostics` with an empty `control_rule_rows` tuple;
+  classification parity is **not** required.
+
+## Read-only [EMITTERS] / [DEMANDS] row diagnostics (Sprint 28)
+
+Sprint 25 surfaced per-row content for `[CONTROLS]` / `[RULES]`,
+Sprint 26 added the same for `[PATTERNS]` / `[ENERGY]`, and Sprint 28
+extends the pattern to a third pair of ignored sections — `[EMITTERS]`
+and `[DEMANDS]` — through a new `emitter_demand_rows` field on the
+same `EpanetImportDiagnostics` container. Analysts can inspect the
+exact unsupported emitter (pressure-dependent leakage coefficient) and
+demand-category rows the parser dropped on the floor, without
+changing any hydraulic field on the loaded `Network`. Sprint 28 still
+does NOT activate any pressure-dependent emitter / leakage modelling
+or multi-category / pattern-keyed demand parsing — the rows remain
+dropped on the floor, and the loaded `Network` is byte-for-byte
+identical to one loaded from a fixture with no `[EMITTERS]` /
+`[DEMANDS]` block.
+
+```python
+from aquaoptima.dphm import (
+    EpanetEmitterDemandDiagnostic,
+    EpanetImportDiagnostics,
+    load_inp_diagnostics,
+)
+
+diagnostics: EpanetImportDiagnostics = load_inp_diagnostics(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="fallback",
+)
+
+for rec in diagnostics.emitter_demand_rows:
+    print(rec.section, rec.row_index, rec.tokens, rec.message)
+    # e.g. "EMITTERS 0 ('J1', '0.5') Row present but ignored ..."
+
+# Split per section if you only care about one of them:
+emitters = [r for r in diagnostics.emitter_demand_rows if r.section == "EMITTERS"]
+demands = [r for r in diagnostics.emitter_demand_rows if r.section == "DEMANDS"]
+```
+
+The record and the extended container:
+
+```python
+@dataclass(frozen=True)
+class EpanetEmitterDemandDiagnostic:
+    section: str            # always "EMITTERS" or "DEMANDS"
+    row_index: int          # 0-based within the section bucket
+    tokens: tuple[str, ...] # exact parser tokens (comments stripped)
+    text: str               # single-space-joined token text
+    message: str            # human-readable no-op explanation
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()                  # Sprint 23
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()     # Sprint 24
+    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()       # Sprint 25 (+ Sprint 27 `kind` classification)
+    pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()   # Sprint 26
+    emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()   # Sprint 28
+```
+
+Both dataclasses are `frozen=True`. `emitter_demand_rows` is a `tuple`
+of `EpanetEmitterDemandDiagnostic` instances. Field reassignment on
+either type raises `dataclasses.FrozenInstanceError`.
+
+### What the fallback parser emits
+
+The fallback parser emits **one `EpanetEmitterDemandDiagnostic` per
+tokenised parser row** inside every `[EMITTERS]` and `[DEMANDS]`
+section that appears in the source file. Rules:
+
+- Section ordering: rows appear in the order the corresponding
+  section header first appeared in the source file
+  (`_split_sections` is built on a regular `dict`, which preserves
+  insertion order on Python 3.7+).
+- `row_index` resets per section and is the 0-based index into the
+  per-section accumulated row list.
+- `tokens` is a `tuple` (not a list) so the record is structurally
+  immutable. Token order matches the source row.
+- Inline `; ...` comments and blank lines are dropped by
+  `_split_sections` **before** any row enters `emitter_demand_rows`.
+- A bare `[EMITTERS]` or `[DEMANDS]` header with no body produces no
+  per-row diagnostic (there are no rows to surface), but the section
+  itself still shows up in `ignored_sections` via Sprint 24.
+
+A record represents a *tokenised parser row*, **not** a semantic
+EPANET emitter or demand-category evaluation. EPANET `EMITTERS` rows
+declare `(junction_id, coefficient)`; `DEMANDS` rows declare
+`(junction_id, base_demand, optional pattern_id, optional category)`.
+Sprint 28 does not interpret any of those fields — the goal is row
+visibility, not semantic resolution.
+
+### Disjoint with the other diagnostic channels
+
+- `[CONTROLS]` and `[RULES]` — never appear in `emitter_demand_rows`.
+  They surface per-row through `control_rule_rows` (Sprint 25, plus
+  Sprint 27 `kind` classification). The two channels are disjoint by
+  construction.
+- `[PATTERNS]` and `[ENERGY]` — never appear in
+  `emitter_demand_rows`. They surface per-row through
+  `pattern_energy_rows` (Sprint 26). Disjoint by construction.
+- `[STATUS]` — never appears in `emitter_demand_rows`. Sprint 22
+  removed it from `IGNORED_SECTIONS` entirely, so it cannot be
+  recorded as an emitter/demand row either.
+- Active hydraulic sections (`[JUNCTIONS]`, `[PIPES]`, `[OPTIONS]`,
+  `[CURVES]`, …) — never appear in `emitter_demand_rows`. The two
+  channels are disjoint by construction.
+- Other ignored sections (`[TIMES]`, `[REPORT]`, `[QUALITY]`,
+  `[SOURCES]`, `[REACTIONS]`, `[MIXING]`, plus the inert layout
+  sections) — only surface at the **section** level through
+  `ignored_sections` (Sprint 24), but **not** per-row through
+  `emitter_demand_rows`.
+
+### Hydraulic invariance
+
+The diagnostics are **read-only and hydraulically inert**. The
+Sprint 21 ignored-section no-op contract is unchanged: every
+`[EMITTERS]` / `[DEMANDS]` row is still dropped on the floor at parse
+time. `emitter_demand_rows` is a side channel only. Adding `[EMITTERS]`
+or `[DEMANDS]` content to a fixture leaves:
+
+- the `Network` dataclass byte-for-byte identical (same `edge_index`,
+  `pipe_mask`, `pump_mask`, `demands`, `lengths`, `diameters`,
+  `c_factors`, `pump_coeffs`, `pump_speeds`, `fixed_head_mask`,
+  `fixed_head_values`); junction demands continue to come exclusively
+  from the `[JUNCTIONS]` base-demand column (with `[OPTIONS] Demand
+  Multiplier` applied);
+- Newton-solver heads / flows identical to the un-perturbed baseline;
+- Sprint 22 `[STATUS]` rejection behaviour unchanged — `CLOSED` /
+  `CV` / numeric pump speed / unknown link id / arbitrary token still
+  raise `ValueError` even on files that also carry `[EMITTERS]` /
+  `[DEMANDS]` rows; no partial diagnostics leak out.
+
+### What Sprint 28 does NOT do
+
+Sprint 28 deliberately does **not**:
+
+- model pressure-dependent emitter outflow (`Q_emitter = C * P^gamma`)
+  on any junction;
+- model background leakage / pressure-dependent demand;
+- model multi-category demands or pattern-keyed demands. The
+  `[OPTIONS] Demand Multiplier` directive (Sprint 18) remains the
+  single steady-state demand scalar honoured by the importer.
+- change the loaded `Network` in any way, ever.
+- reject any `[EMITTERS]` or `[DEMANDS]` row. They are diagnosed, not
+  validated. A row with malformed numerics still shows up as a
+  diagnostic with the offending tokens — the importer does not
+  interpret them.
+- make the WNTR back-end emit `emitter_demand_rows`. The fallback
+  parser is authoritative for Sprint 28 diagnostics. The WNTR adapter
+  acknowledges the new channel and returns an **empty**
+  `emitter_demand_rows` tuple when `parser="wntr"`, matching the
+  Sprint 23 / 24 / 25 / 26 / 27 documented asymmetry.
+
+### Tests
+
+`tests/dphm/test_inp_emitter_demand_row_diagnostics.py` — Sprint 28:
+
+- public-surface checks: `EpanetEmitterDemandDiagnostic` is a frozen
+  dataclass with `section`, `row_index`, `tokens`, `text`, `message`,
+  and `EpanetImportDiagnostics.emitter_demand_rows` defaults to `()`
+  and is a tuple;
+- empty `emitter_demand_rows` for fixtures without `[EMITTERS]` /
+  `[DEMANDS]`, and for bare headers with no body (the section still
+  shows up in `ignored_sections` via Sprint 24);
+- one-row fixtures for `[EMITTERS]` and `[DEMANDS]` produce one
+  record each, with the expected `section`, `row_index`, `tokens`,
+  `text`;
+- multi-row fixtures preserve `row_index` (`[0, 1, 2, ...]`) and
+  source-file order;
+- mixed `[EMITTERS]` + `[DEMANDS]` fixtures preserve source-section
+  order: `[EMITTERS]` first / `[DEMANDS]` first both round-trip;
+- inline `; ...` comments are stripped before tokenisation; blank
+  rows are dropped;
+- every other section — `[CONTROLS]`, `[RULES]`, `[PATTERNS]`,
+  `[ENERGY]`, `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]`,
+  `[TIMES]`, `[REPORT]`, and active hydraulic sections — never
+  appears in `emitter_demand_rows` (the section still surfaces at
+  the section level through `ignored_sections`);
+- `[STATUS]` is never surfaced through `emitter_demand_rows` or
+  `ignored_sections`; Sprint 23 `status_rows` still captures `OPEN`;
+- the Sprint 25 `control_rule_rows` channel never includes
+  `[EMITTERS]` / `[DEMANDS]` rows;
+- the Sprint 26 `pattern_energy_rows` channel never includes
+  `[EMITTERS]` / `[DEMANDS]` rows;
+- hydraulic-inertness proofs: `_assert_networks_identical` against
+  the baseline fixture; Newton-solve heads / flows match the
+  baseline to 1e-9 / 1e-12;
+- combined Sprint 23 + 24 + 25 + 26 + 28 coexistence on a fixture
+  carrying `[STATUS]`, `[CONTROLS]`, `[RULES]`, `[PATTERNS]`,
+  `[ENERGY]`, `[EMITTERS]`, `[DEMANDS]` rows — all five channels
+  populated, with the new `emitter_demand_rows` carrying exactly the
+  expected source order;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` return
+  identical `emitter_demand_rows`, identical `pattern_energy_rows`,
+  identical `control_rule_rows`, identical `status_rows`, and
+  identical `ignored_sections`;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network` even when `[EMITTERS]` /
+  `[DEMANDS]` rows are present;
+- Sprint 22 rejection paths still raise (`CLOSED`, `CV`, numeric
+  pump-status, unknown link id, arbitrary token) when `[EMITTERS]`
+  / `[DEMANDS]` rows are present; no partial diagnostics leak out;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`) — the WNTR back-end returns an
+  `EpanetImportDiagnostics` with an empty `emitter_demand_rows`
+  tuple; diagnostic parity with the fallback parser is **not**
+  required.
+
+## Read-only water-quality row diagnostics (Sprint 29)
+
+Sprint 25 surfaced per-row content for `[CONTROLS]` / `[RULES]`,
+Sprint 26 added the same for `[PATTERNS]` / `[ENERGY]`, Sprint 28
+added the same for `[EMITTERS]` / `[DEMANDS]`, and Sprint 29 closes
+the per-row visibility ladder for the remaining content-bearing
+members of `IGNORED_SECTIONS` — the four water-quality-family
+sections `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, and `[MIXING]` —
+through a new `water_quality_rows` field on the same
+`EpanetImportDiagnostics` container. Analysts can inspect the exact
+unsupported initial-quality, source, reaction, and tank-mixing rows
+the parser dropped on the floor, without changing any hydraulic
+field on the loaded `Network`. Sprint 29 still does NOT activate any
+water-quality simulation, source injection semantics, reaction /
+decay modelling, or tank-mixing modelling — the rows remain dropped
+on the floor, and the loaded `Network` is byte-for-byte identical to
+one loaded from a fixture with no water-quality block.
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportDiagnostics,
+    EpanetWaterQualityDiagnostic,
+    load_inp_diagnostics,
+)
+
+diagnostics: EpanetImportDiagnostics = load_inp_diagnostics(
+    "docs/examples/epanet_reference_loop.inp",
+    parser="fallback",
+)
+
+for rec in diagnostics.water_quality_rows:
+    print(rec.section, rec.row_index, rec.tokens, rec.message)
+    # e.g. "QUALITY 0 ('J1', '0.5') Row present but ignored ..."
+
+# Split per section if you only care about one of them:
+quality = [r for r in diagnostics.water_quality_rows if r.section == "QUALITY"]
+sources = [r for r in diagnostics.water_quality_rows if r.section == "SOURCES"]
+reactions = [r for r in diagnostics.water_quality_rows if r.section == "REACTIONS"]
+mixing = [r for r in diagnostics.water_quality_rows if r.section == "MIXING"]
+```
+
+The record and the extended container:
+
+```python
+@dataclass(frozen=True)
+class EpanetWaterQualityDiagnostic:
+    section: str            # one of "QUALITY", "SOURCES", "REACTIONS", "MIXING"
+    row_index: int          # 0-based within the section bucket
+    tokens: tuple[str, ...] # exact parser tokens (comments stripped)
+    text: str               # single-space-joined token text
+    message: str            # human-readable no-op explanation
+
+
+@dataclass(frozen=True)
+class EpanetImportDiagnostics:
+    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()                  # Sprint 23
+    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()     # Sprint 24
+    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()       # Sprint 25 (+ Sprint 27 `kind` classification)
+    pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()   # Sprint 26
+    emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()   # Sprint 28
+    water_quality_rows: tuple[EpanetWaterQualityDiagnostic, ...] = ()     # Sprint 29
+```
+
+Both dataclasses are `frozen=True`. `water_quality_rows` is a `tuple`
+of `EpanetWaterQualityDiagnostic` instances. Field reassignment on
+either type raises `dataclasses.FrozenInstanceError`.
+
+### What the fallback parser emits
+
+The fallback parser emits **one `EpanetWaterQualityDiagnostic` per
+tokenised parser row** inside every `[QUALITY]`, `[SOURCES]`,
+`[REACTIONS]`, and `[MIXING]` section that appears in the source
+file. Rules:
+
+- Section ordering: rows appear in the order the corresponding
+  section header first appeared in the source file
+  (`_split_sections` is built on a regular `dict`, which preserves
+  insertion order on Python 3.7+). The four water-quality sections
+  are not ordered against each other — whichever appears first in
+  the file appears first in `water_quality_rows`.
+- `row_index` resets per section and is the 0-based index into the
+  per-section accumulated row list.
+- `tokens` is a `tuple` (not a list) so the record is structurally
+  immutable. Token order matches the source row.
+- Inline `; ...` comments and blank lines are dropped by
+  `_split_sections` **before** any row enters `water_quality_rows`.
+- A bare `[QUALITY]` / `[SOURCES]` / `[REACTIONS]` / `[MIXING]`
+  header with no body produces no per-row diagnostic (there are no
+  rows to surface), but the section itself still shows up in
+  `ignored_sections` via Sprint 24.
+
+A record represents a *tokenised parser row*, **not** a semantic
+EPANET water-quality evaluation. EPANET `QUALITY` rows declare an
+initial-quality value per node; `SOURCES` rows declare a source
+type / strength (and optional time pattern) per node; `REACTIONS`
+rows declare bulk and wall reaction coefficients per pipe / tank,
+along with global directives like `ORDER BULK`, `GLOBAL BULK`, and
+`LIMITING POTENTIAL`; `MIXING` rows declare a tank mixing model
+(`MIXED`, `2COMP`, `FIFO`, `LIFO`) with an optional compartment
+fraction. Sprint 29 does not interpret any of those fields — the
+goal is row visibility, not semantic resolution.
+
+### Disjoint with the other diagnostic channels
+
+- `[CONTROLS]` and `[RULES]` — never appear in `water_quality_rows`.
+  They surface per-row through `control_rule_rows` (Sprint 25, plus
+  Sprint 27 `kind` classification). The two channels are disjoint by
+  construction.
+- `[PATTERNS]` and `[ENERGY]` — never appear in
+  `water_quality_rows`. They surface per-row through
+  `pattern_energy_rows` (Sprint 26). Disjoint by construction.
+- `[EMITTERS]` and `[DEMANDS]` — never appear in
+  `water_quality_rows`. They surface per-row through
+  `emitter_demand_rows` (Sprint 28). Disjoint by construction.
+- `[STATUS]` — never appears in `water_quality_rows`. Sprint 22
+  removed it from `IGNORED_SECTIONS` entirely, so it cannot be
+  recorded as a water-quality row either.
+- Active hydraulic sections (`[JUNCTIONS]`, `[PIPES]`, `[OPTIONS]`,
+  `[CURVES]`, …) — never appear in `water_quality_rows`. Disjoint by
+  construction.
+- Other ignored sections (`[TIMES]`, `[REPORT]`, plus the inert
+  layout sections) — only surface at the **section** level through
+  `ignored_sections` (Sprint 24), but **not** per-row through
+  `water_quality_rows`.
+
+### Hydraulic invariance
+
+The diagnostics are **read-only and hydraulically inert**. The
+Sprint 21 ignored-section no-op contract is unchanged: every
+`[QUALITY]` / `[SOURCES]` / `[REACTIONS]` / `[MIXING]` row is still
+dropped on the floor at parse time. `water_quality_rows` is a side
+channel only. Adding water-quality content to a fixture leaves:
+
+- the `Network` dataclass byte-for-byte identical (same `edge_index`,
+  `pipe_mask`, `pump_mask`, `demands`, `lengths`, `diameters`,
+  `c_factors`, `pump_coeffs`, `pump_speeds`, `fixed_head_mask`,
+  `fixed_head_values`); junction demands continue to come exclusively
+  from the `[JUNCTIONS]` base-demand column (with `[OPTIONS] Demand
+  Multiplier` applied); reservoir / tank fixed-heads continue to come
+  exclusively from `[RESERVOIRS]` / `[TANKS]` rows; no quality field
+  is added or modified on `Network` (because there isn't one);
+- Newton-solver heads / flows identical to the un-perturbed baseline;
+- Sprint 22 `[STATUS]` rejection behaviour unchanged — `CLOSED` /
+  `CV` / numeric pump speed / unknown link id / arbitrary token still
+  raise `ValueError` even on files that also carry water-quality
+  rows; no partial diagnostics leak out.
+
+### What Sprint 29 does NOT do
+
+Sprint 29 deliberately does **not**:
+
+- run any water-quality simulation, age modelling, or
+  contaminant-transport integration;
+- interpret `[QUALITY]` rows as initial-concentration boundary
+  conditions on `Network` nodes;
+- interpret `[SOURCES]` rows as source-injection terms (`CONCEN`,
+  `MASS`, `FLOWPACED`, `SETPOINT`) on `Network` nodes;
+- interpret `[REACTIONS]` rows as bulk / wall reaction coefficients
+  (`Order Bulk`, `Order Wall`, `Global Bulk`, `Global Wall`, per-pipe
+  / per-tank coefficients, `Limiting Potential`, `Roughness
+  Correlation`);
+- interpret `[MIXING]` rows as tank-mixing models (`MIXED`, `2COMP`,
+  `FIFO`, `LIFO`) on `Network` tanks (the dPHM steady-state core does
+  not model tank dynamics in the first place);
+- change the loaded `Network` in any way, ever;
+- reject any water-quality row. They are diagnosed, not validated. A
+  row with malformed numerics or unknown tokens still shows up as a
+  diagnostic with the offending tokens — the importer does not
+  interpret them;
+- make the WNTR back-end emit `water_quality_rows`. The fallback
+  parser is authoritative for Sprint 29 diagnostics. The WNTR adapter
+  acknowledges the new channel and returns an **empty**
+  `water_quality_rows` tuple when `parser="wntr"`, matching the
+  Sprint 23 / 24 / 25 / 26 / 27 / 28 documented asymmetry.
+
+### WNTR adapter behaviour / asymmetry
+
+The optional WNTR back-end is documented as fallback-authoritative
+for every Sprint 29 diagnostic channel. When `parser="wntr"`, the
+returned `EpanetImportDiagnostics.water_quality_rows` tuple is
+**empty**, regardless of how many water-quality rows the source
+fixture declared. WNTR has its own `[QUALITY]` / `[SOURCES]` /
+`[REACTIONS]` / `[MIXING]` parsers and surfaces its own
+representations through its own data model, but the dPHM WNTR
+adapter does not re-emit them as dPHM diagnostics — the visibility
+surface is uniform across back-ends and the fallback parser is the
+single source of truth. Note that WNTR's water-quality parsers can
+themselves raise on fixtures that reference IDs WNTR does not know
+about (e.g. `MIXING T1 MIXED` when `T1` is not declared as a
+`[TANKS]` row); those raises are WNTR-side behaviour, not Sprint 29
+behaviour, and the fallback parser tolerates the same rows as
+diagnostics.
+
+### Tests
+
+`tests/dphm/test_inp_water_quality_row_diagnostics.py` — Sprint 29:
+
+- public-surface checks: `EpanetWaterQualityDiagnostic` is a frozen
+  dataclass with `section`, `row_index`, `tokens`, `text`, `message`,
+  and `EpanetImportDiagnostics.water_quality_rows` defaults to `()`
+  and is a tuple;
+- empty `water_quality_rows` for fixtures without any of the four
+  water-quality sections, and for bare headers with no body — the
+  section still shows up in `ignored_sections` via Sprint 24;
+- one-row fixtures for `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`,
+  `[MIXING]` each produce one record, with the expected `section`,
+  `row_index`, `tokens`, `text`;
+- multi-row fixtures preserve `row_index` (`[0, 1, 2, ...]`) and
+  source-file order, both within a single section and across all
+  four;
+- mixed all-four fixtures preserve source-section order in both the
+  canonical (`QUALITY` → `SOURCES` → `REACTIONS` → `MIXING`) and
+  reverse orderings;
+- `row_index` resets per section in the all-four-mixed fixtures;
+- inline `; ...` comments are stripped before tokenisation; blank
+  rows are dropped;
+- every other section — `[CONTROLS]`, `[RULES]`, `[PATTERNS]`,
+  `[ENERGY]`, `[EMITTERS]`, `[DEMANDS]`, `[TIMES]`, `[REPORT]`, and
+  active hydraulic sections — never appears in `water_quality_rows`
+  (the section still surfaces at the section level through
+  `ignored_sections`);
+- `[STATUS]` is never surfaced through `water_quality_rows` or
+  `ignored_sections`; Sprint 23 `status_rows` still captures `OPEN`;
+- the Sprint 25 `control_rule_rows` channel never includes
+  water-quality rows;
+- the Sprint 26 `pattern_energy_rows` channel never includes
+  water-quality rows;
+- the Sprint 28 `emitter_demand_rows` channel never includes
+  water-quality rows;
+- hydraulic-inertness proofs: `_assert_networks_identical` against
+  the baseline fixture; Newton-solve heads / flows match the
+  baseline to 1e-9 / 1e-12;
+- combined Sprint 23 + 24 + 25 + 26 + 28 + 29 coexistence on a
+  fixture carrying `[STATUS]`, `[CONTROLS]`, `[RULES]`,
+  `[PATTERNS]`, `[ENERGY]`, `[EMITTERS]`, `[DEMANDS]`,
+  `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]` rows — all
+  six channels populated, with the new `water_quality_rows`
+  carrying exactly the expected source order;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` return
+  identical `water_quality_rows`, identical `emitter_demand_rows`,
+  identical `pattern_energy_rows`, identical `control_rule_rows`,
+  identical `status_rows`, and identical `ignored_sections`;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network` even when water-quality rows are
+  present;
+- Sprint 22 rejection paths still raise (`CLOSED`, `CV`, numeric
+  pump-status, unknown link id, arbitrary token) when water-quality
+  rows are present; no partial diagnostics leak out;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`) — the WNTR back-end returns an
+  `EpanetImportDiagnostics` with an empty `water_quality_rows`
+  tuple; diagnostic parity with the fallback parser is **not**
+  required. The smoke fixture uses only the water-quality sections
+  WNTR accepts on a tank-less loop fixture (`[QUALITY]`,
+  `[REACTIONS]`); `[SOURCES]` / `[MIXING]` rows that reference
+  unknown IDs raise on the WNTR side and are exercised against the
+  fallback parser instead.
+
+## Read-only diagnostics summary / row counts (Sprint 30)
+
+Sprints 23–29 grew `EpanetImportDiagnostics` into a multi-channel
+container with six row-style fields (`status_rows`,
+`control_rule_rows`, `pattern_energy_rows`, `emitter_demand_rows`,
+`water_quality_rows`) plus an ignored-section presence field
+(`ignored_sections`). UI / API / report consumers that just need
+"how many diagnostic rows did this file emit, grouped by EPANET
+section?" had to walk every tuple themselves and dedupe by hand.
+
+Sprint 30 closes that ergonomics gap by adding three read-only
+helper methods on `EpanetImportDiagnostics`. The helpers add **no
+new EPANET semantics**, do not activate any deferred section, do
+not mutate the diagnostics object or any contained tuple, and do
+not change the loaded `Network` in any way. They are pure aggregate
+views over the existing channels.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportDiagnostics,
+    EpanetImportDiagnosticsSummary,
+    load_inp_diagnostics,
+)
+
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+
+# Fresh dict per call. Keys appear in canonical EPANET section order.
+counts = diagnostics.row_count_by_section()
+# e.g. {"STATUS": 2, "CONTROLS": 3, "PATTERNS": 1, "QUALITY": 1}
+
+# Tuple of ignored-section names in source-file order.
+names = diagnostics.ignored_section_names()
+# e.g. ("TITLE", "PATTERNS", "CONTROLS", "END")
+
+# Frozen dataclass aggregate view.
+summary = diagnostics.summary()
+summary.total_diagnostic_rows
+summary.status_row_count
+summary.control_rule_row_count
+summary.pattern_energy_row_count
+summary.emitter_demand_row_count
+summary.water_quality_row_count
+summary.ignored_section_count
+summary.row_count_by_section  # same shape as the dict above
+```
+
+### Row counts vs ignored-section presence
+
+The two surfaces are deliberately separate so a file with both
+ignored-section presence records and per-row records for the same
+section (the common case for `[CONTROLS]`, `[PATTERNS]`, etc.) is
+never double-counted:
+
+- `row_count_by_section()` counts **row diagnostics only**:
+  `status_rows`, `control_rule_rows`, `pattern_energy_rows`,
+  `emitter_demand_rows`, `water_quality_rows`. The dict key is the
+  canonical upper-case section name (`"STATUS"`, `"CONTROLS"`,
+  `"RULES"`, `"PATTERNS"`, `"ENERGY"`, `"EMITTERS"`, `"DEMANDS"`,
+  `"QUALITY"`, `"SOURCES"`, `"REACTIONS"`, `"MIXING"`). Sections
+  with zero rows are omitted from the dict.
+- `ignored_section_names()` returns the names from
+  `ignored_sections` only — i.e. the section-level presence
+  channel from Sprint 24. This captures sections like `[TITLE]`,
+  `[REPORT]`, `[COORDINATES]`, `[TAGS]` that never emit per-row
+  diagnostics, as well as the section-level presence of sections
+  that *do* also emit row diagnostics (which is why mixing the two
+  surfaces would double-count).
+- `summary().ignored_section_count` is `len(ignored_sections)`;
+  the names themselves come from `ignored_section_names()`.
+
+### Canonical ordering
+
+The dict returned by `row_count_by_section()` and the dict embedded
+in `summary().row_count_by_section` always emit keys in this
+canonical order (sections with zero rows omitted):
+
+```
+STATUS, CONTROLS, RULES, PATTERNS, ENERGY, EMITTERS, DEMANDS,
+QUALITY, SOURCES, REACTIONS, MIXING
+```
+
+Any unknown / future section name (e.g. one a later sprint may
+introduce, or one a custom test fixture constructs directly) is
+appended after the canonical block in alphabetical order. The
+ordering is deterministic across Python versions and across
+insertion-order accidents in the row tuples.
+
+### Freshness and immutability
+
+- Every `row_count_by_section()` call allocates a fresh
+  `dict[str, int]`; mutating the returned dict has no effect on
+  the diagnostics container or on subsequent calls.
+- Every `summary()` call allocates a fresh
+  `EpanetImportDiagnosticsSummary`. The dataclass is
+  `frozen=True`, so field references cannot be reassigned. The
+  nested `row_count_by_section` dict is freshly built per call so
+  mutation by one caller cannot leak into another's summary.
+- `ignored_section_names()` returns a `tuple`, which is
+  immutable by construction.
+- None of the helpers ever mutate the source
+  `EpanetImportDiagnostics` instance or any record it holds.
+
+### Hydraulic inertness / no new semantics
+
+Sprint 30 ships **only** the ergonomics helpers. Specifically, this
+sprint adds:
+
+- no new EPANET section diagnostics channels (every channel is
+  re-used from Sprints 23–29);
+- no water-quality simulation, no source / reaction / mixing
+  semantics, no pattern-driven time-varying demands, no energy-cost
+  evaluation, no emitter / demand-category modelling, no control /
+  rule interpretation, no closed-link or check-valve modelling, no
+  pump speed / status changes;
+- no new hydraulic physics, no Darcy-Weisbach implementation, no
+  WNTR-side semantic activation.
+
+The loaded `Network` is byte-for-byte identical to one loaded from
+the same fixture *without* calling any of the Sprint 30 helpers.
+The fallback parser remains authoritative for every diagnostic
+channel, and the Sprint 22/23 `[STATUS]` rejection contract (raise
+on `CLOSED`, `CV`, numeric pump-status, unknown link id, arbitrary
+token) is preserved with no partial diagnostics leaking out.
+
+### WNTR back-end behaviour / asymmetry
+
+The optional WNTR back-end remains diagnostically empty — the WNTR
+adapter does not re-emit any of the per-row or ignored-section
+diagnostic channels. The Sprint 30 helpers therefore return:
+
+- `row_count_by_section()` → empty `dict`
+- `ignored_section_names()` → empty `tuple`
+- `summary()` → all integer fields zero, embedded
+  `row_count_by_section` empty.
+
+This is the same asymmetry that Sprints 23–29 documented: WNTR has
+its own parser and its own per-section handling, and the dPHM WNTR
+adapter does not surface diagnostic metadata. Diagnostic parity
+between the two back-ends is **not** a Sprint 30 goal.
+
+### Tests
+
+`tests/dphm/test_inp_diagnostics_summary.py` proves the contract:
+
+- public surface: `row_count_by_section`, `ignored_section_names`,
+  and `summary` are callable methods on `EpanetImportDiagnostics`,
+  and `EpanetImportDiagnosticsSummary` is a frozen dataclass;
+- empty container: every helper returns the empty / zero value;
+- single-channel counts: dedicated tests for `STATUS`,
+  `CONTROLS` / `RULES`, `PATTERNS` / `ENERGY`,
+  `EMITTERS` / `DEMANDS`, and `QUALITY` / `SOURCES` /
+  `REACTIONS` / `MIXING`;
+- canonical ordering: keys appear in the documented canonical order
+  regardless of construction order; unknown / future section names
+  sort alphabetically after the canonical block;
+- freshness: two calls return distinct dict instances; mutating
+  the returned dict does not affect subsequent calls or the
+  container;
+- no double-counting: a fixture with both `ignored_sections=
+  [CONTROLS]` and `control_rule_rows` for `CONTROLS` counts the
+  rows once in `row_count_by_section` and the presence once in
+  `ignored_section_names`;
+- read-only contract: invoking every helper does not mutate the
+  source tuples (identity preserved);
+- parser integration: a fixture exercising every Sprint 23–29
+  channel produces the expected per-section counts, the summary
+  matches the per-channel `len`s, and the total equals the sum;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` produce
+  identical summary / count helpers;
+- backwards compatibility: default
+  `load_network_from_inp(path)` still returns only a `Network`;
+- Sprint 22 rejection path: `[STATUS] CLOSED` still raises;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`): every Sprint 30 helper returns
+  the empty / zero value on a WNTR-parseable fixture.
+
+## Section-keyed row retrieval (Sprint 31)
+
+Sprint 30 gave UI / API / report consumers a per-section row-count
+view. Sprint 31 closes the matching retrieval ergonomics gap by
+adding `rows_for_section(name)` on `EpanetImportDiagnostics`: a
+single accessor that returns the row diagnostics for an EPANET
+section without callers needing to know which internal channel
+(`status_rows`, `control_rule_rows`, …) owns it.
+
+Like every Sprint 23–30 surface, the accessor adds **no new EPANET
+semantics**, does not activate any deferred section, does not
+mutate the diagnostics object or any contained tuple, and does not
+change the loaded `Network` in any way.
+
+### Public API
+
+```python
+from aquaoptima.dphm import load_inp_diagnostics
+
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+
+# Canonical upper-case section name.
+status_rows = diagnostics.rows_for_section("STATUS")
+
+# Case-insensitive lookup.
+controls = diagnostics.rows_for_section("controls")
+
+# Leading / trailing whitespace is stripped.
+rules = diagnostics.rows_for_section(" Rules ")
+
+# EPANET bracket notation is accepted.
+patterns = diagnostics.rows_for_section("[PATTERNS]")
+
+# Unknown / empty / whitespace-only section → empty tuple (no exception).
+diagnostics.rows_for_section("NOPE")    # ()
+diagnostics.rows_for_section("")        # ()
+diagnostics.rows_for_section("   ")     # ()
+```
+
+### Section → channel mapping
+
+The accessor reads only the row diagnostic channels and routes
+based on the canonical EPANET section name:
+
+| Section      | Channel               | Notes                                                |
+|--------------|-----------------------|------------------------------------------------------|
+| `STATUS`     | `status_rows`         | One record per accepted `[STATUS] OPEN` row.         |
+| `CONTROLS`   | `control_rule_rows`   | Filtered by `record.section == "CONTROLS"`.          |
+| `RULES`      | `control_rule_rows`   | Filtered by `record.section == "RULES"`.             |
+| `PATTERNS`   | `pattern_energy_rows` | Filtered by `record.section == "PATTERNS"`.          |
+| `ENERGY`     | `pattern_energy_rows` | Filtered by `record.section == "ENERGY"`.            |
+| `EMITTERS`   | `emitter_demand_rows` | Filtered by `record.section == "EMITTERS"`.          |
+| `DEMANDS`    | `emitter_demand_rows` | Filtered by `record.section == "DEMANDS"`.           |
+| `QUALITY`    | `water_quality_rows`  | Filtered by `record.section == "QUALITY"`.           |
+| `SOURCES`    | `water_quality_rows`  | Filtered by `record.section == "SOURCES"`.           |
+| `REACTIONS`  | `water_quality_rows`  | Filtered by `record.section == "REACTIONS"`.         |
+| `MIXING`     | `water_quality_rows`  | Filtered by `record.section == "MIXING"`.            |
+
+Source-file order within each channel is preserved (the channels
+themselves are populated in source order by the fallback parser).
+
+Every call returns a freshly-allocated `tuple`; the accessor never
+mutates the diagnostics container. The Sprint 30
+`row_count_by_section()` and `summary()` helpers continue to satisfy
+`row_count_by_section()[section] == len(rows_for_section(section))`
+for every row-channel section.
+
+### Name normalisation
+
+`rows_for_section` is intentionally forgiving so it is safe to call
+from UI / API / report code with arbitrary user input:
+
+1. leading and trailing whitespace are stripped,
+2. a single leading `[` and trailing `]` (EPANET bracket notation)
+   are stripped,
+3. whitespace is stripped again,
+4. the result is upper-cased and looked up.
+
+Empty input — `""`, `"   "`, `"[]"`, `"[  ]"` — returns `()`. The
+accessor never raises on lookup; an unknown section simply yields an
+empty tuple. This matches the read-only / UI-lookup spirit of the
+diagnostics surface.
+
+### Row diagnostics only — no ignored-section presence
+
+`rows_for_section` reads **row diagnostics only**. It never
+returns `EpanetIgnoredSectionDiagnostic` records: those represent
+section-level *presence*, not parsed rows, and are surfaced
+separately through `ignored_section_names()`.
+
+So a fixture that declares only `[TITLE]` or `[REPORT]` (sections
+that never emit per-row diagnostics) returns `()` from
+`rows_for_section("TITLE")` / `rows_for_section("REPORT")` even
+though both names appear in `ignored_section_names()`. A fixture
+that declares both an `ignored_sections=[CONTROLS]` presence record
+*and* `control_rule_rows` for `[CONTROLS]` returns only the row
+diagnostics — never the presence record — and so cannot
+double-count.
+
+### Hydraulic inertness / no new semantics
+
+Sprint 31 ships **only** the accessor. Specifically, this sprint
+does not:
+
+- activate `[STATUS]` closed-link / check-valve semantics (Sprint 22
+  rejection of `CLOSED` / `CV` / numeric pump-status / unknown
+  tokens is preserved unchanged);
+- interpret `[CONTROLS]` or `[RULES]` (no link state changes);
+- evaluate `[PATTERNS]` time-varying demands or `[ENERGY]` cost
+  calculations;
+- evaluate `[EMITTERS]` pressure-dependent leakage or `[DEMANDS]`
+  multi-category pattern-keyed demands;
+- simulate `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, or `[MIXING]`
+  water-quality transport;
+- change the `Network` dataclass — the same fixture loaded with or
+  without diagnostic-row sections produces an identical network
+  (node count, edge count, demands, fixed heads, pipe / pump masks,
+  geometry, pump coefficients).
+
+### WNTR back-end behaviour / asymmetry
+
+When diagnostics come from `parser="wntr"` the WNTR adapter does
+not populate any row diagnostic channels, so
+`rows_for_section(name)` returns `()` for **every** section. This
+mirrors the Sprint 23–30 WNTR asymmetry: full diagnostic parity
+between the two back-ends is **not** a Sprint 31 goal.
+
+### Tests
+
+`tests/dphm/test_inp_rows_for_section.py` proves the contract:
+
+- public surface: `rows_for_section` is a callable method on
+  `EpanetImportDiagnostics`;
+- empty container: every lookup returns `()`;
+- per-channel routing: dedicated tests for `STATUS`,
+  `CONTROLS` / `RULES`, `PATTERNS` / `ENERGY`,
+  `EMITTERS` / `DEMANDS`, and `QUALITY` / `SOURCES` /
+  `REACTIONS` / `MIXING`;
+- name normalisation: case-insensitive lookup, whitespace
+  stripping, EPANET bracket notation (`"[STATUS]"`);
+- unknown / empty / whitespace-only / bare-bracket input returns
+  `()` (no exception);
+- ignored-section presence is never surfaced: a fixture with
+  `ignored_sections=[CONTROLS, TITLE, REPORT]` and one
+  `control_rule_rows` row returns one row for `CONTROLS` and `()`
+  for `TITLE` / `REPORT`;
+- no double-counting:
+  `len(rows_for_section(s)) == row_count_by_section()[s]` for
+  every row-channel section in a fixture exercising every Sprint
+  23–29 channel;
+- source-file order is preserved within the returned tuple;
+- the return value is a `tuple` (immutable); copying it to a
+  list and clearing the copy does not affect the diagnostics
+  container;
+- read-only contract: invoking the accessor with every canonical
+  section name plus unknown / empty input leaves every underlying
+  tuple identity unchanged; the dataclass is still
+  `frozen=True`;
+- parser integration: a fixture exercising every Sprint 23–29
+  channel produces `rows_for_section` results equal to the
+  channel-filtered tuples;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` produce
+  identical `rows_for_section` results;
+- backwards compatibility: default
+  `load_network_from_inp(path)` still returns only a `Network`;
+- hydraulic inertness: the `Network` loaded from the all-channels
+  fixture matches the network loaded from the baseline fixture on
+  every field the dPHM core consumes;
+- Sprint 22 rejection path: `[STATUS] CLOSED` still raises;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`): `rows_for_section(name)`
+  returns `()` for every canonical section on a WNTR-parseable
+  fixture.
+
+## Per-edge surrogate diagnostics (Sprint 32)
+
+Sprint 15 introduced `translate_valve_to_surrogate`, which approximates
+EPANET `[VALVES]` PRV and TCV rows as pipe-like dPHM edges (PRV pins
+the downstream node as a fixed-head boundary; TCV becomes a Hazen-
+Williams pipe sized to match a minor-loss head loss at one anchor
+flow). Sprints 23–31 grew `EpanetImportDiagnostics` into a multi-
+channel container plus ergonomics helpers, but never surfaced *which
+dPHM edges* came from a surrogate translation. Sprint 32 closes that
+gap with a per-edge surrogate diagnostics channel.
+
+The new surface is read-only and hydraulically inert. The loaded
+`Network` is byte-for-byte identical to the same fixture loaded under
+the Sprint 15 contract, and the parser's per-edge translation
+(`translate_valve_to_surrogate`, `fit_tcv_resistance_surrogate`) is
+unchanged.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EDGE_SURROGATE_KIND_PRV_FIXED_HEAD,
+    EDGE_SURROGATE_KIND_TCV_MINOR_LOSS,
+    EDGE_SURROGATE_SEVERITY_LIMITATION,
+    EpanetEdgeSurrogateDiagnostic,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# One-shot: diagnostics only.
+diagnostics = load_inp_diagnostics(path, parser="fallback")
+records = diagnostics.edge_surrogates  # tuple[EpanetEdgeSurrogateDiagnostic, ...]
+
+# Paired with the loaded Network.
+net, diagnostics = load_network_from_inp(
+    path, parser="fallback", return_diagnostics=True
+)
+
+# Accessors (every call returns a fresh tuple / dict; container never mutates).
+diagnostics.surrogate_edges()              # tuple of every record
+diagnostics.surrogate_count_by_kind()      # {kind: count}
+diagnostics.surrogates_for_link("V1")      # tuple of records with link_id == "V1"
+diagnostics.surrogate_for_edge(2)          # tuple of records with edge_index == 2
+```
+
+### `EpanetEdgeSurrogateDiagnostic` fields
+
+| Field            | Meaning                                                                     |
+|------------------|-----------------------------------------------------------------------------|
+| `edge_index`     | Zero-based index into the loaded `Network`'s edge arrays.                  |
+| `link_id`        | Original EPANET link id, preserved case-sensitively.                       |
+| `link_type`      | Canonical source link type. Sprint 32: always `"VALVE"`.                   |
+| `surrogate_kind` | Stable code: `"PRV_FIXED_HEAD_SURROGATE"` or `"TCV_MINOR_LOSS_SURROGATE"`.  |
+| `severity`       | Stable severity token. Sprint 32: always `"LIMITATION"`.                   |
+| `message`        | Human-readable explanation, pinned per `surrogate_kind`.                   |
+| `limitations`    | Tuple of short human-readable limitations the report should surface.       |
+
+The record is `frozen=True`; reassigning a field raises
+`dataclasses.FrozenInstanceError`. The `limitations` tuple is the
+immutable storage form (callers that want a list can call `list(...)`
+on the tuple).
+
+### Source elements that produce surrogate diagnostics
+
+Sprint 32 covers the two valve forms the Sprint 15 translator already
+handled conservatively:
+
+- `[VALVES]` PRV rows — one record per appended dPHM edge with
+  `surrogate_kind = "PRV_FIXED_HEAD_SURROGATE"`. The downstream node
+  is also pinned as a fixed-head boundary (unchanged Sprint 15
+  behaviour); the diagnostic carries the matching `LIMITATION`
+  severity.
+- `[VALVES]` TCV rows — one record per appended dPHM edge with
+  `surrogate_kind = "TCV_MINOR_LOSS_SURROGATE"`.
+
+Active control valve forms (`FCV`, `PSV`, `PBV`, `GPV`) still raise
+`ValueError` at the translator boundary — they never reach the
+diagnostics surface. `[PUMPS]` POWER surrogates are not surfaced as
+edge surrogates today; future sprints may add them under the same
+channel.
+
+`[PIPES]` rows that load directly as dPHM pipe edges (no surrogate
+involved) never produce records.
+
+### Fallback vs WNTR asymmetry
+
+The fallback parser is authoritative for Sprint 32. The optional
+WNTR back-end ships its own valve translation and we do not re-emit
+surrogate diagnostics from it; under `parser="wntr"`:
+
+```python
+diagnostics.edge_surrogates                  # ()
+diagnostics.surrogate_edges()                # ()
+diagnostics.surrogate_count_by_kind()        # {}
+diagnostics.surrogates_for_link(...)         # ()
+diagnostics.surrogate_for_edge(...)          # ()
+```
+
+This mirrors the Sprint 23–31 WNTR asymmetry: full diagnostic parity
+between back-ends is **not** a Sprint 32 goal. A future sprint may
+pin WNTR to a stable surface and add parity.
+
+### Safety boundary — diagnostics only, no new EPANET semantics
+
+Sprint 32 ships **only** the diagnostics surface. Specifically, this
+sprint does not:
+
+- change `translate_valve_to_surrogate` or
+  `fit_tcv_resistance_surrogate` behaviour (PRV pressure-boundary
+  surrogate and TCV pipe-resistance surrogate are unchanged);
+- alter the loaded `Network` (node count, edge count, demands, fixed
+  heads, pipe / pump masks, geometry, pump coefficients are all
+  identical to a Sprint 15–31 load of the same fixture);
+- activate FCV / PSV / PBV / GPV — the translator still raises;
+- enable active PLC / PAC / SCADA write paths or
+  `[CONTROLS]` / `[RULES]` evaluation (Sprint 25 / 27 contract is
+  unchanged);
+- expand pump or valve physics beyond the Sprint 15 translator;
+- emit WNTR-side surrogate diagnostics.
+
+### Shadow-mode relevance
+
+`edge_surrogates`, combined with the Sprint 30 `summary()` and
+Sprint 31 `rows_for_section(name)` accessors, is enough to render an
+import-quality report on any imported `.inp` file:
+
+- which dPHM edges are exact (pipes / pumps with no surrogate)
+  vs approximated (any entry in `edge_surrogates`);
+- which approximations carry which `severity` and `limitations`
+  text;
+- counts per `surrogate_kind` for top-line dashboards;
+- per-link drill-down via `surrogates_for_link(link_id)`;
+- per-edge drill-down via `surrogate_for_edge(edge_index)` (useful
+  when the UI is iterating over `net.edge_index` and wants to
+  annotate the offending edges in place).
+
+Such reports stay read-only and do not change any forward-model
+behaviour, so they are safe to wire into a shadow-mode UI alongside
+the existing diagnostics channels.
+
+### Tests
+
+`tests/dphm/test_inp_edge_surrogates.py` proves the contract:
+
+- public surface: `EpanetEdgeSurrogateDiagnostic` is frozen,
+  `limitations` is a tuple, the default is `()`;
+- empty container: every accessor returns `()` / `{}`;
+- accessors on a hand-built container: per-kind counts, per-link
+  filter (case-sensitive, unknown returns `()`), per-edge filter
+  (unknown / negative / non-int-like / `bool` / `NaN` returns
+  `()`);
+- fallback parser population: TCV-only fixture emits one record at
+  the correct edge index with the TCV kind; PRV fixture emits one
+  record with the PRV kind; a fixture with both produces two
+  records at consecutive edge indices with the matching kinds;
+- a fixture with no `[VALVES]` block emits no surrogate
+  diagnostics;
+- hydraulic inertness: a `Network` loaded with the new
+  `return_diagnostics=True` flag is identical to one loaded with
+  the default flag on every field;
+- API parity: `load_inp_diagnostics(path)` and
+  `load_network_from_inp(path, return_diagnostics=True)` produce
+  identical `edge_surrogates` and identical accessor results;
+- backwards compatibility: default `load_network_from_inp(path)`
+  still returns only a `Network`; Sprint 23 / 25 / 30 / 31
+  helpers still work alongside the new field;
+- read-only contract: invoking every accessor with every kind of
+  input (valid, unknown, invalid) leaves `edge_surrogates`'s
+  tuple identity unchanged;
+- optional WNTR back-end smoke check
+  (`pytest.importorskip("wntr")`): `edge_surrogates` is empty and
+  every accessor returns `()` / `{}`.
+
+## Import-quality report (Sprint 33)
+
+Sprints 23-32 grew `EpanetImportDiagnostics` into a multi-channel
+read-only container with per-channel ergonomics helpers
+(`row_count_by_section()`, `ignored_section_names()`, `summary()`,
+`rows_for_section(name)`, `surrogate_edges()`,
+`surrogate_count_by_kind()`, `surrogates_for_link(...)`,
+`surrogate_for_edge(...)`). Sprint 33 composes those surfaces into a
+single typed, immutable import-quality report a UI / API / shadow-mode
+caller can render verbatim — without changing any forward-model
+behaviour, without activating any deferred EPANET semantics, and
+without mutating the loaded `Network`.
+
+### Public API
+
+```python
+from aquaoptima.dphm import (
+    EpanetImportQualityReport,
+    EpanetImportQualitySectionReport,
+    EpanetImportQualitySurrogateReport,
+    build_import_quality_report,
+    load_inp_import_quality_report,
+    load_inp_diagnostics,
+    load_network_from_inp,
+)
+
+# Convenience loader: parse INP + build report in one call.
+report = load_inp_import_quality_report("net.inp", parser="fallback")
+
+# Manual composition (e.g. when the caller already has the diagnostics).
+diagnostics = load_inp_diagnostics("net.inp", parser="fallback")
+report = build_import_quality_report(diagnostics)
+
+# With Network for surrogate edge-index range validation.
+net, diagnostics = load_network_from_inp(
+    "net.inp", parser="fallback", return_diagnostics=True
+)
+report = build_import_quality_report(diagnostics, net, parser="fallback")
+```
+
+### `EpanetImportQualityReport` fields
+
+| Field                       | Meaning                                                                                                  |
+|-----------------------------|----------------------------------------------------------------------------------------------------------|
+| `parser`                    | Which parser produced the source diagnostics (`"fallback"` or `"wntr"`).                                |
+| `total_diagnostic_rows`     | Sum across every row diagnostic channel — mirrors `summary().total_diagnostic_rows`.                    |
+| `ignored_section_count`     | Number of ignored-section presence records.                                                              |
+| `row_count_by_section`      | Fresh mapping mirroring `EpanetImportDiagnostics.row_count_by_section()`.                                |
+| `ignored_sections`          | Tuple mirroring `EpanetImportDiagnostics.ignored_section_names()`.                                       |
+| `sections`                  | Tuple of per-section entries (row-only, ignored-only, or both — never double-counted).                  |
+| `surrogates`                | Tuple of per-edge surrogate entries (mirrors Sprint 32 `edge_surrogates` verbatim).                     |
+| `surrogate_count_by_kind`   | Fresh mapping mirroring `EpanetImportDiagnostics.surrogate_count_by_kind()`.                            |
+| `warnings`                  | Deterministic tuple — e.g. empty WNTR diagnostics, surrogate edge-index out of range.                   |
+| `limitations`               | Deterministic tuple — STATUS open-only, ignored-sections-dropped, WNTR asymmetry, surrogate limits.     |
+
+All three dataclasses (`EpanetImportQualityReport`,
+`EpanetImportQualitySectionReport`,
+`EpanetImportQualitySurrogateReport`) are `frozen=True`. Every tuple
+field is a `tuple`; every mapping field is a freshly-allocated `dict`
+per build call (so mutation by one caller cannot leak into another's
+report).
+
+### Composition behaviour
+
+The builder reads the Sprint 23-32 surfaces only — it never re-tokenises
+the source `.inp` file and never re-derives counts from the underlying
+row tuples. Specifically:
+
+- `row_count_by_section` and `total_diagnostic_rows` are taken straight
+  from `diagnostics.summary()`.
+- `ignored_sections` is `diagnostics.ignored_section_names()`.
+- `sections` walks the union of `row_count_by_section.keys()` and
+  `ignored_sections` in a canonical EPANET-section order (`STATUS`,
+  `CONTROLS`, `RULES`, `PATTERNS`, `ENERGY`, `EMITTERS`, `DEMANDS`,
+  `QUALITY`, `SOURCES`, `REACTIONS`, `MIXING`, then `TITLE`, `END`,
+  `TIMES`, `REPORT`, `COORDINATES`, `VERTICES`, `LABELS`, `BACKDROP`,
+  `TAGS`, then any unknown name in alphabetical order). A section that
+  appears in both surfaces (e.g. `[CONTROLS]` with row diagnostics) is
+  emitted **once** with `ignored_present=True` and `row_count > 0`.
+- `surrogates` mirrors `diagnostics.edge_surrogates` 1:1.
+- `surrogate_count_by_kind` is `diagnostics.surrogate_count_by_kind()`.
+
+When a `Network` is supplied, the builder additionally checks every
+surrogate's `edge_index` against `network.edge_index.shape[1]` and adds
+a deterministic warning string for any index outside `[0, edge_count)`.
+The diagnostic record itself is preserved verbatim — the warning is the
+only side effect, and `network` is never mutated.
+
+### Fallback vs WNTR asymmetry
+
+The Sprint 23-32 contract leaves `EpanetImportDiagnostics` empty when
+`parser="wntr"` (the optional WNTR back-end emits no diagnostics).
+Sprint 33 treats that as a documented asymmetry, not a bug:
+
+- `parser="fallback"` is the authoritative path — full per-row /
+  per-section / per-surrogate visibility.
+- `parser="wntr"` produces an empty / minimal report — no sections, no
+  surrogates, no row counts — plus a stable WNTR-asymmetry entry in
+  `limitations`. When every channel is empty under `parser="wntr"`, the
+  builder additionally surfaces an empty-diagnostics warning so
+  downstream UIs can flag the asymmetry without re-deriving it from
+  field-level inspection.
+
+`load_inp_import_quality_report(...)` deliberately rejects
+`parser="auto"` (the dispatcher's default) — the WNTR-asymmetry surface
+needs to track the back-end explicitly. Callers that want WNTR pass
+`parser="wntr"`; everyone else passes `parser="fallback"` (also the
+report-loader default).
+
+### Shadow-mode relevance
+
+The report is the smallest stable shape a shadow-mode operator needs to
+answer:
+
+- *What did the importer accept?* — `total_diagnostic_rows`,
+  `row_count_by_section`, `sections`.
+- *Which sections produced diagnostics?* — `sections` with
+  `row_count > 0`.
+- *Which ignored sections are present?* — `ignored_sections` /
+  `sections` with `ignored_present=True`.
+- *Which unsupported / deferred row semantics exist?* — every section
+  with `ignored_present=True` and `row_count > 0` carries unsupported
+  rows.
+- *Which dPHM edges are surrogate approximations?* — `surrogates`,
+  `surrogate_count_by_kind`.
+- *What limitations and warnings should a shadow-mode operator see?* —
+  `warnings`, `limitations`.
+
+The report is hydraulically inert. Building or surfacing it never
+changes a `Network` field, never activates EPANET semantics, and never
+binds a SCADA / PLC / PAC tag — the safety boundary documented in
+`docs/safety-boundary.md` is unchanged.
+
+### Safety boundary — diagnostics composition only
+
+Sprint 33 ships **only** the composition / reporting surface.
+Specifically, this sprint does not:
+
+- introduce a new EPANET parser, dispatch path, or fixture;
+- alter the loaded `Network` (every field is byte-for-byte identical
+  to a Sprint 23-32 load of the same fixture);
+- activate `[CONTROLS]` / `[RULES]` / `[PATTERNS]` / `[ENERGY]` /
+  `[EMITTERS]` / `[DEMANDS]` / water-quality semantics — every row
+  remains dropped on the floor and the diagnostics surface stays
+  read-only;
+- expand valve or pump physics — the Sprint 15 PRV / TCV surrogates
+  and the Sprint 12 / 14 pump translators are unchanged;
+- emit WNTR-side diagnostics — the WNTR back-end still produces an
+  empty `EpanetImportDiagnostics`;
+- introduce telemetry tag-mapping, dataset replay, or any write /
+  control / SCADA path.
+
+### Tests
+
+`tests/dphm/test_inp_import_quality_report.py` proves the contract:
+
+- frozen dataclass surface for all three report types;
+- empty diagnostics produce an empty / minimal report;
+- row counts mirror `summary()` and `row_count_by_section()`;
+- ignored-section presence mirrors `ignored_section_names()`;
+- per-section entries cover row-only, ignored-only, and row+ignored
+  states without double-counting;
+- Sprint 32 edge surrogates flow through verbatim;
+- `surrogate_count_by_kind` mirrors the diagnostics helper and is a
+  fresh dict per build call;
+- supplying a `Network` validates surrogate edge indexes and surfaces
+  a deterministic out-of-range warning without raising or mutating
+  the network;
+- the builder is deterministic across calls and never mutates the
+  diagnostics or the network;
+- the convenience loader agrees with the explicit
+  `load_network_from_inp(..., return_diagnostics=True)` +
+  `build_import_quality_report` pair;
+- default `load_network_from_inp(path)` still returns only the
+  `Network`;
+- the WNTR back-end (optional, gated on `importorskip("wntr")`)
+  produces an empty / minimal report with the documented asymmetry
+  limitation;
+- Sprint 23-32 helpers still function alongside the new report.
+
+## Mass balancing
+
+EPANET INP files often declare junction demands without a matching
+explicit supply row; the reservoir(s) implicitly supply the deficit.
+Our `Network` dataclass expects `sum(demands) ≈ 0` for downstream
+clarity, so the fallback parser **absorbs the demand sum onto the
+fixed-head node(s)** at load time. Fixed-head nodes drop out of the
+mass-balance residual term anyway — this is purely cosmetic, but it
+keeps loaded networks comparable with the JSON loader and the
+hand-built fixtures.
+
+## Shipped fixtures
+
+Ten small fixtures are shipped under `docs/examples/`:
+
+| Fixture                                            | Family | Notes                                                  |
+|----------------------------------------------------|--------|--------------------------------------------------------|
+| `epanet_reference_loop.inp`                        | SI     | Sprint 11 — five-node looped distribution, LPS units.  |
+| `epanet_reference_pump.inp`                        | SI     | Sprint 12 — HEAD-curve pump.                           |
+| `epanet_reference_power_pump.inp`                  | SI     | Sprint 14 — POWER pump (kW under SI).                  |
+| `epanet_reference_prv.inp`                         | SI     | Sprint 15 — PRV pressure-boundary surrogate.           |
+| `epanet_reference_tcv.inp`                         | SI     | Sprint 15 — TCV resistance surrogate.                  |
+| `epanet_reference_loop_gpm.inp`                    | US     | Sprint 16 — looped distribution, GPM/ft/in.            |
+| `epanet_reference_pump_gpm.inp`                    | US     | Sprint 16 — HEAD-curve pump, GPM/ft/in.                |
+| `epanet_reference_tcv_gpm.inp`                     | US     | Sprint 16 — TCV surrogate, GPM/ft/in.                  |
+| `epanet_reference_prv_gpm_psi.inp`                 | US     | Sprint 17 — PRV with explicit `[OPTIONS] Pressure PSI`. |
+| `epanet_reference_loop_gpm_demand_multiplier.inp`  | US     | Sprint 18 — looped distribution with `Demand Multiplier 2.0`. |
+
+Each US fixture mirrors the structure of its SI counterpart but uses
+US-customary EPANET conventions (length in feet, diameter in inches,
+head/elevation in feet, demand in GPM). The fallback parser converts
+every dimension to SI through the `EpanetUnitSystem` manifest before
+populating the `Network` dataclass; analytic-Newton solves both
+SI and US fixtures unchanged.
+
+The original Sprint 11 loop fixture
+`docs/examples/epanet_reference_loop.inp` is a tiny 5-node looped
+distribution sample (1 reservoir + 4 junctions, 5 pipes) in SI
+(`LPS`) flow units. It is small enough to read at a glance and large
+enough to exercise pipe loops, reservoir boundaries, and mm→m
+diameter conversion.
+
+Round-trip:
+
+```python
+from pathlib import Path
+from aquaoptima.dphm import load_network_from_inp, newton_solve
+
+net = load_network_from_inp(
+    Path("docs/examples/epanet_reference_loop.inp"),
+    parser="fallback",
+)
+result = newton_solve(net, max_iterations=200, tol=1e-9, jacobian_mode="analytic")
+assert result.converged
+```
+
+Tests:
+
+- `tests/dphm/test_inp_network_io.py` — fallback parser, full error
+  surface, solver compatibility, batched residual compatibility.
+- `tests/dphm/test_inp_pump_curves.py` — Sprint 12 pump-curve parser
+  and `fit_pump_head_curve` helper, including malformed inputs.
+- `tests/dphm/test_inp_power_pump.py` — Sprint 14 POWER pump
+  surrogate, fallback parser POWER row handling, shipped fixture
+  load + solve + per-pump residual checks.
+- `tests/dphm/test_wntr_optional_import.py` — optional WNTR
+  comparison (loop + Sprint 13 HEAD pump + Sprint 14 POWER pump +
+  Sprint 15 PRV / TCV fixtures), skipped when WNTR is not
+  installed.
+- `tests/dphm/test_wntr_pump_helpers.py` — Sprint 13/14 WNTR pump
+  translation helpers (HEAD and POWER paths), exercised against
+  duck-typed fakes (no WNTR dependency).
+- `tests/dphm/test_inp_valves.py` — Sprint 15 fallback parser for
+  PRV / TCV valves, fit helper, translator, shipped fixture load +
+  solve + diagnostic evidence, error surface.
+- `tests/dphm/test_wntr_valve_helpers.py` — Sprint 15 WNTR valve
+  helpers exercised against duck-typed fakes (no WNTR dependency).
+- `tests/dphm/test_inp_unit_systems.py` — Sprint 16 unit-system
+  manifest, every supported flow unit's conversion factors, case-
+  insensitive lookup, and the unsupported-token error path.
+- `tests/dphm/test_inp_us_fixtures.py` — Sprint 16 US-customary
+  fixture loads, dimension conversions, analytic-Newton solves,
+  POWER pump nominal flow under US units, PRV setting conversion,
+  and fallback-vs-WNTR parity on every shipped US fixture
+  (`pytest.importorskip("wntr")`).
+- `tests/dphm/test_inp_pressure_units.py` — Sprint 17 pressure-unit
+  manifest, every supported pressure unit's conversion factor, the
+  case-insensitive lookup surface, GPM+PSI PRV fixture load + solve,
+  tmp-path kPa / bar / metres / feet PRV conversion, TCV-not-affected
+  invariant, and Sprint 16 default-behaviour preservation.
+- `tests/dphm/test_inp_demand_multiplier.py` — Sprint 18 demand
+  multiplier resolver (defaults, validation surface, case / whitespace
+  tolerance), fallback parser scaling under LPS / SI and GPM / US,
+  shipped GPM-with-multiplier fixture load + solve, POWER pump
+  nominal-flow anchor scaling, TCV / HEAD curve / reservoir / tank
+  invariants, and optional WNTR parity.
+- `tests/dataio/test_inp_physics_telemetry.py` — physics-consistent
+  telemetry round-trip on the INP-loaded loop network.
+- `tests/dataio/test_inp_pump_telemetry.py` — Sprint 12 analytic-Newton
+  solve and physics-consistent telemetry on the HEAD pump fixture.
+- `tests/dataio/test_inp_power_pump_telemetry.py` — Sprint 14
+  analytic-Newton solve and physics-consistent telemetry on the
+  POWER pump fixture.
+- `tests/dphm/test_inp_import_quality_report.py` — Sprint 33
+  import-quality report composition: frozen dataclass surfaces, empty
+  diagnostics, row-count and ignored-section parity with the
+  diagnostics helpers, per-section row-only / ignored-only / both
+  states without double counting, edge surrogate flow-through,
+  surrogate-kind counts, network-supplied edge-index range warning,
+  deterministic builds, convenience loader parity, default
+  `load_network_from_inp(path)` preservation, and the optional WNTR
+  asymmetry path (`pytest.importorskip("wntr")`).
+
+## What this loader is **not**
+
+- Not an EPANET runtime — no hydraulic simulation, no extended-period
+  integration, no quality / age modelling.
+- Not a SCADA / PLC / PAC adapter — no Modbus, OPC-UA, MQTT, or
+  historian binding.
+- Not a write or control path — all loaded topologies are read-only
+  inputs to the differentiable forward model.
+- Not field-validated — Sprint 11 only proves that the topology
+  *parses and solves*; on-site accuracy claims remain out of scope.
+
+## Roadmap
+
+Deferred to a future sprint:
+
+- Pump curve translation for the `SPEED` / `LINEAR` /
+  multi-point efficiency forms (HEAD-curve form shipped in Sprint
+  12, POWER form shipped in Sprint 14).
+- A more faithful POWER-pump model (e.g. solving the implicit
+  constant-power constraint inside Newton instead of an upfront
+  surrogate).
+- A more faithful PRV / TCV model — e.g. an active-control
+  state machine (active / open / closed branches) and a
+  mass-balanced PRV that enforces the demand invariant
+  (Sprint 15 ships the conservative pressure-boundary surrogate
+  only).
+- The remaining EPANET valve forms `FCV`, `PSV`, `PBV`, `GPV`.
+- Larger reference fixtures (e.g. the EPANET `Net1` / `Net3` shipped
+  examples) routed through the WNTR back-end.
+- Time-varying demand support via the `[PATTERNS]` section. Sprint 18
+  honours the steady-state `[OPTIONS] Demand Multiplier` scalar only;
+  the dPHM core remains steady-state and pattern-aware demands are
+  out of scope.
+- Explicit WNTR-side `[OPTIONS] Specific Gravity` handling. Sprint 19
+  ships SG support in the fallback parser only — WNTR's handling of
+  the directive has drifted across releases and is left untouched.
+  A future sprint may pin WNTR to a stable surface and add parity.
+- A Darcy-Weisbach head-loss branch (and the Reynolds / friction-
+  factor model it requires) — the place where `[OPTIONS] Viscosity`
+  would actually be propagated. Sprint 20 ships parser support only
+  because the current dPHM core is Hazen-Williams and is viscosity-
+  independent by construction.
+- Explicit WNTR-side `[OPTIONS] Viscosity` handling. Sprint 20 ships
+  viscosity parsing in the fallback parser only — WNTR's handling of
+  the directive has shifted across releases and is left untouched.
+
+See `docs/sprint-roadmap.md` for the current ordering.

@@ -1,0 +1,48 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 16 — small reference EPANET .inp fixture
+in US-customary units with a HEAD-curve pump. Three-node topology:
+
+    R1 (suction reservoir, fixed head 20 ft)
+      |
+      +-- PU1 (pump, HEAD curve PUMPCURVE1) --> J1
+                                                |
+                                                +-- P1 (pipe) --> J2 (200 GPM consumer)
+
+Pump curve declared in ft of head vs GPM. The Sprint 16 fallback
+parser converts the (Q [GPM], H [ft]) curve points to (m^3/s, m)
+through the EpanetUnitSystem manifest before fitting the quadratic
+``H(Q) = a0 + a1*Q + a2*Q^2`` at the static nominal speed ``s = 1``.
+Hazen-Williams head loss. Solvable by aquaoptima.dphm.newton_solve
+with jacobian_mode="analytic".
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0      0.0    ;     ; pump discharge node (no consumer)
+ J2   0.0    200.0    ;     ; 200 GPM consumer
+
+[RESERVOIRS]
+;ID   Head   Pattern
+ R1   20.0   ;          ; 20 ft fixed-head suction reservoir
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   J1      J2      660.0    6.0        130.0       0.0         OPEN
+
+[PUMPS]
+;ID    Node1   Node2   Parameters
+ PU1   R1      J1      HEAD   PUMPCURVE1
+
+[CURVES]
+;ID          X-Value   Y-Value
+ PUMPCURVE1     0.0    150.0
+ PUMPCURVE1   100.0    148.5
+ PUMPCURVE1   200.0    144.0
+ PUMPCURVE1   300.0    136.5
+ PUMPCURVE1   400.0    126.0
+ PUMPCURVE1   500.0    112.5
+
+[OPTIONS]
+ Units                GPM
+ Headloss             H-W
+
+[END]

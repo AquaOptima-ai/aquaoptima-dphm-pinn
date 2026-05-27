@@ -1,0 +1,31 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 11 — small reference EPANET .inp fixture
+Five-node looped distribution sample: one reservoir + four junctions,
+five pipes. SI flow units (LPS), Hazen-Williams head loss. Solvable
+by aquaoptima.dphm.newton_solve with default options. Intentionally
+tiny so the topology is inspectable in a single screen.
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0    10.0     ;     ; 10 L/s consumer
+ J2   0.0    15.0     ;     ; 15 L/s consumer
+ J3   0.0    12.0     ;     ; 12 L/s consumer
+ J4   0.0     8.0     ;     ;  8 L/s consumer
+
+[RESERVOIRS]
+;ID   Head   Pattern
+ R1   100.0  ;          ; 100 m fixed head reservoir
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   R1      J1      300.0    250.0      130.0       0.0         OPEN
+ P2   J1      J2      250.0    200.0      130.0       0.0         OPEN
+ P3   J2      J3      220.0    150.0      130.0       0.0         OPEN
+ P4   J3      J4      200.0    150.0      130.0       0.0         OPEN
+ P5   J1      J4      280.0    150.0      130.0       0.0         OPEN
+
+[OPTIONS]
+ Units                LPS
+ Headloss             H-W
+
+[END]

@@ -1,0 +1,39 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 16 — small reference EPANET .inp fixture
+in US-customary units. Five-node looped distribution sample:
+one reservoir + four junctions, five pipes. GPM flow units,
+Hazen-Williams head loss. Mirrors the structure of
+epanet_reference_loop.inp but with feet/inches/GPM dimensions so the
+Sprint 16 US-unit conversion path in the fallback parser is
+exercised end-to-end.
+
+US-customary EPANET convention (per the EPANET 2.2 user manual):
+  - length in feet
+  - diameter in inches
+  - head/elevation in feet
+  - demand/flow in the [OPTIONS] Units value (here GPM)
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0    100.0    ;     ; 100 GPM consumer
+ J2   0.0    150.0    ;     ; 150 GPM consumer
+ J3   0.0    120.0    ;     ; 120 GPM consumer
+ J4   0.0     80.0    ;     ;  80 GPM consumer
+
+[RESERVOIRS]
+;ID   Head   Pattern
+ R1   300.0  ;          ; 300 ft fixed-head reservoir
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   R1      J1      1000.0   10.0       130.0       0.0         OPEN
+ P2   J1      J2       800.0    8.0       130.0       0.0         OPEN
+ P3   J2      J3       700.0    6.0       130.0       0.0         OPEN
+ P4   J3      J4       650.0    6.0       130.0       0.0         OPEN
+ P5   J1      J4       900.0    6.0       130.0       0.0         OPEN
+
+[OPTIONS]
+ Units                GPM
+ Headloss             H-W
+
+[END]

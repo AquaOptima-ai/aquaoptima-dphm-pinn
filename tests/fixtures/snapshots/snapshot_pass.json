@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-05-26T09:00:00+08:00",
+  "site_id": "legacy_station_001",
+  "mode": "baseline_plus_learning_shadow",
+  "config_hash": "89fbaf79f055fc79a812b487166440b58f8d57c7a002617615a1c976f1a0ac59",
+  "manual_mode": false,
+  "auto_mode": true,
+  "discharge_pressure_bar": 4.2,
+  "head_m": 42.8,
+  "flow_m3h": 180.5,
+  "quality_flags": [],
+  "pumps": [
+    {
+      "pump_id": "pump_1",
+      "running": true,
+      "available": true,
+      "frequency_hz": 45.0,
+      "trip_active": false,
+      "alarm_active": false,
+      "flow_m3h": 180.5,
+      "power_kw": 58.2,
+      "current_a": 112.4
+    },
+    {
+      "pump_id": "pump_2",
+      "running": false,
+      "available": true,
+      "frequency_hz": 0.0,
+      "trip_active": false,
+      "alarm_active": false,
+      "flow_m3h": 0.0,
+      "power_kw": 0.0,
+      "current_a": 0.0
+    }
+  ]
+}

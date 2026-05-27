@@ -19,9 +19,20 @@ dev = [
 pyg = [
     "torch-geometric>=2.7",
 ]
+epanet = [
+    "wntr>=1.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["aquaoptima*", "aquaoptima_contracts*"]
+
+[tool.setuptools.package-data]
+aquaoptima_contracts = [
+    "fixtures/phase1_shadow/*.json",
+    "fixtures/phase1_shadow/*.csv",
+    "fixtures/phase1_shadow/README.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

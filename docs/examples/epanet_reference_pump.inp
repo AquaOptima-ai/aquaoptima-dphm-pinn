@@ -1,0 +1,45 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 12 — small reference EPANET .inp fixture
+with a HEAD-curve pump. Three-node topology:
+
+    R1 (suction reservoir, fixed head 5 m)
+      |
+      +-- PU1 (pump, HEAD curve PUMPCURVE1) --> J1
+                                                |
+                                                +-- P1 (pipe) --> J2 (15 L/s consumer)
+
+Quadratic pump curve fit yields ``H(Q) = 45 - 800 Q^2`` at s=1, in
+m^3/s. SI flow units (LPS), Hazen-Williams head loss. Solvable by
+aquaoptima.dphm.newton_solve with jacobian_mode="analytic".
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0     0.0     ;     ; pump discharge node (no consumer)
+ J2   0.0    15.0     ;     ; 15 L/s consumer
+
+[RESERVOIRS]
+;ID   Head   Pattern
+ R1    5.0   ;          ; 5 m fixed-head suction reservoir
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   J1      J2      200.0    150.0      130.0       0.0         OPEN
+
+[PUMPS]
+;ID    Node1   Node2   Parameters
+ PU1   R1      J1      HEAD   PUMPCURVE1
+
+[CURVES]
+;ID          X-Value   Y-Value
+ PUMPCURVE1   0.0      45.00
+ PUMPCURVE1  10.0      44.92
+ PUMPCURVE1  20.0      44.68
+ PUMPCURVE1  30.0      44.28
+ PUMPCURVE1  40.0      43.72
+ PUMPCURVE1  50.0      43.00
+
+[OPTIONS]
+ Units                LPS
+ Headloss             H-W
+
+[END]

@@ -1,0 +1,47 @@
+[TITLE]
+AquaOptima dPHM-PINN Sprint 15 — small reference EPANET .inp fixture
+with a throttle-control valve (TCV). Three-node topology:
+
+    R1 (suction reservoir, fixed head 50 m)
+      |
+      +-- V1 (TCV, K = 2.5, 150 mm) --> J1 (elev 0, no consumer)
+                                          |
+                                          +-- P1 (pipe, 200 m, 150 mm)
+                                                |
+                                                +-> J2 (15 L/s consumer)
+
+The dPHM importer routes the TCV row through the conservative
+resistance surrogate ``fit_tcv_resistance_surrogate``. The surrogate
+chooses an effective Hazen-Williams length that reproduces the
+minor-loss head loss ``K * V^2 / (2 g)`` at the network's total
+positive demand (15 L/s). The translation is bounded, finite, and
+Newton-stable, but it matches the minor-loss term only at the anchor
+flow — off-design flows diverge because |Q|^1.852 vs K*Q^2 disagree.
+See docs/epanet-inp-import.md for the exact assumptions and
+limitations.
+
+SI flow units (LPS), Hazen-Williams head loss. Solvable by
+aquaoptima.dphm.newton_solve with jacobian_mode="analytic".
+
+[JUNCTIONS]
+;ID   Elev   Demand   Pattern
+ J1   0.0     0.0     ;     ; TCV discharge node (no consumer)
+ J2   0.0    15.0     ;     ; 15 L/s consumer
+
+[RESERVOIRS]
+;ID   Head   Pattern
+ R1   50.0   ;          ; 50 m fixed-head suction reservoir
+
+[PIPES]
+;ID   Node1   Node2   Length   Diameter   Roughness   MinorLoss   Status
+ P1   J1      J2      200.0    150.0      130.0       0.0         OPEN
+
+[VALVES]
+;ID   Node1   Node2   Diameter   Type   Setting   MinorLoss
+ V1   R1      J1      150        TCV    2.5       0
+
+[OPTIONS]
+ Units                LPS
+ Headloss             H-W
+
+[END]

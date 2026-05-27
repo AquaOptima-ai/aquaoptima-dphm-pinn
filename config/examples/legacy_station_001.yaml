@@ -1,0 +1,152 @@
+# Example Optimizer Lite site config for the legacy single-station pilot.
+#
+# This file describes the runtime defaults, safety envelope, data
+# requirements, pump roster, and canonical tag map for the legacy
+# pump station that today runs MVP v1.  Loading this file with
+# aquaoptima_lite.config.load_site_config produces a frozen SiteConfig
+# whose deterministic SHA-256 hash is stamped onto every emitted
+# StationSnapshot.
+
+site:
+  id: legacy_station_001
+  name: Legacy Pump Station 001
+  timezone: Asia/Taipei
+
+runtime:
+  default_mode: baseline_plus_learning_shadow
+  cycle_seconds: 5.0
+  stale_after_seconds: 30.0
+
+safety:
+  require_auto_mode: true
+  block_on_any_trip: true
+  block_on_any_alarm: false
+  baseline_control_enabled: true
+  future_control_enabled: false
+  min_frequency_hz: 25.0
+  max_frequency_hz: 55.0
+  max_step_hz: 2.0
+  min_pressure_bar: 1.0
+  max_pressure_bar: 8.0
+  min_flow_m3h: 5.0
+  max_flow_m3h: 400.0
+  min_model_confidence_for_advisory: 0.7
+
+data_requirements:
+  required:
+    - pump_1_running
+    - pump_1_frequency_hz
+    - discharge_pressure_bar
+    - station_auto_mode
+  strongly_preferred:
+    - station_flow_m3h
+    - pump_1_power_kw
+  optional:
+    - pump_1_current_a
+    - inlet_pressure_bar
+
+pumps:
+  - id: pump_1
+    display_name: VFD Pump 1
+    role: primary
+    min_frequency_hz: 25.0
+    max_frequency_hz: 55.0
+    rated_power_kw: 75.0
+  - id: pump_2
+    display_name: VFD Pump 2
+    role: lag
+    min_frequency_hz: 25.0
+    max_frequency_hz: 55.0
+    rated_power_kw: 75.0
+
+tags:
+  - canonical: pump_1_running
+    source: modbus
+    address: "40001"
+    unit: bool
+    scale: 1.0
+    valid_min: 0
+    valid_max: 1
+    stale_after_seconds: 30.0
+    required: true
+  - canonical: pump_1_frequency_hz
+    source: modbus
+    address: "40010"
+    unit: Hz
+    scale: 0.1
+    valid_min: 0.0
+    valid_max: 60.0
+    stale_after_seconds: 30.0
+    required: true
+  - canonical: pump_1_power_kw
+    source: modbus
+    address: "40012"
+    unit: kW
+    scale: 0.1
+    valid_min: 0.0
+    valid_max: 200.0
+    stale_after_seconds: 30.0
+    required: false
+  - canonical: pump_1_current_a
+    source: modbus
+    address: "40014"
+    unit: A
+    scale: 0.1
+    valid_min: 0.0
+    valid_max: 300.0
+    stale_after_seconds: 30.0
+    required: false
+  - canonical: pump_2_running
+    source: modbus
+    address: "40021"
+    unit: bool
+    scale: 1.0
+    valid_min: 0
+    valid_max: 1
+    stale_after_seconds: 30.0
+    required: false
+  - canonical: pump_2_frequency_hz
+    source: modbus
+    address: "40030"
+    unit: Hz
+    scale: 0.1
+    valid_min: 0.0
+    valid_max: 60.0
+    stale_after_seconds: 30.0
+    required: false
+  - canonical: discharge_pressure_bar
+    source: modbus
+    address: "40050"
+    unit: bar
+    scale: 0.01
+    valid_min: 0.0
+    valid_max: 10.0
+    stale_after_seconds: 30.0
+    required: true
+  - canonical: station_flow_m3h
+    source: modbus
+    address: "40060"
+    unit: m3h
+    scale: 0.1
+    valid_min: 0.0
+    valid_max: 500.0
+    stale_after_seconds: 30.0
+    required: false
+  - canonical: station_auto_mode
+    source: modbus
+    address: "40070"
+    unit: bool
+    scale: 1.0
+    valid_min: 0
+    valid_max: 1
+    stale_after_seconds: 30.0
+    required: true
+  - canonical: station_manual_mode
+    source: modbus
+    address: "40071"
+    unit: bool
+    scale: 1.0
+    valid_min: 0
+    valid_max: 1
+    stale_after_seconds: 30.0
+    required: true
