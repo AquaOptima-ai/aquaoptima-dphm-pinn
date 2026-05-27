@@ -43,6 +43,51 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
+def _empty_console_evidence() -> dict[str, Any]:
+    return {
+        "service": "optimizer_lite",
+        "has_cycle": False,
+        "site_id": None,
+        "runtime_mode": None,
+        "config_hash": None,
+        "read_only": True,
+        "influences_control": False,
+        "safety": {
+            "no_console_direct_write_path": True,
+            "no_new_field_write_path": True,
+            "baseline_remains_authority": True,
+        },
+        "quality": None,
+        "baseline": None,
+        "learner_shadow": {},
+        "performance_model": {},
+        "advisory_ranking": {},
+    }
+
+
+def _console_evidence_payload(provider: RuntimeStateProvider) -> dict[str, Any]:
+    state = provider.latest_state()
+    status = _jsonable(state.get("status")) or {}
+    evidence = _empty_console_evidence()
+    evidence.update(
+        {
+            "has_cycle": bool(status.get("has_cycle")),
+            "site_id": status.get("site_id"),
+            "runtime_mode": status.get("runtime_mode"),
+            "config_hash": status.get("config_hash"),
+            "quality": _jsonable(state.get("quality")),
+            "baseline": _jsonable(state.get("recommendation")),
+        }
+    )
+    store = getattr(provider, "audit_store", None)
+    latest = store.latest() if store is not None else None
+    learner_shadow = _jsonable(getattr(latest, "learner_shadow", {})) if latest is not None else {}
+    evidence["learner_shadow"] = learner_shadow or {}
+    evidence["performance_model"] = evidence["learner_shadow"].get("performance_model", {})
+    evidence["advisory_ranking"] = evidence["learner_shadow"].get("advisory_ranking", {})
+    return evidence
+
+
 def create_app(provider: Optional[RuntimeStateProvider] = None):
     """Create the Optimizer Lite API app.
 
@@ -76,5 +121,9 @@ def create_app(provider: Optional[RuntimeStateProvider] = None):
     @app.get("/recommendation/current")
     def recommendation_current() -> Any:
         return _jsonable(state().get("recommendation"))
+
+    @app.get("/console/evidence/current")
+    def console_evidence_current() -> Any:
+        return _jsonable(_console_evidence_payload(state_provider))
 
     return app

@@ -76,7 +76,7 @@ class SQLiteAuditStore:
 
     def __init__(self, path: str | Path = ":memory:") -> None:
         self._path = str(path) if not isinstance(path, str) else path
-        self._conn = sqlite3.connect(self._path)
+        self._conn = sqlite3.connect(self._path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         with self._conn:
             self._conn.executescript(schema_sql())
