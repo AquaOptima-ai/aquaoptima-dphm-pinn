@@ -23,6 +23,7 @@ def main() -> None:
     parser.add_argument("--audit-db", default=None)
     parser.add_argument("--learner-shadow", action="store_true")
     parser.add_argument("--learner-performance-shadow", action="store_true")
+    parser.add_argument("--advisory-ranking-shadow", action="store_true")
     args = parser.parse_args()
 
     summary = run_demo(
@@ -32,6 +33,7 @@ def main() -> None:
         audit_db=args.audit_db,
         enable_learner_shadow=args.learner_shadow,
         enable_performance_shadow=args.learner_performance_shadow,
+        enable_advisory_ranking=args.advisory_ranking_shadow,
     )
     lines = cast(list[str], summary["lines"])
     for line in lines:
@@ -56,6 +58,18 @@ def main() -> None:
             f"confidence={perf['confidence']} "
             f"training_sample_count={perf['training_sample_count']} "
             f"influences_control={perf['influences_control']}"
+        )
+    if "advisory_ranking" in summary:
+        ranking = cast(dict[str, Any], summary["advisory_ranking"])
+        top = cast(dict[str, Any] | None, ranking["top_candidate"])
+        top_combo = None if top is None else top["combo_key"]
+        print(
+            "advisory_ranking "
+            f"readiness={ranking['readiness']} "
+            f"top_combo={top_combo} "
+            f"baseline_combo={ranking['baseline_combo_key']} "
+            f"baseline_rank={ranking['baseline_rank']} "
+            f"influences_control={ranking['influences_control']}"
         )
     print(f"audit_db={summary['audit_db']}")
 

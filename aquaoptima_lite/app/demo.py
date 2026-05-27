@@ -9,7 +9,12 @@ from ..config import load_site_config
 from ..ingestion import JsonlReplayAdapter
 from ..normalization import SnapshotBuilder
 from ..app import RuntimeCycle
-from ..learner import LearnerSampleCollector, LearnerShadowService, StatisticalPerformanceModel
+from ..learner import (
+    AdvisoryRankingService,
+    LearnerSampleCollector,
+    LearnerShadowService,
+    StatisticalPerformanceModel,
+)
 from ..storage import SQLiteAuditStore
 
 
@@ -21,6 +26,7 @@ def run_demo(
     audit_db: str | Path | None = None,
     enable_learner_shadow: bool = False,
     enable_performance_shadow: bool = False,
+    enable_advisory_ranking: bool = False,
 ) -> dict[str, object]:
     config = load_site_config(config_path)
     builder = SnapshotBuilder(config)
@@ -28,7 +34,7 @@ def run_demo(
     runtime = RuntimeCycle(config=config, audit_store=store)
     learner = (
         LearnerSampleCollector(min_samples_for_shadow=2)
-        if enable_learner_shadow or enable_performance_shadow
+        if enable_learner_shadow or enable_performance_shadow or enable_advisory_ranking
         else None
     )
     adapter = JsonlReplayAdapter(replay_path)
@@ -45,6 +51,12 @@ def run_demo(
             if enable_performance_shadow:
                 performance = StatisticalPerformanceModel(min_samples_per_combo=2).evaluate(learner.samples)
                 evidence_dict["performance_model"] = performance.to_dict()
+            if enable_advisory_ranking:
+                ranking = AdvisoryRankingService(min_samples_per_combo=2).rank(
+                    learner.samples,
+                    baseline=result.recommendation,
+                )
+                evidence_dict["advisory_ranking"] = ranking.to_dict()
             store.attach_learner_shadow(result.audit_id, evidence_dict)
         outputs.append(
             f"cycle={count+1} quality={result.quality.status} "
@@ -58,12 +70,20 @@ def run_demo(
         "audit_db": str(audit_db or ":memory:"),
         "lines": outputs,
     }
+    latest_baseline = runtime._latest.recommendation if runtime._latest is not None else None
     if learner is not None:
         learner_shadow = LearnerShadowService(learner).build_evidence().to_dict()
         summary["learner_shadow"] = learner_shadow
         if enable_performance_shadow:
             performance = StatisticalPerformanceModel(min_samples_per_combo=2).evaluate(learner.samples)
             summary["performance_model"] = performance.to_dict()
+        if enable_advisory_ranking:
+            if latest_baseline is not None:
+                ranking = AdvisoryRankingService(min_samples_per_combo=2).rank(
+                    learner.samples,
+                    baseline=latest_baseline,
+                )
+                summary["advisory_ranking"] = ranking.to_dict()
     if audit_db is None:
         store.close()
     return summary
