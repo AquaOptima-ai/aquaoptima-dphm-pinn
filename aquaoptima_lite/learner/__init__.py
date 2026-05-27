@@ -1,5 +1,12 @@
 """Shadow-only learner evidence for Optimizer Lite."""
 
+from .performance_model import (
+    PerformanceFeature,
+    PerformanceFeatureBuilder,
+    PerformanceFeatureSet,
+    PerformanceModelResult,
+    StatisticalPerformanceModel,
+)
 from .shadow import (
     ComboStats,
     LearnerEvidence,
@@ -18,4 +25,9 @@ __all__ = [
     "LearnerSampleDecision",
     "LearnerShadowService",
     "LearnerSummary",
+    "PerformanceFeature",
+    "PerformanceFeatureBuilder",
+    "PerformanceFeatureSet",
+    "PerformanceModelResult",
+    "StatisticalPerformanceModel",
 ]
