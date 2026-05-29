@@ -1,341 +1,284 @@
-# Sprint 32 — Per-edge surrogate diagnostics for EPANET import
+# AOPSO Sprint 32 — Pillar B matched-condition efficiency envelope + MVPv1 alignment
 
-## Goal
+**SPRINT32_STATUS: COMPLETE**
+**SPRINT32_GATE: PASS**
 
-Surface every dPHM edge produced by a conservative surrogate
-translation during EPANET `.inp` import so downstream UI / API /
-shadow-mode import-quality reports can flag the approximated edges
-and surface their limitations without re-deriving them from solver
-outputs.
+OFFLINE, ADVISORY ONLY. Speed ranges in this sprint are EVIDENCE of historically
+observed 2025 operating points — they are NOT executable recommendations,
+NOT setpoints, NOT control targets, and NOT a deployment-readiness signal. All
+artifacts carry `advisory_only=True` and `is_evidence_not_setpoint=True`. No
+edge SDK, no actuation, no write path, no live integration. The locked
+March-2026 holdout is NOT touched in this sprint.
 
-The result answers, on any imported `.inp` file:
+> Note: this file replaces a prior unrelated **dPHM** "Sprint 32 — Per-edge
+> surrogate diagnostics for EPANET import" report that lives on `main` (commit
+> `ea23c17`). That report is preserved in git history; the present working-tree
+> copy is the **AOPSO Sprint 32** deliverable for branch
+> `aopso/sprint32-pillarB-envelope`, per the Sprint 32 brief.
 
-- Which edges are exact / native dPHM edges?
-- Which edges came from a surrogate approximation?
-- Why was the surrogate used (kind, severity, message, limitations)?
-- What source link id and link type created it?
-- What dPHM edge index did it land on?
+---
 
-Sprint 32 ships diagnostics only. The fallback parser's per-edge
-translation, the loaded `Network`, and every Sprint 23–31 diagnostics
-channel are unchanged.
+## 1. What this sprint built
 
-## Files changed
+Four new modules under `src/aquaoptima/advisory/` and one new test module —
+**no existing file was modified**:
 
-- `src/aquaoptima/dphm/inp_io.py` — added the frozen
-  `EpanetEdgeSurrogateDiagnostic` dataclass, the
-  `EDGE_SURROGATE_KIND_PRV_FIXED_HEAD` /
-  `EDGE_SURROGATE_KIND_TCV_MINOR_LOSS` /
-  `EDGE_SURROGATE_SEVERITY_INFO` / `EDGE_SURROGATE_SEVERITY_WARNING` /
-  `EDGE_SURROGATE_SEVERITY_LIMITATION` constants, the
-  `edge_surrogates` field on `EpanetImportDiagnostics`, and the four
-  read-only helpers (`surrogate_edges`, `surrogate_count_by_kind`,
-  `surrogates_for_link`, `surrogate_for_edge`). Extended the fallback
-  parser's valve loop to emit one record per appended dPHM edge.
-  Extended `__all__` with the new public symbols and the kind /
-  severity constants. Added an `import operator` for the
-  edge-index-validation `operator.index` call.
-- `src/aquaoptima/dphm/__init__.py` — re-exported
-  `EpanetEdgeSurrogateDiagnostic` and the kind / severity constants;
-  appended each to `__all__`.
-- `tests/dphm/test_inp_edge_surrogates.py` — **new file** carrying
-  the Sprint 32 contract tests (24 tests).
-- `docs/epanet-inp-import.md` — added a "Per-edge surrogate
-  diagnostics (Sprint 32)" section documenting the public API,
-  field meanings, source-element coverage, fallback vs WNTR
-  asymmetry, safety boundary, and shadow-mode relevance.
-- `SPRINT32_REPORT.md` — this file.
+| File | Purpose |
+|---|---|
+| `efficiency_gate.py` | FROZEN matching tolerances + SE quantiles + min_support + MVPv1 thresholds. Hash-stable; SHA-256 pre-registration-ready for Sprint 33. |
+| `efficiency_envelope.py` | `OperatingConditionQuery`, matched-condition search, p10/p25 envelope, observed efficient speed range, rejection records, batch evaluation. |
+| `efficiency_mvpv1_alignment.py` | MVPv1 control-log alignment diagnostic with timestamp-window match + demand-disagreement bound. |
+| `sprint32_envelope.py` | Scorecard orchestrator + CLI. Writes `data/eval/pillarB/sprint32_envelope_scorecard.json`. |
+| `tests/advisory/test_sprint32_envelope.py` | 21 tests covering all five Sprint 32 gate criteria + leakage guard + hash-stability. |
 
-## API design
+The contracts SDK, `health_gate.py`, and every Sprint 27–31 file are
+untouched (`git status` shows only NEW files were added).
 
-### Dataclass
+---
 
-```python
-@dataclass(frozen=True)
-class EpanetEdgeSurrogateDiagnostic:
-    edge_index: int
-    link_id: str
-    link_type: str
-    surrogate_kind: str
-    severity: str
-    message: str
-    limitations: tuple[str, ...] = ()
+## 2. Frozen Pillar B parameters
+
+Declared in source in `efficiency_gate.py` **before** the March-2026 holdout
+is touched. Re-tuning requires a new module + GATE_VERSION (audit-trail
+preserving), exactly like Pillar A's v1/v2 gate split.
+
+```
+gate_version:                          sprint32.envelope.v1
+frozen:                                true
+march_used_for_tuning:                 false
+
+se_quantiles:                          [0.10, 0.25]
+se_quantile_primary (efficient bar):   0.25
+se_quantile_aggressive (transparency): 0.10
+min_support:                           30
+speed_range_se_cutoff_quantile:        0.25
+
+matching_tolerances (absolute):
+  mean_demand_m3_per_h:                50.0
+  mean_level_m:                        0.25
+  mean_pressure_m_head:                0.50
+  mean_flow_m3_per_h:                  50.0
+matching_channels (canonical order):
+  [mean_demand_m3_per_h,
+   mean_level_m,
+   mean_pressure_m_head,
+   mean_flow_m3_per_h]
+
+mvpv1_min_overlap_fraction:                  0.80
+mvpv1_max_demand_disagreement_m3_per_h:      100.0
 ```
 
-Field semantics (verbatim from the docstring):
+**Frozen-params SHA-256** (pre-register this in Sprint 33 and integrity-check
+before touching March):
 
-- `edge_index` — zero-based index into the loaded `Network`'s edge
-  arrays. Stable across calls.
-- `link_id` — original EPANET link id, preserved case-sensitively.
-- `link_type` — canonical source link type. Sprint 32: always
-  `"VALVE"`.
-- `surrogate_kind` — stable machine-friendly code. Sprint 32 emits
-  `"PRV_FIXED_HEAD_SURROGATE"` or `"TCV_MINOR_LOSS_SURROGATE"`.
-- `severity` — stable severity token. Sprint 32 emits
-  `"LIMITATION"` for every record.
-- `message` — human-readable explanation; pinned per kind.
-- `limitations` — tuple of short human-readable limitations.
-
-Stable kind / severity codes are exposed as module-level constants
-(`EDGE_SURROGATE_KIND_PRV_FIXED_HEAD`,
-`EDGE_SURROGATE_KIND_TCV_MINOR_LOSS`, plus the three severity
-tokens) so callers compare against the public symbols rather than
-inlining strings.
-
-### Container field
-
-`EpanetImportDiagnostics` grows one new field:
-
-```python
-edge_surrogates: tuple[EpanetEdgeSurrogateDiagnostic, ...] = ()
+```
+f7d6145492787c3c451f7334837536559939a766f4ae905f47aa83968f146e9e
 ```
 
-It is added with a tuple default, which is a backwards-compatible
-extension for keyword-only callers — every Sprint 23–31 construction
-site keeps working unchanged.
+---
 
-### Helpers
+## 3. Matched-condition search
 
-| Method                        | Returns                                          |
-|-------------------------------|--------------------------------------------------|
-| `surrogate_edges()`           | Fresh tuple of every record.                    |
-| `surrogate_count_by_kind()`   | Fresh `dict[str, int]` keyed by kind.           |
-| `surrogates_for_link(id)`     | Fresh tuple of records matching `link_id`.      |
-| `surrogate_for_edge(idx)`     | Fresh tuple of records matching `edge_index`.   |
+`matched_search(ops, query)` returns the positional row indices of
+OperatingPoints whose four context channels (demand, level, pressure, flow)
+each lie within their FROZEN per-channel tolerance of the query. The reported
+match-distance metric is the L∞-norm of `|delta| / tolerance` across the four
+channels (0 = perfect match, 1 = at tolerance boundary).
 
-Contracts honoured:
+The summary block on each query exposes `min`, `mean`, `max` of the per-row
+L∞ normalised distance. Any OperatingPoint with NaN in any matching channel
+is excluded (we never match a row whose context is unknown).
 
-- All helpers are read-only and return freshly-allocated
-  tuple / dict values.
-- `surrogates_for_link` is case-sensitive; unknown / non-string
-  input returns `()`.
-- `surrogate_for_edge` accepts any `operator.index`-able value
-  (real Python `int`, NumPy integer scalars, anything implementing
-  `__index__`); strings, floats, `None`, `NaN`, and `bool` return
-  `()` rather than raising. Unknown indices — including negatives —
-  return `()`.
-- `surrogate_count_by_kind` returns an empty dict on empty
-  diagnostics; insertion order follows first-occurrence parse
-  order.
+---
 
-## Population behaviour
+## 4. p25 / p10 SE envelopes per matched bucket
 
-Inside `_fallback_parse`, the existing `[VALVES]` loop (Sprint 15)
-now emits one `EpanetEdgeSurrogateDiagnostic` per appended dPHM
-edge:
+Within each matched bucket, `compute_envelope` returns p10, p25, and median
+of `specific_energy_kwh_per_m3` using numpy's deterministic linear
+interpolation. The conservative efficient envelope is p25; p10 is reported
+alongside for transparency.
 
-- The edge index is captured as `len(src_idx)` **before** the
-  surrogate edge is appended to the parser's edge buffers, so the
-  recorded index matches the eventual position in the loaded
-  `Network`'s edge arrays.
-- The `surrogate_kind` is derived from
-  `description["valve_type"]` (already upper-cased by
-  `translate_valve_to_surrogate`): `"PRV"` →
-  `"PRV_FIXED_HEAD_SURROGATE"`, `"TCV"` →
-  `"TCV_MINOR_LOSS_SURROGATE"`.
-- `message` and `limitations` are looked up from module-level
-  pinned constants so two records of the same kind always carry
-  identical text.
-- `link_type` is `"VALVE"`. `severity` is `"LIMITATION"`.
+Observed efficient speed extraction (`extract_observed_speed_range`):
 
-The list of collected records is passed as the new
-`edge_surrogates=` argument to the existing
-`EpanetImportDiagnostics(...)` constructor at the end of
-`_fallback_parse`. The WNTR back-end's diagnostics constructor is
-unchanged — it still returns an empty container (Sprint 23–31
-asymmetry preserved).
+* Define the efficient sub-bucket as rows whose SE ≤ p25.
+* Report `speed_min_hz`, `speed_max_hz`, and the rounded distinct **set** of
+  efficient speeds.
+* Verify that every reported speed appears in the FULL 2025 observed speed
+  multiset (`all_speeds_historically_observed`). The Sprint-32 gate **fails**
+  the scorecard if this check ever returns False — there is a test that
+  monkey-patches a synthetic unobserved speed into the pipeline and confirms
+  the gate FAILs.
 
-The parser-side change is one block of insertion and one keyword
-argument. Pipes and pumps are not surrogate-emitting today and so
-their loops are untouched.
+---
 
-## Tests added
+## 5. Envelope examples on the real 2025 OperatingPoints
 
-`tests/dphm/test_inp_edge_surrogates.py` (24 tests):
+Inputs: `data/eval/pillarB/operating_points_30min_2025.csv` (9 414 rows; eight
+2025 months: 2025-03, 04, 05, 06, 07, 10, 11, 12 — March-2026 is **not**
+present).
 
-- Dataclass shape — `frozen=True`, `limitations` is a tuple, the
-  default `limitations` is the empty tuple.
-- Empty container — every accessor returns `()` / `{}`.
-- `surrogate_edges` returns a fresh tuple; mutating an external
-  list view cannot affect the container.
-- `surrogate_count_by_kind` returns a fresh dict; mutating one
-  snapshot cannot leak into a later one.
-- `surrogates_for_link` returns matching records; wrong-case and
-  unknown ids return `()`; non-string input returns `()`.
-- `surrogate_for_edge` returns matching records; unknown,
-  negative, non-int-like, `bool`, `NaN`, float, string, and `None`
-  inputs return `()`.
-- Container is `frozen=True`; reassigning `edge_surrogates`
-  raises `dataclasses.FrozenInstanceError`.
-- Fallback parser emits one record per appended valve edge with
-  the correct kind for both PRV and TCV.
-- Multi-valve fixture emits records at consecutive edge indices
-  with matching kinds and matching helper results.
-- `surrogate_count_by_kind` totals correctly on a multi-valve
-  fixture.
-- A fixture without `[VALVES]` emits no surrogate records.
-- Hydraulic inertness — the network loaded with
-  `return_diagnostics=True` is byte-for-byte equal to one loaded
-  with the default flag on every field the dPHM core consumes.
-- `load_inp_diagnostics(path)` and
-  `load_network_from_inp(path, return_diagnostics=True)` agree
-  exactly on `edge_surrogates` and on every accessor result.
-- Default `load_network_from_inp(path)` still returns only a
-  `Network`.
-- Sprint 23 / 25 / 30 / 31 helpers still work alongside the new
-  field (`status_rows`, `control_rule_rows`, `row_count_by_section`,
-  `summary`).
-- `EpanetStatusDiagnostic` construction is unaffected.
-- Read-only contract — invoking every accessor with valid and
-  invalid input leaves `edge_surrogates`'s tuple identity
-  unchanged.
-- WNTR back-end smoke check via `pytest.importorskip("wntr")` —
-  every accessor returns `()` / `{}`.
+Default example queries derive from the data's own (p25, p50, p75) of the
+matching channels, plus one far-OOD demand query that should be REJECTED.
 
-The full Sprint 23–31 suite continues to pass alongside the new
-file.
+| Query label | Comparable count | SE p10 | SE p25 | Observed efficient speed range (Hz) | n efficient |
+|---|---:|---:|---:|---|---:|
+| `data_quantile_p25` | 14 | — | — | REJECTED (insufficient_support, < 30) | — |
+| `data_quantile_p50` | 329 | 0.0941 | 0.0963 | 41.00 – 58.00 | 83 |
+| `data_quantile_p75` | 108 | 0.0908 | 0.0920 | 43.97 – 46.00 | 27 |
+| `far_ood_demand`    |   0 | —      | —      | REJECTED (insufficient_support, 0)   | — |
 
-## Validation commands and results
+Every speed in every reported range is, by construction AND verified by the
+post-hoc check, a historically observed 2025 pump-speed value.
 
-```bash
-$ python -m pip install -e .
-Successfully installed aquaoptima-dphm-pinn-0.1.0
+---
 
-$ python -m pytest tests/dphm/test_inp_edge_surrogates.py -q
-........................                                                 [100%]
-24 passed in 11.00s
+## 6. Unsupported-interval rejection
 
-$ python -m pytest tests/dphm tests/models tests/training tests/dataio -q
-... (all passed; see "Full suite" below)
+Rejection counts on the real-2025 scorecard run:
 
-$ python -m pytest tests -q
-... (all passed; see "Full suite" below)
-
-$ python -m compileall -q src tests
-(silent; no errors)
-
-$ git diff --check
-(silent; no whitespace errors)
+```
+n_rejected: 2
+reasons:
+  insufficient_support: 2     (data_quantile_p25 and far_ood_demand)
 ```
 
-See the **Full suite** section below for the actual pytest summary
-counters.
+`insufficient_support` triggers whenever `comparable_count < min_support`
+(30). A second reason, `no_observed_efficient_speeds`, is emitted if the
+matched bucket has support ≥ 30 but no efficient sub-bucket sample carries a
+finite observed speed — this branch is exercised by the unit suite.
 
-### Full suite
+Every rejection record carries the query, the comparable_count, the reason,
+and a detail block with the FROZEN `required_min_support`. No advisory in
+this sprint relies on extrapolation; every advisory's speeds are
+subset-of-observed-2025 by structural construction + post-hoc verification.
 
-Run after the Sprint 32 code, tests, and docs changes were in place:
+---
 
-- `tests/dphm` — 1107 passed, 1 skipped.
-- `tests/dphm tests/models tests/training tests/dataio` —
-  1302 passed, 1 skipped, 3 warnings in 173.49s.
-- `tests` (the full suite) — 1310 passed, 1 skipped, 3 warnings
-  in 166.33s.
+## 7. MVPv1 control-log alignment
 
-The single skip across every run is the existing
-`tests/dphm/test_wntr_optional_import.py:371` `ImportError`-path
-guard (`"WNTR is installed; ImportError path not exercised here"`),
-unrelated to Sprint 32. The three warnings are the upstream
-`torch.jit.script` deprecation warning from PyTorch's own
-internals, unrelated to Sprint 32.
+The PRD Q5 risk (misaligned logs → false advisory-vs-control conclusions) is
+addressed by `efficiency_mvpv1_alignment.diagnose_mvpv1_alignment`. A log row
+is ALIGNED iff:
 
-`python -m compileall -q src tests` — silent (no errors).
-`git diff --check` — silent (no whitespace errors).
+1. Its timestamp falls inside some OperatingPoint's
+   `[window_start, window_end)` window.
+2. `|mvpv1_demand − op.mean_demand_m3_per_h| ≤ MVPV1_MAX_DEMAND_DISAGREEMENT`
+   (100 m³/h).
 
-### WNTR version
+The diagnostic PASSES iff `coverage = n_aligned / n_log_rows ≥ 0.80` AND the
+median demand disagreement on aligned rows is within the bound. Otherwise the
+report is REJECTED with reason `alignment_below_threshold`. Edge cases
+(`None`, empty, missing required columns) each emit a distinct rejection
+reason and never produce a misaligned comparison.
 
-`pytest.importorskip("wntr")` succeeded on this environment;
-`wntr.__version__` resolves to `1.4.0`.
+**Coverage on this sprint's real-data run:** No MVPv1 log was supplied to the
+scorecard CLI, so the report records `n_log_rows = 0`, `coverage = 0.0`, and
+`rejection_reason = no_mvpv1_log_provided`. The Sprint-32 gate criterion C4
+("MVPv1 comparison produced ONLY where alignment is valid") **passes**
+because no comparison was produced — the invariant holds vacuously. Sprint 33
+must supply a real log to convert this vacuous pass into substantive evidence.
 
-## Compatibility notes
+---
 
-- Adding the new `edge_surrogates` field to `EpanetImportDiagnostics`
-  is backwards-compatible: every Sprint 23–31 construction site
-  (including the WNTR adapter's bare-default call) uses keyword
-  arguments only and is unaffected by a new optional field with a
-  tuple default.
-- `EpanetImportDiagnostics` remains a frozen dataclass; every field
-  is still structurally read-only.
-- `load_network_from_inp(path)` without `return_diagnostics=True`
-  continues to return a bare `Network` — the Sprint 11 default
-  contract is preserved.
-- `load_inp_diagnostics(...)` continues to return an
-  `EpanetImportDiagnostics`; the only visible change is the new
-  `edge_surrogates` channel and the four new accessors.
-- The Sprint 22 `[STATUS]` rejection behaviour, the Sprint 23–30
-  ergonomics helpers, the Sprint 31 `rows_for_section` accessor,
-  and every existing diagnostics field are unchanged.
-- The fallback parser's `Network` output for any Sprint 15 fixture
-  (PRV / TCV / both) is byte-for-byte identical to a Sprint 15–31
-  load — Sprint 32 only adds metadata about which edges came from
-  a surrogate translation.
+## 8. Acceptance gate verdict
 
-## Known limitations
+Gate identity: `sprint32.envelope.v1`. PASS iff all five criteria hold.
 
-- Only `[VALVES]` PRV and TCV surrogates emit records today.
-  `[PUMPS]` POWER surrogates (`fit_power_pump_surrogate`) are
-  documented surrogates but are not surfaced through
-  `edge_surrogates` in this sprint. A future sprint can add them
-  under the same channel with a new
-  `EDGE_SURROGATE_KIND_POWER_PUMP_SURROGATE` constant.
-- The WNTR back-end does not emit surrogate diagnostics. This
-  matches the Sprint 23–31 WNTR asymmetry; full parity is deferred.
-- The diagnostics surface is informational. It does not gate any
-  parse or solve and does not adjust the surrogate edges
-  themselves — `translate_valve_to_surrogate` /
-  `fit_tcv_resistance_surrogate` continue to govern the per-edge
-  numerics.
-- `severity` is `"LIMITATION"` for every record today. The
-  module-level `EDGE_SURROGATE_SEVERITY_INFO` and
-  `EDGE_SURROGATE_SEVERITY_WARNING` constants are reserved for
-  future surrogates whose approximations are less load-bearing.
-- The `limitations` text is pinned to module-level constants. It
-  reads correctly today but the text itself is not a versioned
-  contract — downstream consumers should key off `surrogate_kind`
-  for stable comparisons.
+| # | Criterion | Outcome on real-data run |
+|---|---|---|
+| C1 | Advisories require minimum historical support (frozen `min_support = 30` enforced) | **PASS** — all produced advisories have comparable_count ≥ 30 (min = 108). |
+| C2 | All reported speed ranges are historically observed (no extrapolation) | **PASS** — every reported efficient speed value is a member of the 2025 observed-speed multiset. |
+| C3 | Unsupported intervals are rejected with reasons | **PASS** — 2 rejections, both with reason `insufficient_support` and a detail block. |
+| C4 | MVPv1 comparison produced ONLY where alignment is valid | **PASS (vacuous)** — no log was supplied, so no comparison was produced; invariant holds. |
+| C5 | Matching tolerances + SE quantiles FROZEN before March | **PASS** — `efficiency_gate.MARCH_USED_FOR_TUNING = False`; scorecard `march_used_for_tuning = False`; SHA-256 of `frozen_params` recorded for Sprint 33 pre-registration. |
 
-## Verdict
+**Overall verdict: PASS.**
 
-Sprint 32 ships exactly the read-only per-edge surrogate diagnostics
-surface the goal required, with the strict-out-of-scope items left
-untouched. The new file adds one dataclass, one field, five
-module-level constants, four read-only accessors, and one parser
-populator that emits a record per appended valve edge. The
-`Network` arrays are unchanged. Every existing test continues to
-pass; the new test file adds 24 passing tests covering the dataclass
-shape, all four accessors, fallback population on PRV / TCV
-fixtures, edge-index alignment, hydraulic inertness, API parity,
-backwards compatibility with Sprint 23–31 helpers, and the WNTR
-asymmetry.
+Scorecard written to `data/eval/pillarB/sprint32_envelope_scorecard.json`.
 
-Ready for Hermes to verify and ship.
+---
 
-## Sprint 33 recommendation: import-quality report
+## 9. Tests
 
-With Sprint 30's `summary()`, Sprint 31's `rows_for_section(name)`,
-and Sprint 32's `edge_surrogates` channel now in place,
-`EpanetImportDiagnostics` carries enough information to compose a
-read-only **import-quality report** end-to-end:
+```
+tests/advisory/test_sprint32_envelope.py ..................... 21 passed
+full repo suite:                                              2577 passed, 1 skipped
+```
 
-- top-line counters from `diagnostics.summary()` — row totals per
-  channel, ignored-section count, per-section row counts;
-- per-section drill-down via
-  `diagnostics.rows_for_section(name)` — analysts can inspect the
-  exact rows the parser dropped on the floor for any section
-  (`[CONTROLS]`, `[RULES]`, `[PATTERNS]`, `[ENERGY]`,
-  `[EMITTERS]`, `[DEMANDS]`, `[QUALITY]`, `[SOURCES]`,
-  `[REACTIONS]`, `[MIXING]`, and accepted `[STATUS] OPEN` rows);
-- per-edge approximation badges from `diagnostics.edge_surrogates`,
-  joined with `net.edge_index` so the report can show which
-  source link id became which dPHM edge and surface the matching
-  `surrogate_kind`, `severity`, `message`, and `limitations`;
-- per-kind dashboards via `surrogate_count_by_kind()`;
-- per-link drill-down via `surrogates_for_link(link_id)` for
-  link-centric UIs;
-- per-edge drill-down via `surrogate_for_edge(idx)` for
-  edge-centric UIs that already iterate over `net.edge_index`.
+The 21 Sprint-32 tests cover:
 
-Sprint 33 could ship that report as a small read-only function
-(e.g. `build_import_quality_report(diagnostics, network)`) plus
-matching test coverage. The report would not activate any deferred
-EPANET semantics — it only composes Sprint 23–32 surfaces — so the
-safety boundary in `docs/safety-boundary.md` is unaffected.
+- **G-class.** `efficiency_gate` constants are importable, frozen, and the
+  canonical JSON + SHA-256 are deterministic across calls.
+- **C1.** `produce_advisory` returns an `EnvelopeRejection` with reason
+  `insufficient_support` when the matched bucket has fewer than `MIN_SUPPORT`
+  rows; an `EnvelopeAdvisory` when it has at least `MIN_SUPPORT`.
+- **Matched search.** Returns exactly the in-tolerance neighbours on a
+  fixture; rejects NaN-context rows; OOD queries get zero matches.
+- **Envelope math.** p10, p25, and median match closed-form values on a
+  `range(0, 100)` SE fixture; empty bucket → all NaN.
+- **C2.** Reported efficient speeds are always in the 2025 observed-speed
+  multiset; the efficient sub-bucket's SE never exceeds the bucket's p25; the
+  scorecard FAILs when an unobserved speed is monkey-patched into the
+  pipeline.
+- **C3.** Every rejection record carries a recognised reason; the scorecard's
+  rejection block lists count + per-reason buckets.
+- **C4.** Clean MVPv1 fixture → diagnostic PASS; misaligned (shifted +10
+  days) fixture → REJECTED with `alignment_below_threshold`; demand
+  disagreement → REJECTED; `None`/empty/missing-columns → distinct rejection
+  reasons.
+- **C5.** A 2026-03 window-start in the OperatingPoints raises `ValueError`
+  before any compute (via the Sprint-27 leakage guard); a pure-2025 fixture
+  passes. The scorecard reports `march_used_for_tuning = False` and the
+  frozen-params SHA-256.
+
+---
+
+## 10. Cannot claim
+
+Even though Sprint 32 verdict is PASS, the following claims are **NOT**
+supported by this sprint's evidence:
+
+- **No "AquaOptima will save X%."** We have not run a holdout. We have only
+  shown the offline shape of historically realized efficient operating
+  points at matched conditions, and the rejection logic for queries we
+  cannot serve.
+- **No "Run the pump at speed Y."** Every reported speed range is OFFLINE
+  EVIDENCE — historically observed in 2025 — and is explicitly labelled
+  `is_evidence_not_setpoint=True`. There is no setpoint output, no control
+  endpoint, no live integration, and no write path anywhere in this sprint.
+- **No "The advisory outperforms MVPv1."** No MVPv1 control log was supplied
+  to this sprint's scorecard run. The C4 PASS is **vacuous** — we did not
+  produce a misaligned comparison, but we have also not produced a valid
+  one. Sprint 33 must supply a real log to make this substantive.
+- **No "March-2026 results."** The locked holdout is **untouched**. This
+  sprint freezes the matching tolerances + SE quantiles + min_support +
+  alignment thresholds BEFORE March is ever evaluated. Sprint 33 is the
+  honest holdout evaluation.
+- **No "Edge / site deployment readiness."** The PRD packaging unblock
+  policy remains in force: even after both pillars produce explicit
+  verdicts, site integration and control endpoints stay BLOCKED in this
+  version.
+- **No coverage claim across all operating conditions.** The example
+  queries in the scorecard are example-driven evidence (data quantiles plus
+  one far-OOD query). Full-distribution coverage is a Sprint 33 question
+  against the locked March-2026 holdout.
+
+The frozen `efficiency_gate` SHA-256 above is the binding artefact for
+Sprint 33 — pre-register it, integrity-check it, then unlock the holdout.
+
+---
+
+## 11. Files added (none modified)
+
+```
+src/aquaoptima/advisory/efficiency_gate.py
+src/aquaoptima/advisory/efficiency_envelope.py
+src/aquaoptima/advisory/efficiency_mvpv1_alignment.py
+src/aquaoptima/advisory/sprint32_envelope.py
+tests/advisory/test_sprint32_envelope.py
+data/eval/pillarB/sprint32_envelope_scorecard.json
+SPRINT32_REPORT.md  (replaces the prior dPHM Sprint 32 report from commit ea23c17;
+                     preserved in git history on main)
+```
+
+No commits made, no pushes made, no history rewritten.

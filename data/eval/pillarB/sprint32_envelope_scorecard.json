@@ -1,0 +1,353 @@
+{
+  "sprint": 32,
+  "pillar": "B",
+  "advisory_only": true,
+  "evaluation_mode": "offline_only",
+  "march_used_for_tuning": false,
+  "frozen_params": {
+    "frozen": true,
+    "matching_tolerances": {
+      "mean_demand_m3_per_h": 50.0,
+      "mean_level_m": 0.25,
+      "mean_pressure_m_head": 0.5,
+      "mean_flow_m3_per_h": 50.0
+    },
+    "matching_channels": [
+      "mean_demand_m3_per_h",
+      "mean_level_m",
+      "mean_pressure_m_head",
+      "mean_flow_m3_per_h"
+    ],
+    "se_quantiles": [
+      0.1,
+      0.25
+    ],
+    "se_quantile_primary": 0.25,
+    "se_quantile_aggressive": 0.1,
+    "min_support": 30,
+    "speed_range_se_cutoff_quantile": 0.25,
+    "mvpv1_min_overlap_fraction": 0.8,
+    "mvpv1_max_demand_disagreement_m3_per_h": 100.0,
+    "gate_version": "sprint32.envelope.v1",
+    "frozen_params_sha256": "f7d6145492787c3c451f7334837536559939a766f4ae905f47aa83968f146e9e",
+    "frozen_params_canonical_json": "{\"frozen\":true,\"gate_version\":\"sprint32.envelope.v1\",\"march_used_for_tuning\":false,\"matching_channels\":[\"mean_demand_m3_per_h\",\"mean_level_m\",\"mean_pressure_m_head\",\"mean_flow_m3_per_h\"],\"matching_tolerances\":{\"mean_demand_m3_per_h\":50.0,\"mean_flow_m3_per_h\":50.0,\"mean_level_m\":0.25,\"mean_pressure_m_head\":0.5},\"min_support\":30,\"mvpv1_max_demand_disagreement_m3_per_h\":100.0,\"mvpv1_min_overlap_fraction\":0.8,\"pillar\":\"B\",\"se_quantile_aggressive\":0.1,\"se_quantile_primary\":0.25,\"se_quantiles\":[0.1,0.25],\"speed_range_se_cutoff_quantile\":0.25,\"sprint\":32}"
+  },
+  "matched_search": {
+    "examples": [
+      {
+        "query": {
+          "demand_m3_per_h": 1263.42249475,
+          "level_m": 4.244373,
+          "pressure_m_head": 1.4297645,
+          "flow_m3_per_h": 1259.97140425,
+          "label": "data_quantile_p25"
+        },
+        "comparable_count": 7,
+        "match_distance": {
+          "min": 0.5209945049999988,
+          "mean": 0.7691247564285716,
+          "max": 0.9711512649999986
+        },
+        "tolerances": {
+          "mean_demand_m3_per_h": 50.0,
+          "mean_level_m": 0.25,
+          "mean_pressure_m_head": 0.5,
+          "mean_flow_m3_per_h": 50.0
+        }
+      },
+      {
+        "query": {
+          "demand_m3_per_h": 1616.0872115000002,
+          "level_m": 4.707332,
+          "pressure_m_head": 1.6223139999999998,
+          "flow_m3_per_h": 1588.7236455,
+          "label": "data_quantile_p50"
+        },
+        "comparable_count": 329,
+        "match_distance": {
+          "min": 0.20282064999999874,
+          "mean": 0.7542145273860175,
+          "max": 0.9988772100000005
+        },
+        "tolerances": {
+          "mean_demand_m3_per_h": 50.0,
+          "mean_level_m": 0.25,
+          "mean_pressure_m_head": 0.5,
+          "mean_flow_m3_per_h": 50.0
+        }
+      },
+      {
+        "query": {
+          "demand_m3_per_h": 1794.9354369999999,
+          "level_m": 4.94199975,
+          "pressure_m_head": 1.69132975,
+          "flow_m3_per_h": 1843.0072547500001,
+          "label": "data_quantile_p75"
+        },
+        "comparable_count": 108,
+        "match_distance": {
+          "min": 0.08978386000000228,
+          "mean": 0.6804728656018512,
+          "max": 0.9996362950000048
+        },
+        "tolerances": {
+          "mean_demand_m3_per_h": 50.0,
+          "mean_level_m": 0.25,
+          "mean_pressure_m_head": 0.5,
+          "mean_flow_m3_per_h": 50.0
+        }
+      },
+      {
+        "query": {
+          "demand_m3_per_h": 12584.390236,
+          "level_m": 4.707332,
+          "pressure_m_head": 1.6223139999999998,
+          "flow_m3_per_h": 1588.7236455,
+          "label": "far_ood_demand"
+        },
+        "comparable_count": 0,
+        "match_distance": {
+          "min": NaN,
+          "mean": NaN,
+          "max": NaN
+        },
+        "tolerances": {
+          "mean_demand_m3_per_h": 50.0,
+          "mean_level_m": 0.25,
+          "mean_pressure_m_head": 0.5,
+          "mean_flow_m3_per_h": 50.0
+        }
+      }
+    ],
+    "metric": "L_inf_normalised_by_per_channel_tolerance"
+  },
+  "envelopes": [
+    {
+      "label": "data_quantile_p50",
+      "query": {
+        "demand_m3_per_h": 1616.0872115000002,
+        "level_m": 4.707332,
+        "pressure_m_head": 1.6223139999999998,
+        "flow_m3_per_h": 1588.7236455,
+        "label": "data_quantile_p50"
+      },
+      "support": 329,
+      "se_p10": 0.0941072,
+      "se_p25": 0.096312,
+      "se_median": 0.098668,
+      "n_efficient": 83,
+      "observed_speed_min_hz": 41.0,
+      "observed_speed_max_hz": 58.0,
+      "observed_speed_values_hz": [
+        41.0,
+        41.31,
+        41.73,
+        41.97,
+        41.98,
+        42.0,
+        42.03,
+        42.05,
+        42.12,
+        42.17,
+        42.18,
+        42.21,
+        42.27,
+        42.48,
+        42.5,
+        42.98,
+        43.0,
+        43.25,
+        44.0,
+        58.0
+      ],
+      "advisory_only": true,
+      "is_evidence_not_setpoint": true
+    },
+    {
+      "label": "data_quantile_p75",
+      "query": {
+        "demand_m3_per_h": 1794.9354369999999,
+        "level_m": 4.94199975,
+        "pressure_m_head": 1.69132975,
+        "flow_m3_per_h": 1843.0072547500001,
+        "label": "data_quantile_p75"
+      },
+      "support": 108,
+      "se_p10": 0.0908389,
+      "se_p25": 0.09195175,
+      "se_median": 0.0936985,
+      "n_efficient": 27,
+      "observed_speed_min_hz": 43.966648,
+      "observed_speed_max_hz": 46.0,
+      "observed_speed_values_hz": [
+        43.97,
+        44.0,
+        44.29,
+        44.42,
+        44.73,
+        44.94,
+        45.0,
+        45.5,
+        46.0
+      ],
+      "advisory_only": true,
+      "is_evidence_not_setpoint": true
+    }
+  ],
+  "rejection": {
+    "n_rejected": 2,
+    "reasons": {
+      "insufficient_support": 2
+    },
+    "head": [
+      {
+        "query": {
+          "demand_m3_per_h": 1263.42249475,
+          "level_m": 4.244373,
+          "pressure_m_head": 1.4297645,
+          "flow_m3_per_h": 1259.97140425,
+          "label": "data_quantile_p25"
+        },
+        "reason": "insufficient_support",
+        "comparable_count": 7,
+        "detail": {
+          "required_min_support": 30,
+          "match_distance": {
+            "min": 0.5209945049999988,
+            "mean": 0.7691247564285716,
+            "max": 0.9711512649999986
+          }
+        },
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "query": {
+          "demand_m3_per_h": 12584.390236,
+          "level_m": 4.707332,
+          "pressure_m_head": 1.6223139999999998,
+          "flow_m3_per_h": 1588.7236455,
+          "label": "far_ood_demand"
+        },
+        "reason": "insufficient_support",
+        "comparable_count": 0,
+        "detail": {
+          "required_min_support": 30,
+          "match_distance": {
+            "min": NaN,
+            "mean": NaN,
+            "max": NaN
+          }
+        },
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      }
+    ]
+  },
+  "mvpv1_alignment": {
+    "n_log_rows": 0,
+    "n_aligned": 0,
+    "n_rejected": 0,
+    "coverage": 0.0,
+    "median_demand_disagreement": NaN,
+    "diagnostic_passed": false,
+    "rejection_reason": "no_mvpv1_log_provided",
+    "detail": {}
+  },
+  "train_meta": {
+    "csv_path": "data/eval/pillarB/operating_points_30min_2025.csv",
+    "n_operating_points": 9414,
+    "timestamp_min": "2025-03-06 10:00:00",
+    "timestamp_max": "2025-12-31 23:30:00",
+    "distinct_months": [
+      "2025-03",
+      "2025-04",
+      "2025-05",
+      "2025-06",
+      "2025-07",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "per_month_rows": {
+      "2025-03": 1187,
+      "2025-04": 1433,
+      "2025-05": 1426,
+      "2025-06": 1434,
+      "2025-07": 1086,
+      "2025-10": 1400,
+      "2025-11": 5,
+      "2025-12": 1443
+    },
+    "year_lock": "2025-only",
+    "all_2025_only": true
+  },
+  "acceptance_gate": {
+    "gate_version": "sprint32.envelope.v1",
+    "criteria": [
+      {
+        "name": "advisories_require_minimum_historical_support",
+        "passed": true,
+        "detail": {
+          "frozen_min_support": 30,
+          "n_advisories": 2,
+          "min_comparable_count_among_advisories": 108
+        }
+      },
+      {
+        "name": "all_reported_speed_ranges_historically_observed",
+        "passed": true,
+        "detail": {
+          "n_advisories_checked": 2,
+          "n_speeds_checked": 29,
+          "n_speeds_unobserved": 0,
+          "unobserved_examples": []
+        }
+      },
+      {
+        "name": "unsupported_intervals_rejected_with_reasons",
+        "passed": true,
+        "detail": {
+          "n_rejected": 2,
+          "rejection_reason_counts": {
+            "insufficient_support": 2
+          }
+        }
+      },
+      {
+        "name": "mvpv1_comparison_only_where_alignment_is_valid",
+        "passed": true,
+        "detail": {
+          "diagnostic_passed": false,
+          "alignment_coverage": 0.0,
+          "n_aligned": 0,
+          "n_rejected": 0,
+          "rejection_reason": "no_mvpv1_log_provided",
+          "comparison_produced": false
+        }
+      },
+      {
+        "name": "matching_tolerances_and_quantiles_frozen_before_march",
+        "passed": true,
+        "detail": {
+          "efficiency_gate_module_march_used_for_tuning": false,
+          "scorecard_march_used_for_tuning": false,
+          "frozen_params_sha256": "f7d6145492787c3c451f7334837536559939a766f4ae905f47aa83968f146e9e"
+        }
+      }
+    ],
+    "passed": true,
+    "verdict": "PASS",
+    "rule": "Sprint 32 PASS iff: advisories_require_minimum_historical_support AND all_reported_speed_ranges_historically_observed AND unsupported_intervals_rejected_with_reasons AND mvpv1_comparison_only_where_alignment_is_valid AND matching_tolerances_and_quantiles_frozen_before_march."
+  },
+  "verdict": "PASS",
+  "safety": {
+    "advisory_only": true,
+    "evaluation_mode": "offline_only",
+    "is_evidence_not_setpoint": true,
+    "site_integration_allowed": false,
+    "influences_control": false,
+    "scorecard_role": "advisory_evidence_only",
+    "speed_ranges_are_evidence_not_setpoints": true
+  }
+}
