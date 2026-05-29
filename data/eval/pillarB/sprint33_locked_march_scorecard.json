@@ -1,0 +1,490 @@
+{
+  "sprint": 33,
+  "pillar": "B",
+  "report_version": "sprint33.locked_march.v1",
+  "advisory_only": true,
+  "evaluation_mode": "offline_only",
+  "holdout_window": {
+    "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv",
+    "first_timestamp": "2026-03-01 00:00:53",
+    "last_timestamp": "2026-03-31 23:59:19",
+    "all_in_2026_03": true,
+    "n_rows": 44469,
+    "n_operating_points": 58,
+    "window_minutes": 30
+  },
+  "frozen_gate": {
+    "gate_version": "sprint32.envelope.v1",
+    "gate_file_sha256_at_eval": "f2f6bd91d429a6fe80ed7524766782346e8a4b343258f38ccbf2dcb4755b059d",
+    "frozen_params_sha256": "f7d6145492787c3c451f7334837536559939a766f4ae905f47aa83968f146e9e",
+    "frozen_params_canonical_json": "{\"frozen\":true,\"gate_version\":\"sprint32.envelope.v1\",\"march_used_for_tuning\":false,\"matching_channels\":[\"mean_demand_m3_per_h\",\"mean_level_m\",\"mean_pressure_m_head\",\"mean_flow_m3_per_h\"],\"matching_tolerances\":{\"mean_demand_m3_per_h\":50.0,\"mean_flow_m3_per_h\":50.0,\"mean_level_m\":0.25,\"mean_pressure_m_head\":0.5},\"min_support\":30,\"mvpv1_max_demand_disagreement_m3_per_h\":100.0,\"mvpv1_min_overlap_fraction\":0.8,\"pillar\":\"B\",\"se_quantile_aggressive\":0.1,\"se_quantile_primary\":0.25,\"se_quantiles\":[0.1,0.25],\"speed_range_se_cutoff_quantile\":0.25,\"sprint\":32}",
+    "se_quantiles": [
+      0.1,
+      0.25
+    ],
+    "se_quantile_primary": 0.25,
+    "se_quantile_aggressive": 0.1,
+    "matching_tolerances": {
+      "mean_demand_m3_per_h": 50.0,
+      "mean_level_m": 0.25,
+      "mean_pressure_m_head": 0.5,
+      "mean_flow_m3_per_h": 50.0
+    },
+    "matching_channels": [
+      "mean_demand_m3_per_h",
+      "mean_level_m",
+      "mean_pressure_m_head",
+      "mean_flow_m3_per_h"
+    ],
+    "min_support": 30,
+    "march_used_for_tuning": false,
+    "advisory_only": true,
+    "gate_file_sha256_post_eval": "f2f6bd91d429a6fe80ed7524766782346e8a4b343258f38ccbf2dcb4755b059d",
+    "pre_eq_post": true
+  },
+  "coverage_waterfall": {
+    "total": 58,
+    "valid": 58,
+    "supported": 21,
+    "unsupported": 37,
+    "exclusion_reasons": {
+      "insufficient_support": 37
+    }
+  },
+  "coverage_explanation": "58 March-2026 OperatingPoints scored; 58 (100.0%) had finite matching-channel values; 21 (36.2%) had >= MIN_SUPPORT historical neighbours under the FROZEN matching tolerances and produced advisories. The remainder were honestly REJECTED with named reasons; no savings claim is made on any rejected interval.",
+  "opportunity": {
+    "kwh_p25": 0.0,
+    "kwh_p10": 1.3097953444387933,
+    "n_supported_intervals": 21,
+    "conservative_quantile": 0.25,
+    "robust_under_conservative": false,
+    "avoided_cost": null,
+    "tariff_source": null,
+    "march_observed_energy_kwh_supported": 498.653777,
+    "march_volume_m3_supported": 7140.605527000001
+  },
+  "mvpv1_comparison": {
+    "valid": false,
+    "available": false,
+    "alignment": null,
+    "comparison_produced": false,
+    "rejection_reason": "no_mvpv1_log_provided"
+  },
+  "leakage_check": {
+    "march_only_input": true,
+    "isolation_assert_passed": true,
+    "holdout_prefix": "2026-03",
+    "n_2025_ops_in_envelope": 9414,
+    "n_march_ops_scored": 58,
+    "frozen_gate_file_sha256_at_eval": "f2f6bd91d429a6fe80ed7524766782346e8a4b343258f38ccbf2dcb4755b059d",
+    "march_used_for_tuning": false
+  },
+  "out_of_sample_protocol": {
+    "description": "Sprint 33 is a HONEST out-of-sample evaluation of the Pillar B matched-condition efficiency envelope FROZEN in Sprint 32. The 2025 OperatingPoints catalogue defines the envelope; the locked March-2026 OperatingPoints are SCORED against it. March is NEVER used to fit or tune any envelope parameter. The Sprint-32 frozen gate file (efficiency_gate.py) is treated as read-only pre-registration; its SHA-256 hash is recorded here and verified by the test suite.",
+    "honest_limitations": [
+      "March-2026 has NO ground-truth efficiency labels. We do not (and cannot) claim 'the advisory would have saved X kWh in production'; we report a COUNTERFACTUAL OFFLINE opportunity vs the 2025-derived envelope only.",
+      "Counterfactual energy is a hypothetical: it assumes the pump could have operated at the bucket's p25/p10 SE under the same demand/level/pressure/flow context. Realising this opportunity would require future operational validation under the same hydraulic constraints.",
+      "Unsupported intervals (insufficient historical neighbours, or no efficient sub-bucket) carry ZERO claim by construction.",
+      "MVPv1 control-log comparison is produced ONLY where the FROZEN alignment diagnostic passes; otherwise the comparison is marked not available, never approximated.",
+      "Offline only. No setpoints, no actuation, no live integration, no site write path of any kind."
+    ],
+    "holdout_window": {
+      "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv",
+      "first_timestamp": "2026-03-01 00:00:53",
+      "last_timestamp": "2026-03-31 23:59:19",
+      "all_in_2026_03": true,
+      "n_rows": 44469,
+      "n_operating_points": 58,
+      "window_minutes": 30
+    },
+    "n_2025_operating_points_in_envelope": 9414,
+    "pre_registration": "efficiency_gate.py SHA-256 was recorded BEFORE this evaluation and verified against the on-disk hash AFTER. Any change is pre-registration tampering.",
+    "advisory_only": true,
+    "evaluation_mode": "offline_only"
+  },
+  "samples": {
+    "supported_head": [
+      {
+        "window_start": "2026-03-03T01:30:00",
+        "window_end": "2026-03-03T02:00:00",
+        "window_minutes": 30,
+        "volume_m3": 333.689075,
+        "energy_kwh": 23.020772,
+        "observed_specific_energy_kwh_per_m3": 0.068989,
+        "query": {
+          "demand_m3_per_h": 660.023073,
+          "level_m": 4.040679,
+          "pressure_m_head": 1.168453,
+          "flow_m3_per_h": 690.788195,
+          "label": "march_op"
+        },
+        "supported": true,
+        "reason": null,
+        "comparable_count": 36,
+        "se_p10": 0.070981,
+        "se_p25": 0.072494,
+        "se_threshold_for_efficient": 0.072494,
+        "counterfactual_energy_kwh_p25": 24.19045580305,
+        "counterfactual_energy_kwh_p10": 23.685584232575,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": 35.0,
+        "observed_efficient_speed_max_hz": 35.575042,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "window_start": "2026-03-04T01:30:00",
+        "window_end": "2026-03-04T02:00:00",
+        "window_minutes": 30,
+        "volume_m3": 322.333906,
+        "energy_kwh": 22.557797,
+        "observed_specific_energy_kwh_per_m3": 0.069983,
+        "query": {
+          "demand_m3_per_h": 645.684234,
+          "level_m": 4.298629,
+          "pressure_m_head": 1.200506,
+          "flow_m3_per_h": 667.281231,
+          "label": "march_op"
+        },
+        "supported": true,
+        "reason": null,
+        "comparable_count": 117,
+        "se_p10": 0.0709732,
+        "se_p25": 0.072255,
+        "se_threshold_for_efficient": 0.072255,
+        "counterfactual_energy_kwh_p25": 23.290236378030002,
+        "counterfactual_energy_kwh_p10": 22.877068777319202,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": 35.0,
+        "observed_efficient_speed_max_hz": 35.399889,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "window_start": "2026-03-05T01:30:00",
+        "window_end": "2026-03-05T02:00:00",
+        "window_minutes": 30,
+        "volume_m3": 380.960764,
+        "energy_kwh": 26.220645,
+        "observed_specific_energy_kwh_per_m3": 0.068828,
+        "query": {
+          "demand_m3_per_h": 743.713105,
+          "level_m": 4.115503,
+          "pressure_m_head": 1.177757,
+          "flow_m3_per_h": 788.647929,
+          "label": "march_op"
+        },
+        "supported": true,
+        "reason": null,
+        "comparable_count": 43,
+        "se_p10": 0.0712694,
+        "se_p25": 0.0724835,
+        "se_threshold_for_efficient": 0.0724835,
+        "counterfactual_energy_kwh_p25": 27.613369537394,
+        "counterfactual_energy_kwh_p10": 27.150845073821596,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": 36.519255,
+        "observed_efficient_speed_max_hz": 37.196248,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "window_start": "2026-03-06T01:30:00",
+        "window_end": "2026-03-06T02:00:00",
+        "window_minutes": 30,
+        "volume_m3": 335.689195,
+        "energy_kwh": 23.024547,
+        "observed_specific_energy_kwh_per_m3": 0.068589,
+        "query": {
+          "demand_m3_per_h": 665.240179,
+          "level_m": 4.289298,
+          "pressure_m_head": 1.184287,
+          "flow_m3_per_h": 695.328597,
+          "label": "march_op"
+        },
+        "supported": true,
+        "reason": null,
+        "comparable_count": 67,
+        "se_p10": 0.0696828,
+        "se_p25": 0.071245,
+        "se_threshold_for_efficient": 0.071245,
+        "counterfactual_energy_kwh_p25": 23.916176697775,
+        "counterfactual_energy_kwh_p10": 23.391763037346,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": 35.0,
+        "observed_efficient_speed_max_hz": 35.575042,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "window_start": "2026-03-07T01:30:00",
+        "window_end": "2026-03-07T02:00:00",
+        "window_minutes": 30,
+        "volume_m3": 339.324385,
+        "energy_kwh": 23.612829,
+        "observed_specific_energy_kwh_per_m3": 0.069588,
+        "query": {
+          "demand_m3_per_h": 673.47594,
+          "level_m": 4.157407,
+          "pressure_m_head": 1.17862,
+          "flow_m3_per_h": 702.454161,
+          "label": "march_op"
+        },
+        "supported": true,
+        "reason": null,
+        "comparable_count": 42,
+        "se_p10": 0.0703439,
+        "se_p25": 0.07144225,
+        "se_threshold_for_efficient": 0.07144225,
+        "counterfactual_energy_kwh_p25": 24.24209754426625,
+        "counterfactual_energy_kwh_p10": 23.869400606001502,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": 35.0,
+        "observed_efficient_speed_max_hz": 36.0,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      }
+    ],
+    "unsupported_head": [
+      {
+        "window_start": "2026-03-01T01:00:00",
+        "window_end": "2026-03-01T01:30:00",
+        "window_minutes": 30,
+        "volume_m3": 456.805311,
+        "energy_kwh": 32.88904,
+        "observed_specific_energy_kwh_per_m3": 0.071998,
+        "query": {
+          "demand_m3_per_h": 915.897723,
+          "level_m": 3.940194,
+          "pressure_m_head": 1.181316,
+          "flow_m3_per_h": 979.451531,
+          "label": "march_op"
+        },
+        "supported": false,
+        "reason": "insufficient_support",
+        "comparable_count": 12,
+        "se_p10": NaN,
+        "se_p25": NaN,
+        "se_threshold_for_efficient": NaN,
+        "counterfactual_energy_kwh_p25": 0.0,
+        "counterfactual_energy_kwh_p10": 0.0,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": NaN,
+        "observed_efficient_speed_max_hz": NaN,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "window_start": "2026-03-01T01:30:00",
+        "window_end": "2026-03-01T02:00:00",
+        "window_minutes": 30,
+        "volume_m3": 424.036317,
+        "energy_kwh": 30.095252,
+        "observed_specific_energy_kwh_per_m3": 0.070973,
+        "query": {
+          "demand_m3_per_h": 820.499931,
+          "level_m": 4.029602,
+          "pressure_m_head": 1.199488,
+          "flow_m3_per_h": 877.821013,
+          "label": "march_op"
+        },
+        "supported": false,
+        "reason": "insufficient_support",
+        "comparable_count": 10,
+        "se_p10": NaN,
+        "se_p25": NaN,
+        "se_threshold_for_efficient": NaN,
+        "counterfactual_energy_kwh_p25": 0.0,
+        "counterfactual_energy_kwh_p10": 0.0,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": NaN,
+        "observed_efficient_speed_max_hz": NaN,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "window_start": "2026-03-02T01:00:00",
+        "window_end": "2026-03-02T01:30:00",
+        "window_minutes": 30,
+        "volume_m3": 430.936697,
+        "energy_kwh": 29.759167,
+        "observed_specific_energy_kwh_per_m3": 0.069057,
+        "query": {
+          "demand_m3_per_h": 804.65482,
+          "level_m": 4.324634,
+          "pressure_m_head": 1.19985,
+          "flow_m3_per_h": 862.352479,
+          "label": "march_op"
+        },
+        "supported": false,
+        "reason": "insufficient_support",
+        "comparable_count": 16,
+        "se_p10": NaN,
+        "se_p25": NaN,
+        "se_threshold_for_efficient": NaN,
+        "counterfactual_energy_kwh_p25": 0.0,
+        "counterfactual_energy_kwh_p10": 0.0,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": NaN,
+        "observed_efficient_speed_max_hz": NaN,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "window_start": "2026-03-02T01:30:00",
+        "window_end": "2026-03-02T02:00:00",
+        "window_minutes": 30,
+        "volume_m3": 428.728081,
+        "energy_kwh": 28.771213,
+        "observed_specific_energy_kwh_per_m3": 0.067108,
+        "query": {
+          "demand_m3_per_h": 835.374478,
+          "level_m": 4.414077,
+          "pressure_m_head": 1.144825,
+          "flow_m3_per_h": 887.533693,
+          "label": "march_op"
+        },
+        "supported": false,
+        "reason": "insufficient_support",
+        "comparable_count": 13,
+        "se_p10": NaN,
+        "se_p25": NaN,
+        "se_threshold_for_efficient": NaN,
+        "counterfactual_energy_kwh_p25": 0.0,
+        "counterfactual_energy_kwh_p10": 0.0,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": NaN,
+        "observed_efficient_speed_max_hz": NaN,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      },
+      {
+        "window_start": "2026-03-03T01:00:00",
+        "window_end": "2026-03-03T01:30:00",
+        "window_minutes": 30,
+        "volume_m3": 412.102315,
+        "energy_kwh": 30.085809,
+        "observed_specific_energy_kwh_per_m3": 0.073006,
+        "query": {
+          "demand_m3_per_h": 818.373401,
+          "level_m": 3.948511,
+          "pressure_m_head": 1.250554,
+          "flow_m3_per_h": 884.128923,
+          "label": "march_op"
+        },
+        "supported": false,
+        "reason": "insufficient_support",
+        "comparable_count": 4,
+        "se_p10": NaN,
+        "se_p25": NaN,
+        "se_threshold_for_efficient": NaN,
+        "counterfactual_energy_kwh_p25": 0.0,
+        "counterfactual_energy_kwh_p10": 0.0,
+        "opportunity_kwh_p25": 0.0,
+        "opportunity_kwh_p10": 0.0,
+        "observed_efficient_speed_min_hz": NaN,
+        "observed_efficient_speed_max_hz": NaN,
+        "advisory_only": true,
+        "is_evidence_not_setpoint": true
+      }
+    ]
+  },
+  "march_csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv",
+  "operating_points_2025_csv_path": "/home/hunter_lin/projects/aopso-sprint33-impl/data/eval/pillarB/operating_points_30min_2025.csv",
+  "acceptance_gate": {
+    "report_version": "sprint33.locked_march.v1",
+    "frozen_gate_version": "sprint32.envelope.v1",
+    "criteria": [
+      {
+        "name": "coverage_meaningful_or_limitations_explained",
+        "passed": true,
+        "detail": {
+          "total": 58,
+          "valid": 58,
+          "supported": 21,
+          "unsupported": 37,
+          "exclusion_reasons": {
+            "insufficient_support": 37
+          },
+          "explanation_present": true
+        }
+      },
+      {
+        "name": "positive_opportunity_robust_under_conservative_quantile",
+        "passed": false,
+        "detail": {
+          "kwh_p25": 0.0,
+          "kwh_p10": 1.3097953444387933,
+          "n_supported_intervals": 21,
+          "conservative_quantile": 0.25
+        }
+      },
+      {
+        "name": "no_unsupported_interval_produces_savings",
+        "passed": true,
+        "detail": {
+          "n_unsupported": 37,
+          "n_offenders": 0,
+          "offenders_head": []
+        }
+      },
+      {
+        "name": "mvpv1_comparison_valid_where_reported",
+        "passed": true,
+        "detail": {
+          "available": false,
+          "comparison_produced": false,
+          "reason": "no_mvpv1_log_provided"
+        }
+      },
+      {
+        "name": "leakage_and_safety_checks_pass",
+        "passed": true,
+        "detail": {
+          "leakage": {
+            "march_only_input": true,
+            "isolation_assert_passed": true,
+            "holdout_prefix": "2026-03",
+            "n_2025_ops_in_envelope": 9414,
+            "n_march_ops_scored": 58,
+            "frozen_gate_file_sha256_at_eval": "f2f6bd91d429a6fe80ed7524766782346e8a4b343258f38ccbf2dcb4755b059d",
+            "march_used_for_tuning": false
+          },
+          "safety": {
+            "advisory_only": true,
+            "evaluation_mode": "offline_only",
+            "write_path": "scorecard_json_only",
+            "influences_control": false,
+            "site_integration_allowed": false,
+            "is_evidence_not_setpoint": true,
+            "scorecard_role": "advisory_evidence_only"
+          },
+          "leak_ok": true,
+          "safety_ok": true
+        }
+      }
+    ],
+    "passed": false,
+    "verdict": "FAIL",
+    "rule": "Sprint 33 PASS iff: coverage_meaningful_or_limitations_explained AND positive_opportunity_robust_under_conservative_quantile AND no_unsupported_interval_produces_savings AND mvpv1_comparison_valid_where_reported AND leakage_and_safety_checks_pass."
+  },
+  "verdict": "FAIL",
+  "safety": {
+    "advisory_only": true,
+    "evaluation_mode": "offline_only",
+    "write_path": "scorecard_json_only",
+    "influences_control": false,
+    "site_integration_allowed": false,
+    "is_evidence_not_setpoint": true,
+    "scorecard_role": "advisory_evidence_only"
+  }
+}
