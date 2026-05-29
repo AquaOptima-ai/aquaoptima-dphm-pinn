@@ -1,289 +1,235 @@
-# Sprint 34 — Telemetry tag-map adapter with canonical telemetry schema
+# AOPSO Sprint 34 — Unified A+B offline evidence package
 
-## Goal
+> **SAFETY:** ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION
 
-Add a typed, read-only telemetry tag-map adapter that validates a
-user-supplied mapping of operator-facing telemetry tags to canonical
-dPHM `Network` node / edge quantities, producing an immutable,
-reportable schema surface for shadow-mode readiness.
+## Status
 
-The adapter answers, given a loaded `Network` and a list of tag
-specs:
+**SPRINT34_STATUS: COMPLETE**
 
-- Is every tag uniquely named?
-- Does every tag reference a valid dPHM node / edge id?
-- Is every (target_type, measurement) pair declared on the right
-  topology axis (pressure on nodes, flow on edges, etc.)?
-- Is the supplied unit in the canonical unit family for the
-  measurement, and what canonical unit will the future shadow
-  dataset builder report in?
-- What role does the operator believe the tag plays (observed /
-  control_input / derived / quality) — purely as metadata?
+**SPRINT34_GATE: PASS** — packaging-gate verdict only. The packaging gate
+validates the *package boundary*, not the pillar verdicts. Both pillar
+verdicts are reported HONESTLY below.
 
-No live SCADA / PLC / PAC / historian / OPC-UA / MQTT / REST
-adapter is activated; no write / control / setpoint path is
-exposed; no measurement value is converted at runtime.
+## Honest pillar verdicts (reproduced verbatim from source scorecards)
+
+- **Pillar A — verdict: PASS** (Sprint 30b locked-March-2026 holdout under
+  pre-registered acceptance gate v2;
+  `data/eval/pillarA/sprint30b_fullyear_holdout_scorecard.json`).
+  Detector AUROC `0.9436` vs baseline `0.9175`, detector false-alarm rate
+  `0.0128` vs baseline `0.0518` (~4.05× reduction), detector mean
+  lead-time `15.82` rows vs baseline `4.84` rows on 32 injected-fault
+  episodes.
+- **Pillar B — verdict: FAIL** (Sprint 33 locked-March-2026 holdout under
+  Sprint-32 frozen envelope;
+  `data/eval/pillarB/sprint33_locked_march_scorecard.json`). The
+  conservative-quantile robustness criterion failed: counterfactual
+  opportunity at the primary p25 quantile was `0.0` kWh across 21
+  supported intervals (the aggressive p10 quantile showed `1.31` kWh on
+  the same intervals). 37 of 58 March OperatingPoints were honestly
+  REJECTED with `insufficient_support`; no savings claim is made on any
+  rejected interval.
+
+## Product status
+
+> Pillar A validated; Pillar B FAILED its locked-March acceptance gate
+> (honest result). Advisory evidence only; deployment NOT authorized in
+> this version.
+
+This is the honest dual-pillar status. Per PRD §10.5, the correct
+response to a Pillar-B FAIL is to PUBLISH the FAIL truthfully — never to
+repackage it as success — and that is exactly what this package does.
 
 ## Files changed
 
-- `src/aquaoptima/dphm/telemetry_tag_map.py` (new module) — frozen
-  dataclasses (`TelemetryTagSpec`, `CanonicalTelemetryTag`,
-  `TelemetryTagMapDiagnostics`, `TelemetryTagMap`), canonical enum-
-  like constants, validator/builder `build_telemetry_tag_map`, and
-  JSON loader `load_telemetry_tag_map_json`.
-- `src/aquaoptima/dphm/__init__.py` (updated) — re-exports the four
-  new dataclasses, the builder, the loader, and the canonical
-  enum-like constants for target types, measurements, roles, and
-  axes. Existing exports are unchanged.
-- `tests/dphm/test_telemetry_tag_map.py` (new) — 34 focused tests
-  covering the surface, the strict / non-strict mode contract, and
-  the read-only boundary.
-- `docs/telemetry-tag-map.md` (new) — Sprint 34 surface
-  documentation including the canonical schema tables and the
-  reaffirmed safety boundary.
+- `src/aquaoptima/advisory/sprint34_unified_package.py` (new) — the
+  unified packager: scorecard builder, dashboard renderer, exec /
+  plant-manager / ML-audit Markdown renderers, health-event and
+  efficiency-advisory exporters (JSON+CSV), artifact-manifest builder
+  (contracts-SDK `ModelArtifactRecord`-shaped), packaging gate. No
+  network, no actuation, no live OT binding, no edge import.
+- `scripts/sprint34_unified_package.py` (new) — runner that writes every
+  surface to `data/eval/unified/`. Argparse-driven, deterministic when
+  `--generated-at` is pinned.
+- `tests/advisory/test_sprint34_unified.py` (new) — 51 tests pinning
+  the safety / honesty contract (banner, both verdicts, cannot-claim
+  block, read-only dashboard, governance scan, manifest conformance,
+  no-claim-on-unsupported-interval boundary, packaging-gate).
+- `SPRINT34_REPORT.md` (this file, replacing the unrelated pre-existing
+  Sprint 34 telemetry-tag-map report that was carried in from the
+  upstream dPHM-PINN repo).
 
-No other source file is touched. The new module imports only
-`Network` and `pathlib.Path` from the project; no parser, solver,
-training, or data-IO module is modified.
+## Artifacts written to `data/eval/unified/`
 
-## API design
+| File | Purpose |
+|---|---|
+| `sprint34_unified_scorecard.json`   | Unified scorecard — BOTH pillar verdicts + packaging gate + governance scan |
+| `sprint34_dashboard.html`           | Static, read-only HTML dashboard (no `<form>`, `<input>`, `<button>`, `<script>`, no `fetch`/XHR) |
+| `sprint34_executive_report.md`      | Plant-manager executive report (Markdown) |
+| `sprint34_plant_manager_summary.md` | One-page plant-manager summary |
+| `sprint34_ml_audit_appendix.md`     | Full methodology, gate versions, pre-registration hashes, leakage checks, both verdicts, every cannot-claim |
+| `health_event_export.csv` / `.json` | Pillar A injected-fault evidence (32 episodes) with advisory-only banner |
+| `efficiency_advisory_export.csv` / `.json` | Pillar B counterfactual evidence (supported intervals only; 37 unsupported intervals carry zero claim) with advisory-only banner |
+| `sprint34_artifact_manifest.json`   | Two `ModelArtifactRecord`s (Pillar A + B) with the canonical all-True `SafetyFlagSet`, real sha256 over the upstream scorecards, `edge_export: BLOCKED_in_sprint34` |
 
-### Frozen dataclasses
+## Safety posture (every surface)
 
-```python
-@dataclass(frozen=True)
-class TelemetryTagSpec:
-    tag: str
-    target_type: str          # "NODE" | "EDGE"
-    target_id: int
-    measurement: str          # canonical measurement token
-    unit: str                 # operator-supplied unit string
-    role: str = "observed"
-    description: str = ""
+- Persistent banner string `ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR
+  ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT
+  AUTHORIZED IN THIS VERSION` appears on every surface (10 surfaces;
+  test `test_safety_banner_present_on_every_surface`).
+- Dashboard HTML is 100% static: no `<form>`, `<input>`, `<button>`,
+  `<textarea>`, `<select>`, `<script>`, no `method=post`, no `onclick=`
+  / `onsubmit=` / `onchange=`, no `fetch(` / `XMLHttpRequest` /
+  `WebSocket` (test `test_dashboard_has_no_forbidden_html_token`).
+- Cannot-claim block (6 statements, verbatim) appears in every prose
+  report surface (dashboard, executive report, plant-manager summary,
+  ML audit) — pinned by parametrised
+  `test_every_prose_surface_contains_every_cannot_claim_statement`.
+- Modeling-source governance scan (advisory + training + models +
+  dataio) is CLEAN: no forbidden edge import, no write/actuation
+  connector token (`test_governance_scan_over_modeling_source_is_clean`).
+- Artifact manifest: every `ModelArtifactRecord` carries the canonical
+  all-True `SafetyFlagSet` (7 flags) and round-trips through
+  `ModelArtifactRecord.from_dict`; checksums are real sha256 hashes of
+  the actual scorecard files
+  (`test_artifact_manifest_each_record_is_a_model_artifact_record`).
+- No claim is emitted on any unsupported Pillar-B interval; the
+  exclusion count (37) is recorded in the export metadata
+  (`test_efficiency_export_emits_no_unsupported_advisory_rows`,
+  `test_efficiency_export_metadata_records_unsupported_count`).
 
-@dataclass(frozen=True)
-class CanonicalTelemetryTag:
-    tag: str
-    target_type: str
-    target_id: int
-    measurement: str
-    unit: str
-    canonical_unit: str       # the unit the measurement reports in
-    role: str
-    axis: str                 # "node_pressure" | "edge_flow" | ...
-    description: str = ""
+## Packaging gate result
 
-@dataclass(frozen=True)
-class TelemetryTagMapDiagnostics:
-    warnings: tuple[str, ...] = ()
-    errors: tuple[str, ...] = ()
+**SPRINT34_GATE: PASS** — all five packaging-gate criteria pass
+(`data/eval/unified/sprint34_unified_scorecard.json#packaging_gate`):
 
-@dataclass(frozen=True)
-class TelemetryTagMap:
-    tags: tuple[CanonicalTelemetryTag, ...] = ()
-    diagnostics: TelemetryTagMapDiagnostics = field(
-        default_factory=TelemetryTagMapDiagnostics
-    )
-```
+| # | Criterion | Result |
+|---|---|---|
+| P1 | `safety_banner_on_every_surface` | PASS — 0 surfaces missing the banner |
+| P2 | `no_control_endpoint_or_ui_control_in_dashboard` | PASS — 0 forbidden HTML tokens |
+| P3 | `leakage_and_safety_checks_pass` | PASS — 0 governance violations |
+| P4 | `reports_include_cannot_claim_statements` | PASS — every prose surface contains every cannot-claim line |
+| P5 | `edge_site_control_packaging_remains_blocked` | PASS — no ONNX export, no edge import, no UI controls that set anything, no write path |
 
-### Builder
+A PASS of THIS gate is a PASS of the packaging boundary, not a
+claim about deployment readiness. The product status remains the honest
+dual-pillar status above.
 
-```python
-def build_telemetry_tag_map(
-    specs: Iterable[TelemetryTagSpec | Mapping[str, object]],
-    network: Network,
-    *,
-    strict: bool = True,
-) -> TelemetryTagMap: ...
-```
+## Acceptance gate (from the task prompt) — line-by-line
 
-- Accepts both dataclass and dict-like specs (dicts are coerced
-  through `TelemetryTagSpec`; unknown keys are rejected so typos do
-  not silently disappear).
-- Trims tag names; rejects empty tags.
-- Enforces tag uniqueness across the input list.
-- Validates `target_type` against `{"NODE", "EDGE"}` case-
-  insensitively.
-- Validates node ids against `[0, network.num_nodes)` and edge ids
-  against `[0, network.edge_index.shape[1])`.
-- Validates measurement names against the canonical measurement set
-  and rejects measurement / target_type pairs that are not valid
-  (e.g. `pressure` on `EDGE`).
-- Validates roles against `{"observed", "control_input", "derived",
-  "quality"}`.
-- Validates units against the per-measurement canonical unit family
-  and emits the canonical unit string on the output dataclass. *No
-  value conversion is performed.*
-- Produces a deterministic `diagnostics.errors` tuple in input order.
-- `strict=True` (default) raises `ValueError` on any structural
-  error; `strict=False` omits the invalid spec from `tags` and
-  appends the error string to `diagnostics.errors`.
-- Never mutates `network` or the input specs; never opens any
-  socket, file, or process.
+1. **Unified report includes BOTH Pillar A and Pillar B PASS/FAIL
+   verdicts (truthfully).** PASS — scorecard `pillar_a_verdict=PASS`,
+   `pillar_b_verdict=FAIL`; product status quotes both.
+2. **Safety banner appears on every surface.** PASS — all 10 surfaces.
+3. **No control endpoints and no UI controls that set anything exist
+   anywhere in the package.** PASS — dashboard has 0 forbidden HTML
+   tokens; no control endpoints are exposed.
+4. **Leakage and safety checks pass (governance scan finds no
+   forbidden connector tokens / edge imports).** PASS — 0 violations
+   over `src/aquaoptima/{advisory,training,models,dataio}`.
+5. **Reports include explicit "cannot-claim" statements.** PASS — 6
+   statements present verbatim in every prose surface.
+6. **Edge/site/control packaging remains blocked (no ONNX export,
+   no edge wiring in this sprint).** PASS — manifest records carry
+   `edge_export: BLOCKED_in_sprint34`; packaging-blocks inventory
+   covers ONNX, edge wiring, site integration, control endpoint, UI
+   controls that set anything, and write path.
 
-### JSON loader
+## Cannot-claim section (verbatim)
 
-```python
-def load_telemetry_tag_map_json(
-    path: PathLike,
-    network: Network,
-    *,
-    strict: bool = True,
-) -> TelemetryTagMap: ...
-```
+- We do NOT claim guaranteed energy savings.
+- We do NOT claim a deployable control policy.
+- We do NOT claim field-validated fault recall or predictive maintenance
+  accuracy.
+- We do NOT claim site integration, actuation, or write-path readiness.
+- We do NOT claim that an advisory operating point may be used as a
+  setpoint.
+- We do NOT claim opportunity on intervals the envelope honestly
+  REJECTED.
 
-- Accepts both a list-of-objects shape and a single-object-with-
-  `tags` shape.
-- Rejects any other top-level JSON shape (scalar, mapping without
-  `"tags"`, nested list) with `ValueError`.
-- Forwards the rows to `build_telemetry_tag_map`.
-- No YAML dependency is introduced.
-
-### Public exports
-
-`aquaoptima.dphm.__init__` now re-exports:
-
-- `TelemetryTagSpec`, `CanonicalTelemetryTag`,
-  `TelemetryTagMapDiagnostics`, `TelemetryTagMap`
-- `build_telemetry_tag_map`, `load_telemetry_tag_map_json`
-- Canonical token sets: `TELEMETRY_TARGET_TYPES`,
-  `TELEMETRY_MEASUREMENTS`, `TELEMETRY_ROLES`, `TELEMETRY_AXES`
-- Stable per-token constants (`TELEMETRY_TARGET_NODE`,
-  `TELEMETRY_MEASUREMENT_PRESSURE`, `TELEMETRY_AXIS_EDGE_FLOW`, …)
-
-All are added to `__all__`. Existing exports are unchanged.
-
-## Validation behavior
-
-Measurement → canonical unit:
-
-| Measurement      | Canonical unit | Accepted units                     |
-|------------------|----------------|------------------------------------|
-| `pressure`       | `m`            | `m`, `meter`, `bar`, `psi`, `kpa`  |
-| `flow`           | `m3/s`         | `m3/s`, `l/s`, `gpm`               |
-| `demand`         | `m3/s`         | `m3/s`, `l/s`, `gpm`               |
-| `pump_speed`     | `fraction`     | `fraction`, `percent`, `rpm`       |
-| `level`          | `m`            | `m`, `meter`, `ft`                 |
-| `status`         | `boolean`      | `boolean`, `bool`, `0/1`           |
-| `power`          | `kw`           | `kw`, `w`                          |
-| `valve_position` | `fraction`     | `percent`, `fraction`              |
-
-(`target_type`, `measurement`) → axis token, e.g. `(NODE, pressure)`
-→ `node_pressure`, `(EDGE, flow)` → `edge_flow`,
-`(EDGE, pump_speed)` → `edge_pump_speed`. The full table lives in
-`docs/telemetry-tag-map.md` and is the single source of truth for
-which combinations are legal.
-
-## Tests added
-
-`tests/dphm/test_telemetry_tag_map.py` (34 tests). Each of the 22
-required test cases is covered:
-
-1. Frozen dataclass surfaces — `test_dataclasses_are_frozen_and_immutable`.
-2. Empty spec list — `test_empty_specs_returns_empty_map_with_empty_diagnostics`.
-3. Dataclass and dict inputs — `test_dataclass_and_dict_inputs_both_accepted` (+ unknown-key and missing-required-key tests).
-4. Node pressure tag — `test_node_pressure_tag_canonical_axis_and_unit`, `test_node_pressure_alternate_units_canonicalise_to_m`.
-5. Edge flow tag — `test_edge_flow_tag_canonical_axis_and_unit`, `test_edge_flow_alternate_units_canonicalise_to_m3_s`.
-6. Pump speed percent/fraction — `test_pump_speed_percent_and_fraction_canonicalise_to_fraction` (+ rpm).
-7. Status boolean — `test_status_boolean_canonicalisation`.
-8. Duplicate tag — `test_duplicate_tag_raises_in_strict_mode`, `test_duplicate_tag_records_error_in_non_strict_mode`.
-9. Empty tag — `test_empty_tag_rejected`.
-10. Unknown target type — `test_unknown_target_type_rejected`.
-11. Out-of-range node id — `test_out_of_range_node_id_rejected`.
-12. Out-of-range edge id — `test_out_of_range_edge_id_rejected`.
-13. Unknown measurement — `test_unknown_measurement_rejected`, `test_measurement_target_type_mismatch_rejected`.
-14. Unknown unit — `test_unknown_unit_rejected`, `test_empty_unit_rejected`.
-15. Unknown role — `test_unknown_role_rejected`.
-16. Read-only inputs — `test_builder_does_not_mutate_inputs`.
-17. Deterministic ordering — `test_deterministic_ordering_of_valid_and_invalid_specs`, `test_repeat_build_returns_equal_map`.
-18. JSON loader list shape — `test_load_telemetry_tag_map_json_list_shape`.
-19. JSON loader object shape — `test_load_telemetry_tag_map_json_object_shape`.
-20. JSON loader malformed shapes — `test_load_telemetry_tag_map_json_rejects_malformed_shapes`, `test_load_telemetry_tag_map_json_non_strict_propagates_errors`.
-21. No write / control path — `test_no_write_or_control_path_exposed`.
-22. Existing test suite — verified by `pytest tests -q`: 1378 passed, 1 skipped (pre-existing WNTR-not-installed skip path), 3 warnings (pre-existing `torch_geometric` / `torch.jit.script` deprecation warnings).
-
-Supplementary coverage:
-`test_canonical_constants_are_stable_strings`,
-`test_default_tag_map_diagnostics_is_empty`,
-`test_canonical_tag_field_set`.
-
-## Validation commands / results
+## Validation commands & results
 
 ```bash
-python -m pip install -e .
-python -m pytest tests/dphm/test_telemetry_tag_map.py -q
-python -m pytest tests/dphm tests/models tests/training tests/dataio -q
-python -m pytest tests -q
-python -m compileall -q src tests
-git diff --check
+python3 scripts/sprint34_unified_package.py --generated-at 2026-05-29T00:00:00Z
+python3 -m pytest tests/advisory/test_sprint34_unified.py -q
+python3 -m pytest tests -q
 ```
 
 Results:
 
-- `pip install -e .` — editable install succeeded (`Successfully installed aquaoptima-dphm-pinn-0.1.0`).
-- `pytest tests/dphm/test_telemetry_tag_map.py` — **34 passed** in ~2.2s.
-- `pytest tests/dphm tests/models tests/training tests/dataio` — **1370 passed, 1 skipped** in ~115s (the pre-existing WNTR-not-installed skip path).
-- `pytest tests` — **1378 passed, 1 skipped** in ~100s.
-- `compileall -q src tests` — clean.
-- `git diff --check` — clean.
+- Runner: emits 10 files to `data/eval/unified/`; `packaging_gate_verdict: PASS`.
+- Sprint 34 tests: **51 passed in 0.43s.**
+- Full suite: **2642 passed, 1 skipped, 3 warnings in 117.39s** (the
+  skip is the pre-existing WNTR optional-import path; the 3 warnings
+  are pre-existing torch / torch_geometric deprecation warnings).
+  +51 new tests, 0 regressions.
 
-## Compatibility notes
+## Compatibility / boundary notes
 
-- All Sprint 11–33 surfaces are unchanged. `Network`, `load_network_from_inp`, `load_inp_diagnostics`, `build_import_quality_report`, and every previously-exported dataclass keep their existing field set and behaviour.
-- The new module imports only `Network` and standard-library `json` / `pathlib`. No optional dependency is added.
-- `aquaoptima.dataio` Sprint 4.5 telemetry abstraction (`SiteTagMap` / `TagDefinition` / `TelemetrySeries`) is independent of the Sprint 34 dPHM-side adapter — the two surfaces can coexist and a future Sprint 35 dataset builder can consume both.
-- The new public exports widen `aquaoptima.dphm.__all__` but do not rename or remove any existing export.
+- The contracts SDK is **untouched** (`src/aquaoptima_contracts/**` not
+  modified). The artifact manifest uses the published
+  `ModelArtifactRecord` shape via the existing builders
+  (`build_health_artifact_record`, `build_efficiency_artifact_record`)
+  with the canonical `default_safety_flag_set()` and `framework="onnx"`
+  — the records *reference* the locked-March scorecards as their
+  audit artifact, NOT model-weight blobs, because **no ONNX export is
+  produced in this sprint** (`edge_export: BLOCKED_in_sprint34`).
+- Frozen pillar gates (`efficiency_gate.py`, `health_gate.py`'s v2
+  block) are **untouched**.
+- All Sprint 27–33 surfaces, frozen constants, and scorecards are
+  preserved unmodified. The unified packager reads them; it does not
+  rewrite them.
+- The pre-existing `SPRINT34_REPORT.md` in the working tree described
+  an unrelated upstream Sprint 34 (telemetry tag-map adapter from the
+  dPHM-PINN core) carried in by the merge base. This sprint's report
+  replaces it because both files are named `SPRINT34_REPORT.md` and the
+  AOPSO Sprint 34 task is the one the worktree is for; the unrelated
+  module (`src/aquaoptima/dphm/telemetry_tag_map.py`) is itself
+  preserved unchanged.
 
-## Known limitations
+## Honest limitations preserved end-to-end
 
-- Sprint 34 stores `canonical_unit` as metadata only — no value conversion is performed, and no telemetry frame is read. Value normalisation belongs to a future shadow-mode dataset builder.
-- The validator only checks dPHM id range; it does *not* cross-check that a tag's measurement axis is hydraulically meaningful on the specific dPHM element (e.g. an `edge_flow` tag on a pump-edge is accepted because the `Network` has the edge at that id, not because the dPHM model represents the physical flow at that pump correctly). That cross-check belongs to Sprint 35.
-- The canonical unit family is intentionally narrow. Extending the table (e.g. adding `mbar`, `cfs`, `mgd` for pressure / flow) is a one-line addition to `_MEASUREMENT_UNIT_TABLE` and does not affect the public surface; it should still be exercised through tests when added.
-- No YAML loader is provided. A JSON-shaped document is the only supported on-disk schema for Sprint 34. The single-object-with-`tags` shape leaves room for sibling top-level keys in future sprints (metadata, version, etc.) without breaking compatibility.
+- Pillar A's injected faults are SYNTHETIC; the AUROC / lead-time /
+  false-alarm metrics measure response to canonical faults overlaid on
+  unseen March 2026 normal data, NOT real-world fault recall.
+- Pillar B reports a counterfactual offline opportunity only, on the
+  21 of 58 March OperatingPoints that had ≥ `MIN_SUPPORT=30` historical
+  neighbours under the FROZEN matching tolerances. The remaining 37
+  intervals carry zero claim. The conservative p25 quantile produced
+  `0.0` kWh of opportunity; that is the honest result, and it is the
+  reason Pillar B's gate FAILed. The exec report carries the allowed
+  advisory language verbatim and never claims guaranteed savings.
+- Offline only: no setpoints, no actuation, no live integration, no
+  site write path of any kind.
 
-## Verdict
+## What is NOT in this sprint (by design)
 
-Ship.
+- No ONNX export.
+- No edge package / edge wiring.
+- No site integration.
+- No model retraining.
+- No control endpoints.
+- No UI controls that set anything.
+- No new acceptance gates for either pillar (the existing pre-registered
+  gates are the source of truth).
 
-- Surface is read-only, frozen, deterministic, and composes only the
-  Sprint 11–33 public `Network` surface.
-- Loaded `Network` and input specs are byte-for-byte unchanged; no
-  EPANET semantics are activated; no parser / solver behaviour is
-  modified.
-- 34 new tests pin the contract; the full pre-existing 1344-test
-  suite still passes (1378 total with the new tests).
-- Documentation is added; safety boundary is reaffirmed verbatim.
+## Sprint 35 recommendation (advisory only)
 
-## Sprint 35 recommendation
+Pillar B's `FAIL` on the conservative p25 quantile is informative, not
+fatal to the product thesis: 21 of 58 intervals were supported and the
+counterfactual evidence on those intervals is preserved in the export.
+A Sprint-35 follow-up could honestly investigate:
 
-Cold-start replay / shadow dataset builder consuming
-`TelemetryTagMap` and offline telemetry rows.
+1. Whether expanding the 2025 envelope (more pump-on cycles, more
+   modes) materially lifts the supported-interval count without
+   relaxing the FROZEN matching tolerances — i.e. coverage growth, not
+   gate softening.
+2. A targeted alignment-diagnostic pass for MVPv1 control logs, if
+   they become available, so that a clean comparator can be reported on
+   the subset where alignment passes — never approximated.
+3. A documented scope-decision per PRD §10.5 (data-remediation /
+   scope-reduction / stop-pause) tying the next product step to the
+   honest Pillar B FAIL.
 
-The Sprint 34 tag-map names every (operator-facing tag → canonical
-dPHM axis) mapping the future shadow dataset will join on. The next
-bottleneck is a deterministic, read-only builder that takes:
-
-- a loaded `Network` (Sprint 11–32 surface);
-- a `TelemetryTagMap` (Sprint 34 surface);
-- an offline telemetry frame (CSV / Parquet rows with per-tag value
-  columns and a timestamp column);
-
-and produces a typed, immutable replay dataset (per-step tensors of
-node-pressure, edge-flow, pump-speed, etc.) for shadow-mode
-side-by-side comparison against the dPHM forward model. Recommended
-scope:
-
-- Sprint 35.1: in-memory `ShadowReplayFrame` dataclass (timestamps,
-  per-axis tensors), built from a pandas DataFrame against a
-  `TelemetryTagMap`;
-- Sprint 35.2: value normalisation through the canonical unit
-  table — explicit conversion from operator-supplied unit to
-  canonical unit, with deterministic warnings on missing /
-  out-of-range / stale samples;
-- Sprint 35.3: read-only side-by-side comparator producing
-  per-element residuals between the dPHM forward solve and the
-  replay frame, for shadow-mode credibility checks only.
-
-The safety boundary stays the same as Sprint 34: no live binding,
-no writes, no advisory / control recommendation, no production
-savings claim.
+None of the above unblocks edge deployment or control integration. The
+safety boundary is unchanged.

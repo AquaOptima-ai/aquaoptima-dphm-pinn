@@ -1,0 +1,36 @@
+# ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION
+# schema=sprint34.health_event_export.v1
+# advisory_only=true; evaluation_mode=offline_only
+onset_index,end_index,kind,axis,length_rows,magnitude_sigmas,detector_detected,detector_lead_time_rows,baseline_detected,baseline_lead_time_rows,advisory_only,is_evidence_not_setpoint
+198,278,stuck_flatline,node_pressure,80,0.0,True,0,True,0,True,True
+396,456,envelope_violation,edge_power,60,4.0,True,0,True,0,True,True
+998,1078,stuck_flatline,node_pressure,80,0.0,True,0,True,0,True,True
+1212,1218,spike,edge_power,6,6.0,True,0,True,0,True,True
+2129,2249,sensor_drift,edge_pump_speed,120,4.0,True,74,True,33,True,True
+3696,3702,spike,node_pressure,6,6.0,True,0,True,0,True,True
+5071,5151,stuck_flatline,edge_flow,80,0.0,False,,True,42,True,True
+5663,5743,stuck_flatline,node_pressure,80,0.0,True,0,True,0,True,True
+9783,9903,sensor_drift,edge_flow,120,4.0,True,105,True,6,True,True
+10146,10226,stuck_flatline,node_pressure,80,0.0,True,0,True,0,True,True
+11285,11405,sensor_drift,node_pressure,120,4.0,True,1,True,1,True,True
+11521,11581,envelope_violation,edge_power,60,4.0,True,0,True,0,True,True
+17974,17980,spike,edge_power,6,6.0,True,0,True,0,True,True
+18200,18206,spike,edge_power,6,6.0,True,0,True,0,True,True
+20971,20977,spike,edge_pump_speed,6,6.0,True,0,True,0,True,True
+21546,21666,sensor_drift,edge_flow,120,4.0,True,79,True,3,True,True
+22096,22216,sensor_drift,edge_power,120,4.0,True,34,True,8,True,True
+25529,25649,sensor_drift,edge_power,120,4.0,True,34,True,25,True,True
+25939,25999,envelope_violation,edge_power,60,4.0,True,0,True,0,True,True
+26152,26212,envelope_violation,edge_power,60,4.0,True,0,True,0,True,True
+26306,26386,stuck_flatline,edge_pump_speed,80,0.0,False,,True,0,True,True
+26520,26600,stuck_flatline,edge_power,80,0.0,False,,False,,True,True
+27194,27254,envelope_violation,edge_power,60,4.0,True,0,True,0,True,True
+27848,27968,sensor_drift,edge_flow,120,4.0,True,79,True,9,True,True
+30930,30990,envelope_violation,edge_power,60,4.0,True,0,True,0,True,True
+32420,32480,envelope_violation,edge_power,60,4.0,True,0,True,0,True,True
+32685,32691,spike,edge_power,6,6.0,True,0,True,0,True,True
+33569,33649,stuck_flatline,edge_flow,80,0.0,False,,True,0,True,True
+35922,35928,spike,edge_power,6,6.0,True,0,True,0,True,True
+39772,39892,sensor_drift,edge_power,120,4.0,True,37,True,23,True,True
+40631,40637,spike,edge_power,6,6.0,True,0,True,0,True,True
+41406,41466,envelope_violation,edge_power,60,4.0,True,0,True,0,True,True

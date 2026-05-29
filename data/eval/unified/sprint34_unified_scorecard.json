@@ -1,0 +1,358 @@
+{
+  "advisory_only": true,
+  "allowed_pillar_b_language": [
+    "In offline historical replay, the matched-condition envelope identified an estimated counterfactual opportunity on supported intervals only.",
+    "Under similar historical demand/head/level/pressure conditions, lower specific energy was observed at the reported speed range.",
+    "This is a counterfactual offline estimate requiring future operational validation under the same hydraulic constraints.",
+    "No control action was taken."
+  ],
+  "cannot_claim": [
+    "We do NOT claim guaranteed energy savings.",
+    "We do NOT claim a deployable control policy.",
+    "We do NOT claim field-validated fault recall or predictive maintenance accuracy.",
+    "We do NOT claim site integration, actuation, or write-path readiness.",
+    "We do NOT claim that an advisory operating point may be used as a setpoint.",
+    "We do NOT claim opportunity on intervals the envelope honestly REJECTED."
+  ],
+  "evaluation_mode": "offline_only",
+  "generated_at_utc": "2026-05-29T00:00:00Z",
+  "governance_scan": {
+    "clean": true,
+    "files_scanned": 46,
+    "safety_status": "PASS",
+    "violations": []
+  },
+  "influences_control": false,
+  "is_evidence_not_setpoint": true,
+  "packaging_blocks": {
+    "control_endpoint": "BLOCKED -- no control endpoints exist",
+    "edge_wiring": "BLOCKED -- no aquaoptima.edge / aquaoptima_contracts.edge imports",
+    "onnx_export": "BLOCKED -- not produced in this sprint",
+    "site_integration": "BLOCKED -- not authorized in this version",
+    "ui_controls_that_set_anything": "BLOCKED -- read-only dashboard, no form/input/button",
+    "write_path": "BLOCKED -- no setpoint, no actuation, no OT connector"
+  },
+  "packaging_gate": {
+    "criteria": [
+      {
+        "detail": {
+          "missing_banner_surfaces": [],
+          "n_surfaces": 9
+        },
+        "name": "safety_banner_on_every_surface",
+        "passed": true
+      },
+      {
+        "detail": {
+          "forbidden_html_tokens_found": []
+        },
+        "name": "no_control_endpoint_or_ui_control_in_dashboard",
+        "passed": true
+      },
+      {
+        "detail": {
+          "files_scanned": 46,
+          "violations": []
+        },
+        "name": "leakage_and_safety_checks_pass",
+        "passed": true
+      },
+      {
+        "detail": {
+          "expected_cannot_claim": [
+            "We do NOT claim guaranteed energy savings.",
+            "We do NOT claim a deployable control policy.",
+            "We do NOT claim field-validated fault recall or predictive maintenance accuracy.",
+            "We do NOT claim site integration, actuation, or write-path readiness.",
+            "We do NOT claim that an advisory operating point may be used as a setpoint.",
+            "We do NOT claim opportunity on intervals the envelope honestly REJECTED."
+          ],
+          "missing": []
+        },
+        "name": "reports_include_cannot_claim_statements",
+        "passed": true
+      },
+      {
+        "detail": {
+          "control_endpoint": "BLOCKED -- no control endpoints exist",
+          "edge_wiring": "BLOCKED -- no aquaoptima.edge / aquaoptima_contracts.edge imports",
+          "onnx_export": "BLOCKED -- not produced in this sprint",
+          "site_integration": "BLOCKED -- not authorized in this version",
+          "ui_controls_that_set_anything": "BLOCKED -- read-only dashboard, no form/input/button",
+          "write_path": "BLOCKED -- no setpoint, no actuation, no OT connector"
+        },
+        "name": "edge_site_control_packaging_remains_blocked",
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "report_version": "sprint34.unified_ab.v1",
+    "rule": "Sprint 34 packaging PASS iff: safety_banner_on_every_surface AND no_control_endpoint_or_ui_control_in_dashboard AND leakage_and_safety_checks_pass AND reports_include_cannot_claim_statements AND edge_site_control_packaging_remains_blocked.",
+    "verdict": "PASS"
+  },
+  "pillar_a": {
+    "benchmark": "LOCKED March 2026 holdout (out-of-sample), broad full-year 2025 fit",
+    "criteria": [
+      {
+        "detail": {
+          "baseline_auroc": 0.9175359491438111,
+          "delta": 0.02605938571951505,
+          "detector_auroc": 0.9435953348633261,
+          "noninferiority_tol": 0.01
+        },
+        "name": "detector_auroc_noninferior",
+        "passed": true
+      },
+      {
+        "detail": {
+          "baseline_false_alarm_rate": 0.05179302520593893,
+          "detector_false_alarm_rate": 0.012800276229467765,
+          "improvement_factor": 4.0462427745664735,
+          "required_max": 0.025896512602969466
+        },
+        "name": "detector_false_alarm_materially_better",
+        "passed": true
+      },
+      {
+        "detail": {
+          "detector_auroc": 0.9435953348633261,
+          "required_minimum": 0.7
+        },
+        "name": "detector_auroc_minimum",
+        "passed": true
+      },
+      {
+        "detail": {
+          "baseline_mean_lead_time": 4.838709677419355,
+          "detector_mean_lead_time": 15.821428571428571,
+          "lead_time_tol": 1.0
+        },
+        "name": "detector_lead_time_noninferior",
+        "passed": true
+      }
+    ],
+    "gate_version": "v2",
+    "holdout_window": {
+      "all_in_2026_03": true,
+      "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv",
+      "first_timestamp": "2026-03-01 00:00:53",
+      "last_timestamp": "2026-03-31 23:59:19",
+      "month_filter": "2026-03 (calendar month March)",
+      "n_march_rows_total_before_cap": 42674,
+      "n_rows": 42674,
+      "row_cap": 50000,
+      "row_cap_applied": false
+    },
+    "leakage": {
+      "holdout_prefix": "2026-03",
+      "isolated": true,
+      "leaked_keys": [],
+      "n_train_val_checked": 213
+    },
+    "metrics": {
+      "baseline_auroc": 0.9175359491438111,
+      "baseline_false_alarm_rate": 0.05179302520593893,
+      "baseline_mean_lead_time": 4.838709677419355,
+      "detector_auroc": 0.9435953348633261,
+      "detector_false_alarm_rate": 0.012800276229467765,
+      "detector_mean_lead_time": 15.821428571428571
+    },
+    "out_of_sample_protocol_summary": {
+      "labeled_eval_limitation": "the injected faults are SYNTHETIC -- AUROC / lead-time / false-alarm measure how the 2025-fit detector responds to canonical faults on top of unseen March normal data, NOT how it would score real March faults (March 2026 has no ground-truth labels).",
+      "labeled_eval_set": "synthetic frozen-seed faults injected on REAL March-2026 normal frames (faults synthetic, underlying normal is the genuinely unseen distribution)",
+      "leakage_isolation": "fit_health_detector + fit_health_baseline_suite both call the Sprint-27 assert_holdout_isolated guard on input keys; any March-2026 key in the fit input raises LeakageError BEFORE fit.",
+      "seasonal_confound_fix": "Sprint 30 fit collapsed onto late-March 2025 (head-of-CSV cap landed in the first auto block). Sprint 30b stratified-samples across ALL 2025 auto-mode months so the fit set spans >= 5 distinct months.",
+      "unsupervised_eval_set": "raw un-faulted March-2026 normal frames -- detector / baseline alarm rate on truly unseen data, no labels needed."
+    },
+    "raw_march_flag_rates": {
+      "baseline_combined_deviation_mean": 0.35418942441355283,
+      "baseline_flag_rate": 0.05183484088672259,
+      "detector_flag_rate": 0.012302572995266438,
+      "detector_score_mean": 0.015581022892744248,
+      "n_rows": 42674
+    },
+    "rule": "detector_auroc >= baseline_auroc - 0.01 (non-inferior) AND detector_false_alarm_rate <= baseline_false_alarm_rate / 2 AND detector_auroc >= 0.70 AND detector_mean_lead_time >= baseline_mean_lead_time - 1.0",
+    "rule_parameters": {
+      "auroc_noninferiority_tol": 0.01,
+      "far_improvement_factor": 2.0,
+      "lead_time_tol": 1.0,
+      "min_detector_auroc": 0.7
+    },
+    "verdict": "PASS"
+  },
+  "pillar_a_verdict": "PASS",
+  "pillar_b": {
+    "coverage_explanation": "58 March-2026 OperatingPoints scored; 58 (100.0%) had finite matching-channel values; 21 (36.2%) had >= MIN_SUPPORT historical neighbours under the FROZEN matching tolerances and produced advisories. The remainder were honestly REJECTED with named reasons; no savings claim is made on any rejected interval.",
+    "coverage_waterfall": {
+      "exclusion_reasons": {
+        "insufficient_support": 37
+      },
+      "supported": 21,
+      "total": 58,
+      "unsupported": 37,
+      "valid": 58
+    },
+    "criteria": [
+      {
+        "detail": {
+          "exclusion_reasons": {
+            "insufficient_support": 37
+          },
+          "explanation_present": true,
+          "supported": 21,
+          "total": 58,
+          "unsupported": 37,
+          "valid": 58
+        },
+        "name": "coverage_meaningful_or_limitations_explained",
+        "passed": true
+      },
+      {
+        "detail": {
+          "conservative_quantile": 0.25,
+          "kwh_p10": 1.3097953444387933,
+          "kwh_p25": 0.0,
+          "n_supported_intervals": 21
+        },
+        "name": "positive_opportunity_robust_under_conservative_quantile",
+        "passed": false
+      },
+      {
+        "detail": {
+          "n_offenders": 0,
+          "n_unsupported": 37,
+          "offenders_head": []
+        },
+        "name": "no_unsupported_interval_produces_savings",
+        "passed": true
+      },
+      {
+        "detail": {
+          "available": false,
+          "comparison_produced": false,
+          "reason": "no_mvpv1_log_provided"
+        },
+        "name": "mvpv1_comparison_valid_where_reported",
+        "passed": true
+      },
+      {
+        "detail": {
+          "leak_ok": true,
+          "leakage": {
+            "frozen_gate_file_sha256_at_eval": "f2f6bd91d429a6fe80ed7524766782346e8a4b343258f38ccbf2dcb4755b059d",
+            "holdout_prefix": "2026-03",
+            "isolation_assert_passed": true,
+            "march_only_input": true,
+            "march_used_for_tuning": false,
+            "n_2025_ops_in_envelope": 9414,
+            "n_march_ops_scored": 58
+          },
+          "safety": {
+            "advisory_only": true,
+            "evaluation_mode": "offline_only",
+            "influences_control": false,
+            "is_evidence_not_setpoint": true,
+            "scorecard_role": "advisory_evidence_only",
+            "site_integration_allowed": false,
+            "write_path": "scorecard_json_only"
+          },
+          "safety_ok": true
+        },
+        "name": "leakage_and_safety_checks_pass",
+        "passed": true
+      }
+    ],
+    "frozen_gate": {
+      "advisory_only": true,
+      "frozen_params_canonical_json": "{\"frozen\":true,\"gate_version\":\"sprint32.envelope.v1\",\"march_used_for_tuning\":false,\"matching_channels\":[\"mean_demand_m3_per_h\",\"mean_level_m\",\"mean_pressure_m_head\",\"mean_flow_m3_per_h\"],\"matching_tolerances\":{\"mean_demand_m3_per_h\":50.0,\"mean_flow_m3_per_h\":50.0,\"mean_level_m\":0.25,\"mean_pressure_m_head\":0.5},\"min_support\":30,\"mvpv1_max_demand_disagreement_m3_per_h\":100.0,\"mvpv1_min_overlap_fraction\":0.8,\"pillar\":\"B\",\"se_quantile_aggressive\":0.1,\"se_quantile_primary\":0.25,\"se_quantiles\":[0.1,0.25],\"speed_range_se_cutoff_quantile\":0.25,\"sprint\":32}",
+      "frozen_params_sha256": "f7d6145492787c3c451f7334837536559939a766f4ae905f47aa83968f146e9e",
+      "gate_file_sha256_at_eval": "f2f6bd91d429a6fe80ed7524766782346e8a4b343258f38ccbf2dcb4755b059d",
+      "gate_file_sha256_post_eval": "f2f6bd91d429a6fe80ed7524766782346e8a4b343258f38ccbf2dcb4755b059d",
+      "gate_version": "sprint32.envelope.v1",
+      "march_used_for_tuning": false,
+      "matching_channels": [
+        "mean_demand_m3_per_h",
+        "mean_level_m",
+        "mean_pressure_m_head",
+        "mean_flow_m3_per_h"
+      ],
+      "matching_tolerances": {
+        "mean_demand_m3_per_h": 50.0,
+        "mean_flow_m3_per_h": 50.0,
+        "mean_level_m": 0.25,
+        "mean_pressure_m_head": 0.5
+      },
+      "min_support": 30,
+      "pre_eq_post": true,
+      "se_quantile_aggressive": 0.1,
+      "se_quantile_primary": 0.25,
+      "se_quantiles": [
+        0.1,
+        0.25
+      ]
+    },
+    "gate_version": "sprint32.envelope.v1",
+    "holdout_window": {
+      "all_in_2026_03": true,
+      "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv",
+      "first_timestamp": "2026-03-01 00:00:53",
+      "last_timestamp": "2026-03-31 23:59:19",
+      "n_operating_points": 58,
+      "n_rows": 44469,
+      "window_minutes": 30
+    },
+    "leakage_check": {
+      "frozen_gate_file_sha256_at_eval": "f2f6bd91d429a6fe80ed7524766782346e8a4b343258f38ccbf2dcb4755b059d",
+      "holdout_prefix": "2026-03",
+      "isolation_assert_passed": true,
+      "march_only_input": true,
+      "march_used_for_tuning": false,
+      "n_2025_ops_in_envelope": 9414,
+      "n_march_ops_scored": 58
+    },
+    "mvpv1_comparison": {
+      "alignment": null,
+      "available": false,
+      "comparison_produced": false,
+      "rejection_reason": "no_mvpv1_log_provided",
+      "valid": false
+    },
+    "opportunity": {
+      "avoided_cost": null,
+      "conservative_quantile": 0.25,
+      "kwh_p10": 1.3097953444387933,
+      "kwh_p25": 0.0,
+      "march_observed_energy_kwh_supported": 498.653777,
+      "march_volume_m3_supported": 7140.605527000001,
+      "n_supported_intervals": 21,
+      "robust_under_conservative": false,
+      "tariff_source": null
+    },
+    "out_of_sample_protocol_summary": {
+      "description": "Sprint 33 is a HONEST out-of-sample evaluation of the Pillar B matched-condition efficiency envelope FROZEN in Sprint 32. The 2025 OperatingPoints catalogue defines the envelope; the locked March-2026 OperatingPoints are SCORED against it. March is NEVER used to fit or tune any envelope parameter. The Sprint-32 frozen gate file (efficiency_gate.py) is treated as read-only pre-registration; its SHA-256 hash is recorded here and verified by the test suite.",
+      "honest_limitations": [
+        "March-2026 has NO ground-truth efficiency labels. We do not (and cannot) claim 'the advisory would have saved X kWh in production'; we report a COUNTERFACTUAL OFFLINE opportunity vs the 2025-derived envelope only.",
+        "Counterfactual energy is a hypothetical: it assumes the pump could have operated at the bucket's p25/p10 SE under the same demand/level/pressure/flow context. Realising this opportunity would require future operational validation under the same hydraulic constraints.",
+        "Unsupported intervals (insufficient historical neighbours, or no efficient sub-bucket) carry ZERO claim by construction.",
+        "MVPv1 control-log comparison is produced ONLY where the FROZEN alignment diagnostic passes; otherwise the comparison is marked not available, never approximated.",
+        "Offline only. No setpoints, no actuation, no live integration, no site write path of any kind."
+      ],
+      "pre_registration": "efficiency_gate.py SHA-256 was recorded BEFORE this evaluation and verified against the on-disk hash AFTER. Any change is pre-registration tampering."
+    },
+    "rule": "Sprint 33 PASS iff: coverage_meaningful_or_limitations_explained AND positive_opportunity_robust_under_conservative_quantile AND no_unsupported_interval_produces_savings AND mvpv1_comparison_valid_where_reported AND leakage_and_safety_checks_pass.",
+    "verdict": "FAIL"
+  },
+  "pillar_b_verdict": "FAIL",
+  "product_status": "Pillar A validated; Pillar B FAILED its locked-March acceptance gate (honest result). Advisory evidence only; deployment NOT authorized in this version.",
+  "report_version": "sprint34.unified_ab.v1",
+  "safety_banner": "ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION",
+  "schema": "sprint34.unified_scorecard.v1",
+  "scorecard_role": "advisory_evidence_only",
+  "site_integration_allowed": false,
+  "source_scorecards": {
+    "pillar_a": "/home/hunter_lin/projects/aopso-sprint34-impl/data/eval/pillarA/sprint30b_fullyear_holdout_scorecard.json",
+    "pillar_b": "/home/hunter_lin/projects/aopso-sprint34-impl/data/eval/pillarB/sprint33_locked_march_scorecard.json"
+  },
+  "sprint": 34,
+  "write_path": "scorecard_and_evidence_files_only"
+}
