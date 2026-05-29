@@ -1,0 +1,1326 @@
+{
+  "acceptance_gate": {
+    "criteria": [
+      {
+        "detail": {
+          "baseline_auroc": 0.9175359491438111,
+          "delta": 0.02605938571951505,
+          "detector_auroc": 0.9435953348633261,
+          "noninferiority_tol": 0.01
+        },
+        "name": "detector_auroc_noninferior",
+        "passed": true
+      },
+      {
+        "detail": {
+          "baseline_false_alarm_rate": 0.05179302520593893,
+          "detector_false_alarm_rate": 0.012800276229467765,
+          "improvement_factor": 4.0462427745664735,
+          "required_max": 0.025896512602969466
+        },
+        "name": "detector_false_alarm_materially_better",
+        "passed": true
+      },
+      {
+        "detail": {
+          "detector_auroc": 0.9435953348633261,
+          "required_minimum": 0.7
+        },
+        "name": "detector_auroc_minimum",
+        "passed": true
+      },
+      {
+        "detail": {
+          "baseline_mean_lead_time": 4.838709677419355,
+          "detector_mean_lead_time": 15.821428571428571,
+          "lead_time_tol": 1.0
+        },
+        "name": "detector_lead_time_noninferior",
+        "passed": true
+      }
+    ],
+    "gate_version": "v2",
+    "metrics": {
+      "baseline_auroc": 0.9175359491438111,
+      "baseline_false_alarm_rate": 0.05179302520593893,
+      "baseline_mean_lead_time": 4.838709677419355,
+      "detector_auroc": 0.9435953348633261,
+      "detector_false_alarm_rate": 0.012800276229467765,
+      "detector_mean_lead_time": 15.821428571428571
+    },
+    "passed": true,
+    "rule": "detector_auroc >= baseline_auroc - 0.01 (non-inferior) AND detector_false_alarm_rate <= baseline_false_alarm_rate / 2 AND detector_auroc >= 0.70 AND detector_mean_lead_time >= baseline_mean_lead_time - 1.0",
+    "rule_parameters": {
+      "auroc_noninferiority_tol": 0.01,
+      "far_improvement_factor": 2.0,
+      "lead_time_tol": 1.0,
+      "min_detector_auroc": 0.7
+    },
+    "verdict": "PASS"
+  },
+  "advisory_only": true,
+  "axes_used": [
+    "edge_flow",
+    "edge_power",
+    "edge_pump_speed",
+    "edge_status",
+    "node_demand",
+    "node_level",
+    "node_pressure",
+    "node_status"
+  ],
+  "baseline": {
+    "axes": [
+      "edge_flow",
+      "edge_power",
+      "edge_pump_speed",
+      "edge_status",
+      "node_demand",
+      "node_level",
+      "node_pressure",
+      "node_status"
+    ],
+    "health_threshold": 0.5,
+    "mahalanobis": {
+      "calib_distance": 7.261221080399883,
+      "calib_quantile": 0.995,
+      "covariance_summary": {
+        "condition_number": 2770090.19486846,
+        "det": 9.006723355451167e-11,
+        "max_eig": 5.574991592761366,
+        "min_eig": 2.012566812116419e-06,
+        "ridge": 1.9999999999999995e-06,
+        "trace": 8.000015999999999
+      },
+      "n_train_rows": 150000,
+      "ridge": 1.9999999999999995e-06
+    },
+    "physical_residual": {
+      "coefficients": [
+        0.0928755491667132,
+        3.4044299593896072
+      ],
+      "features": [
+        "edge_flow",
+        "edge_pump_speed"
+      ],
+      "high_confidence": true,
+      "intercept": -135.70969817125916,
+      "k_sigma": 3.0,
+      "low_confidence": false,
+      "r2": 0.9111280631043494,
+      "reason": "high_confidence: r2=0.911 >= min_r2=0.3",
+      "residual_sigma": 17.485796748481327,
+      "target": "edge_power"
+    },
+    "spc": {
+      "L": 3.0,
+      "axis_limits": {
+        "edge_flow": {
+          "lower": 1004.7369896762644,
+          "mu": 1498.2610562664556,
+          "sigma": 493.5240665901911,
+          "sigma_z": 164.5080221967304,
+          "upper": 1991.785122856647
+        },
+        "edge_power": {
+          "lower": 88.72661454602874,
+          "mu": 147.38135308860166,
+          "sigma": 58.6547385425729,
+          "sigma_z": 19.55157951419097,
+          "upper": 206.03609163117457
+        },
+        "edge_pump_speed": {
+          "lower": 38.882859282928536,
+          "mu": 42.27998066666667,
+          "sigma": 3.397121383738129,
+          "sigma_z": 1.1323737945793766,
+          "upper": 45.6771020504048
+        },
+        "edge_status": {
+          "lower": 0.9883203926212505,
+          "mu": 0.9998666666666667,
+          "sigma": 0.01154627404541617,
+          "sigma_z": 0.0038487580151387235,
+          "upper": 1.0114129407120829
+        },
+        "node_demand": {
+          "lower": 1065.4257496252949,
+          "mu": 1520.424054438879,
+          "sigma": 454.9983048135842,
+          "sigma_z": 151.66610160452808,
+          "upper": 1975.4223592524631
+        },
+        "node_level": {
+          "lower": 4.115822759607488,
+          "mu": 4.572109333333333,
+          "sigma": 0.45628657372584536,
+          "sigma_z": 0.1520955245752818,
+          "upper": 5.028395907059178
+        },
+        "node_pressure": {
+          "lower": 1.3323491633056694,
+          "mu": 1.5619783333333332,
+          "sigma": 0.2296291700276638,
+          "sigma_z": 0.07654305667588794,
+          "upper": 1.791607503360997
+        },
+        "node_status": {
+          "lower": 15.96388673983289,
+          "mu": 18.27073125,
+          "sigma": 2.3068445101671093,
+          "sigma_z": 0.7689481700557032,
+          "upper": 20.57757576016711
+        }
+      },
+      "lam": 0.2,
+      "n_train_rows": 150000
+    }
+  },
+  "benchmark": "LOCKED March 2026 holdout (out-of-sample), broad full-year 2025 fit",
+  "detector": {
+    "architecture": {
+      "activation": "tanh",
+      "hidden_dim": 16,
+      "latent_dim": 8,
+      "layout": "n_axes -> hidden -> latent -> hidden -> n_axes",
+      "n_axes": 8
+    },
+    "axes": [
+      "edge_flow",
+      "edge_power",
+      "edge_pump_speed",
+      "edge_status",
+      "node_demand",
+      "node_level",
+      "node_pressure",
+      "node_status"
+    ],
+    "calibration": {
+      "flag_quantile": 0.99,
+      "flag_threshold_error": 0.1310570389032364,
+      "train_error_p995": 0.009128015488386154,
+      "val_error_p995": 0.23723329603672028
+    },
+    "training": {
+      "batch_size": 256,
+      "epochs": 60,
+      "learning_rate": 0.001,
+      "n_train_rows": 120000,
+      "n_val_rows": 30000,
+      "norm_source": "/home/hunter_lin/projects/aopso-sprint30b-impl/data/normalization/yilan_2025_train_stats.json",
+      "seed": 0,
+      "train_final_loss": 0.0026671445576909947,
+      "val_final_loss": 0.006051066797226667,
+      "weight_decay": 1e-05
+    }
+  },
+  "evaluation": {
+    "baseline": {
+      "auroc": 0.9175359491438111,
+      "false_alarm_rate": 0.05179302520593893,
+      "flag_column": "anomaly_flag",
+      "lead_time_summary": {
+        "mean_lead_time": 4.838709677419355,
+        "n_detected": 31,
+        "n_episodes": 32,
+        "n_missed": 1,
+        "per_episode": [
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 198
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 396
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 998
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 1212
+          },
+          {
+            "axis": "edge_pump_speed",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 33,
+            "onset_index": 2129
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 3696
+          },
+          {
+            "axis": "edge_flow",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 42,
+            "onset_index": 5071
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 5663
+          },
+          {
+            "axis": "edge_flow",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 6,
+            "onset_index": 9783
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 10146
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 1,
+            "onset_index": 11285
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 11521
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 17974
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 18200
+          },
+          {
+            "axis": "edge_pump_speed",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 20971
+          },
+          {
+            "axis": "edge_flow",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 3,
+            "onset_index": 21546
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 8,
+            "onset_index": 22096
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 25,
+            "onset_index": 25529
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 25939
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 26152
+          },
+          {
+            "axis": "edge_pump_speed",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 26306
+          },
+          {
+            "axis": "edge_power",
+            "detected": false,
+            "kind": "stuck_flatline",
+            "lead_time": null,
+            "onset_index": 26520
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 27194
+          },
+          {
+            "axis": "edge_flow",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 9,
+            "onset_index": 27848
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 30930
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 32420
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 32685
+          },
+          {
+            "axis": "edge_flow",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 33569
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 35922
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 23,
+            "onset_index": 39772
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 40631
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 41406
+          }
+        ],
+        "per_kind_mean_lead_time": {
+          "envelope_violation": 0.0,
+          "sensor_drift": 13.5,
+          "spike": 0.0,
+          "stuck_flatline": 6.0
+        },
+        "per_kind_misses": {
+          "stuck_flatline": 1
+        }
+      },
+      "mean_lead_time": 4.838709677419355,
+      "score_column": "combined_deviation"
+    },
+    "delta": {
+      "auroc": 0.02605938571951505,
+      "false_alarm_rate": -0.03899274897647117
+    },
+    "detector": {
+      "auroc": 0.9435953348633261,
+      "false_alarm_rate": 0.012800276229467765,
+      "flag_column": "detector_flag",
+      "lead_time_summary": {
+        "mean_lead_time": 15.821428571428571,
+        "n_detected": 28,
+        "n_episodes": 32,
+        "n_missed": 4,
+        "per_episode": [
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 198
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 396
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 998
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 1212
+          },
+          {
+            "axis": "edge_pump_speed",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 74,
+            "onset_index": 2129
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 3696
+          },
+          {
+            "axis": "edge_flow",
+            "detected": false,
+            "kind": "stuck_flatline",
+            "lead_time": null,
+            "onset_index": 5071
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 5663
+          },
+          {
+            "axis": "edge_flow",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 105,
+            "onset_index": 9783
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "stuck_flatline",
+            "lead_time": 0,
+            "onset_index": 10146
+          },
+          {
+            "axis": "node_pressure",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 1,
+            "onset_index": 11285
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 11521
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 17974
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 18200
+          },
+          {
+            "axis": "edge_pump_speed",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 20971
+          },
+          {
+            "axis": "edge_flow",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 79,
+            "onset_index": 21546
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 34,
+            "onset_index": 22096
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 34,
+            "onset_index": 25529
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 25939
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 26152
+          },
+          {
+            "axis": "edge_pump_speed",
+            "detected": false,
+            "kind": "stuck_flatline",
+            "lead_time": null,
+            "onset_index": 26306
+          },
+          {
+            "axis": "edge_power",
+            "detected": false,
+            "kind": "stuck_flatline",
+            "lead_time": null,
+            "onset_index": 26520
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 27194
+          },
+          {
+            "axis": "edge_flow",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 79,
+            "onset_index": 27848
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 30930
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 32420
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 32685
+          },
+          {
+            "axis": "edge_flow",
+            "detected": false,
+            "kind": "stuck_flatline",
+            "lead_time": null,
+            "onset_index": 33569
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 35922
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "sensor_drift",
+            "lead_time": 37,
+            "onset_index": 39772
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "spike",
+            "lead_time": 0,
+            "onset_index": 40631
+          },
+          {
+            "axis": "edge_power",
+            "detected": true,
+            "kind": "envelope_violation",
+            "lead_time": 0,
+            "onset_index": 41406
+          }
+        ],
+        "per_kind_mean_lead_time": {
+          "envelope_violation": 0.0,
+          "sensor_drift": 55.375,
+          "spike": 0.0,
+          "stuck_flatline": 0.0
+        },
+        "per_kind_misses": {
+          "stuck_flatline": 4
+        }
+      },
+      "mean_lead_time": 15.821428571428571,
+      "score_column": "detector_anomaly_score"
+    },
+    "n_episodes": 32,
+    "n_negative": 40546,
+    "n_positive": 2128,
+    "n_rows": 42674
+  },
+  "frozen_gate_v2": {
+    "auroc_noninferiority_tol": 0.01,
+    "far_improvement_factor": 2.0,
+    "imported_from": "aquaoptima.advisory.health_gate.health_acceptance_gate_v2",
+    "lead_time_tol": 1.0,
+    "min_detector_auroc": 0.7,
+    "preregistered_before_evaluation": true,
+    "rule_text": "detector_auroc >= baseline_auroc - 0.01 (non-inferior) AND detector_false_alarm_rate <= baseline_false_alarm_rate / 2 AND detector_auroc >= 0.70 AND detector_mean_lead_time >= baseline_mean_lead_time - 1.0",
+    "tuned_to_outcome": false
+  },
+  "gate_version": "v2",
+  "holdout_window": {
+    "all_in_2026_03": true,
+    "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv",
+    "first_timestamp": "2026-03-01 00:00:53",
+    "last_timestamp": "2026-03-31 23:59:19",
+    "month_filter": "2026-03 (calendar month March)",
+    "n_march_rows_total_before_cap": 42674,
+    "n_rows": 42674,
+    "row_cap": 50000,
+    "row_cap_applied": false
+  },
+  "injected_faults": {
+    "episodes": [
+      {
+        "axis": "node_pressure",
+        "end_index": 278,
+        "kind": "stuck_flatline",
+        "length": 80,
+        "magnitude_sigmas": 0.0,
+        "onset_index": 198,
+        "parameters": {
+          "window": 80.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 456,
+        "kind": "envelope_violation",
+        "length": 60,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 396,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "sign": 1.0
+        }
+      },
+      {
+        "axis": "node_pressure",
+        "end_index": 1078,
+        "kind": "stuck_flatline",
+        "length": 80,
+        "magnitude_sigmas": 0.0,
+        "onset_index": 998,
+        "parameters": {
+          "window": 80.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 1218,
+        "kind": "spike",
+        "length": 6,
+        "magnitude_sigmas": 6.0,
+        "onset_index": 1212,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "tail": 5.0
+        }
+      },
+      {
+        "axis": "edge_pump_speed",
+        "end_index": 2249,
+        "kind": "sensor_drift",
+        "length": 120,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 2129,
+        "parameters": {
+          "sigma": 5.775204169680273,
+          "window": 120.0
+        }
+      },
+      {
+        "axis": "node_pressure",
+        "end_index": 3702,
+        "kind": "spike",
+        "length": 6,
+        "magnitude_sigmas": 6.0,
+        "onset_index": 3696,
+        "parameters": {
+          "sigma": 0.2278724031768415,
+          "tail": 5.0
+        }
+      },
+      {
+        "axis": "edge_flow",
+        "end_index": 5151,
+        "kind": "stuck_flatline",
+        "length": 80,
+        "magnitude_sigmas": 0.0,
+        "onset_index": 5071,
+        "parameters": {
+          "window": 80.0
+        }
+      },
+      {
+        "axis": "node_pressure",
+        "end_index": 5743,
+        "kind": "stuck_flatline",
+        "length": 80,
+        "magnitude_sigmas": 0.0,
+        "onset_index": 5663,
+        "parameters": {
+          "window": 80.0
+        }
+      },
+      {
+        "axis": "edge_flow",
+        "end_index": 9903,
+        "kind": "sensor_drift",
+        "length": 120,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 9783,
+        "parameters": {
+          "sigma": 570.4145648136348,
+          "window": 120.0
+        }
+      },
+      {
+        "axis": "node_pressure",
+        "end_index": 10226,
+        "kind": "stuck_flatline",
+        "length": 80,
+        "magnitude_sigmas": 0.0,
+        "onset_index": 10146,
+        "parameters": {
+          "window": 80.0
+        }
+      },
+      {
+        "axis": "node_pressure",
+        "end_index": 11405,
+        "kind": "sensor_drift",
+        "length": 120,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 11285,
+        "parameters": {
+          "sigma": 0.2278724031768415,
+          "window": 120.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 11581,
+        "kind": "envelope_violation",
+        "length": 60,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 11521,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "sign": -1.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 17980,
+        "kind": "spike",
+        "length": 6,
+        "magnitude_sigmas": 6.0,
+        "onset_index": 17974,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "tail": 5.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 18206,
+        "kind": "spike",
+        "length": 6,
+        "magnitude_sigmas": 6.0,
+        "onset_index": 18200,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "tail": 5.0
+        }
+      },
+      {
+        "axis": "edge_pump_speed",
+        "end_index": 20977,
+        "kind": "spike",
+        "length": 6,
+        "magnitude_sigmas": 6.0,
+        "onset_index": 20971,
+        "parameters": {
+          "sigma": 5.775204169680273,
+          "tail": 5.0
+        }
+      },
+      {
+        "axis": "edge_flow",
+        "end_index": 21666,
+        "kind": "sensor_drift",
+        "length": 120,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 21546,
+        "parameters": {
+          "sigma": 570.4145648136348,
+          "window": 120.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 22216,
+        "kind": "sensor_drift",
+        "length": 120,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 22096,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "window": 120.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 25649,
+        "kind": "sensor_drift",
+        "length": 120,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 25529,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "window": 120.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 25999,
+        "kind": "envelope_violation",
+        "length": 60,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 25939,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "sign": -1.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 26212,
+        "kind": "envelope_violation",
+        "length": 60,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 26152,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "sign": -1.0
+        }
+      },
+      {
+        "axis": "edge_pump_speed",
+        "end_index": 26386,
+        "kind": "stuck_flatline",
+        "length": 80,
+        "magnitude_sigmas": 0.0,
+        "onset_index": 26306,
+        "parameters": {
+          "window": 80.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 26600,
+        "kind": "stuck_flatline",
+        "length": 80,
+        "magnitude_sigmas": 0.0,
+        "onset_index": 26520,
+        "parameters": {
+          "window": 80.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 27254,
+        "kind": "envelope_violation",
+        "length": 60,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 27194,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "sign": 1.0
+        }
+      },
+      {
+        "axis": "edge_flow",
+        "end_index": 27968,
+        "kind": "sensor_drift",
+        "length": 120,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 27848,
+        "parameters": {
+          "sigma": 570.4145648136348,
+          "window": 120.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 30990,
+        "kind": "envelope_violation",
+        "length": 60,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 30930,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "sign": -1.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 32480,
+        "kind": "envelope_violation",
+        "length": 60,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 32420,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "sign": -1.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 32691,
+        "kind": "spike",
+        "length": 6,
+        "magnitude_sigmas": 6.0,
+        "onset_index": 32685,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "tail": 5.0
+        }
+      },
+      {
+        "axis": "edge_flow",
+        "end_index": 33649,
+        "kind": "stuck_flatline",
+        "length": 80,
+        "magnitude_sigmas": 0.0,
+        "onset_index": 33569,
+        "parameters": {
+          "window": 80.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 35928,
+        "kind": "spike",
+        "length": 6,
+        "magnitude_sigmas": 6.0,
+        "onset_index": 35922,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "tail": 5.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 39892,
+        "kind": "sensor_drift",
+        "length": 120,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 39772,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "window": 120.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 40637,
+        "kind": "spike",
+        "length": 6,
+        "magnitude_sigmas": 6.0,
+        "onset_index": 40631,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "tail": 5.0
+        }
+      },
+      {
+        "axis": "edge_power",
+        "end_index": 41466,
+        "kind": "envelope_violation",
+        "length": 60,
+        "magnitude_sigmas": 4.0,
+        "onset_index": 41406,
+        "parameters": {
+          "sigma": 60.256019901587116,
+          "sign": 1.0
+        }
+      }
+    ],
+    "fault_rate": 0.04986642920747997,
+    "knobs": {
+      "drift_magnitude_sigmas": 4.0,
+      "drift_window": 120.0,
+      "envelope_magnitude_sigmas": 4.0,
+      "envelope_window": 60.0,
+      "min_gap": 5.0,
+      "n_episodes_per_kind": 8.0,
+      "spike_magnitude_sigmas": 6.0,
+      "spike_tail": 5.0,
+      "stuck_window": 80.0
+    },
+    "n_faulted_rows": 2128,
+    "n_rows": 42674,
+    "onsets_by_kind": {
+      "envelope_violation": [
+        396,
+        11521,
+        25939,
+        26152,
+        27194,
+        30930,
+        32420,
+        41406
+      ],
+      "sensor_drift": [
+        2129,
+        9783,
+        11285,
+        21546,
+        22096,
+        25529,
+        27848,
+        39772
+      ],
+      "spike": [
+        1212,
+        3696,
+        17974,
+        18200,
+        20971,
+        32685,
+        35922,
+        40631
+      ],
+      "stuck_flatline": [
+        198,
+        998,
+        5071,
+        5663,
+        10146,
+        26306,
+        26520,
+        33569
+      ]
+    },
+    "seed": 29
+  },
+  "out_of_sample_protocol": {
+    "detector_baseline_fit_on": "full-year-stratified 2025 auto-mode normal data (multi-month)",
+    "labeled_eval_limitation": "the injected faults are SYNTHETIC -- AUROC / lead-time / false-alarm measure how the 2025-fit detector responds to canonical faults on top of unseen March normal data, NOT how it would score real March faults (March 2026 has no ground-truth labels).",
+    "labeled_eval_set": "synthetic frozen-seed faults injected on REAL March-2026 normal frames (faults synthetic, underlying normal is the genuinely unseen distribution)",
+    "leakage_isolation": "fit_health_detector + fit_health_baseline_suite both call the Sprint-27 assert_holdout_isolated guard on input keys; any March-2026 key in the fit input raises LeakageError BEFORE fit.",
+    "seasonal_confound_fix": "Sprint 30 fit collapsed onto late-March 2025 (head-of-CSV cap landed in the first auto block). Sprint 30b stratified-samples across ALL 2025 auto-mode months so the fit set spans >= 5 distinct months.",
+    "unsupervised_eval_set": "raw un-faulted March-2026 normal frames -- detector / baseline alarm rate on truly unseen data, no labels needed."
+  },
+  "pillar": "A_health",
+  "raw_march_flag_rates": {
+    "baseline_combined_deviation_mean": 0.35418942441355283,
+    "baseline_flag_rate": 0.05183484088672259,
+    "detector_flag_rate": 0.012302572995266438,
+    "detector_score_mean": 0.015581022892744248,
+    "n_rows": 42674
+  },
+  "safety": {
+    "evaluation_mode": "offline_only",
+    "governance": {
+      "axis_taxonomy": {
+        "active_axes": [
+          "edge_flow",
+          "edge_power",
+          "edge_pump_speed",
+          "edge_status",
+          "node_demand",
+          "node_level",
+          "node_pressure",
+          "node_status"
+        ],
+        "errors": [],
+        "expected_axes": [
+          "edge_flow",
+          "edge_power",
+          "edge_pump_speed",
+          "edge_status",
+          "node_demand",
+          "node_level",
+          "node_pressure",
+          "node_status"
+        ],
+        "masked_axis": "edge_valve_position",
+        "ok": true,
+        "units": {
+          "edge_flow": "m3_per_h",
+          "edge_power": "kW",
+          "edge_pump_speed": "hz",
+          "edge_status": "fraction_0_1",
+          "node_demand": "m3_per_h",
+          "node_level": "m",
+          "node_pressure": "m_head",
+          "node_status": "m_head"
+        }
+      },
+      "governance_status": "PASS",
+      "holdout_isolation": {
+        "holdout_prefix": "2026-03",
+        "isolated": true,
+        "leaked_keys": [],
+        "n_train_val_checked": 213
+      },
+      "import_connector_scan": {
+        "clean": true,
+        "files_scanned": 39,
+        "roots": [
+          "/home/hunter_lin/projects/aopso-sprint30b-impl/src/aquaoptima/advisory",
+          "/home/hunter_lin/projects/aopso-sprint30b-impl/src/aquaoptima/training",
+          "/home/hunter_lin/projects/aopso-sprint30b-impl/src/aquaoptima/models",
+          "/home/hunter_lin/projects/aopso-sprint30b-impl/src/aquaoptima/dataio"
+        ],
+        "safety_status": "PASS",
+        "violations": []
+      },
+      "normalization_coverage": {
+        "covered_axes": [
+          "edge_flow",
+          "edge_power",
+          "edge_pump_speed",
+          "edge_status",
+          "node_demand",
+          "node_level",
+          "node_pressure",
+          "node_status"
+        ],
+        "errors": [],
+        "expected_axes": [
+          "edge_flow",
+          "edge_power",
+          "edge_pump_speed",
+          "edge_status",
+          "node_demand",
+          "node_level",
+          "node_pressure",
+          "node_status"
+        ],
+        "extra_axes": [],
+        "missing_axes": [],
+        "ok": true,
+        "stats_path": "/home/hunter_lin/projects/aopso-sprint30b-impl/data/normalization/yilan_2025_train_stats.json"
+      }
+    },
+    "governance_status": "PASS",
+    "influences_control": false,
+    "scorecard_role": "advisory_evidence_only",
+    "site_integration_allowed": false,
+    "write_path": "none"
+  },
+  "sprint": "30b",
+  "train_meta": {
+    "axes_used": [
+      "edge_flow",
+      "edge_power",
+      "edge_pump_speed",
+      "edge_status",
+      "node_demand",
+      "node_level",
+      "node_pressure",
+      "node_status"
+    ],
+    "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2025.csv",
+    "distinct_months": 8,
+    "fit_strategy": "full_year_stratified_auto_mode_2025",
+    "full_mode": false,
+    "min_distinct_months_required": 5,
+    "n_auto_rows_total_in_csv": 271486,
+    "n_rows_after_auto_filter": 150000,
+    "per_month_floor": 2000,
+    "per_month_rows": {
+      "2025-03": 21411,
+      "2025-04": 21411,
+      "2025-05": 21411,
+      "2025-06": 21411,
+      "2025-07": 21411,
+      "2025-10": 21411,
+      "2025-11": 123,
+      "2025-12": 21411
+    },
+    "seed": 0,
+    "target_rows": 150000,
+    "timestamp_max": "2025-12-31 23:54:54",
+    "timestamp_min": "2025-03-06 09:59:37"
+  },
+  "verdict": "PASS"
+}
