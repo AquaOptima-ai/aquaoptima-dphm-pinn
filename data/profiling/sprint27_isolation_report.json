@@ -1,0 +1,97 @@
+{
+  "sprint": "AOPSO Sprint 27",
+  "advisory_only": true,
+  "split_manifest": "data/splits/yilan_2025_split_v1.json",
+  "norm_stats": "data/normalization/yilan_2025_train_stats.json",
+  "profile_subset_rows": 50000,
+  "profile": null,
+  "governance": {
+    "governance_status": "PASS",
+    "holdout_isolation": {
+      "isolated": true,
+      "leaked_keys": [],
+      "holdout_prefix": "2026-03",
+      "n_train_val_checked": 213
+    },
+    "import_connector_scan": {
+      "clean": true,
+      "safety_status": "PASS",
+      "files_scanned": 35,
+      "violations": [],
+      "roots": [
+        "src/aquaoptima/advisory",
+        "src/aquaoptima/training",
+        "src/aquaoptima/models",
+        "src/aquaoptima/dataio"
+      ]
+    },
+    "axis_taxonomy": {
+      "ok": true,
+      "errors": [],
+      "expected_axes": [
+        "edge_flow",
+        "edge_power",
+        "edge_pump_speed",
+        "edge_status",
+        "node_demand",
+        "node_level",
+        "node_pressure",
+        "node_status"
+      ],
+      "active_axes": [
+        "edge_flow",
+        "edge_power",
+        "edge_pump_speed",
+        "edge_status",
+        "node_demand",
+        "node_level",
+        "node_pressure",
+        "node_status"
+      ],
+      "units": {
+        "edge_flow": "m3_per_h",
+        "edge_power": "kW",
+        "edge_pump_speed": "hz",
+        "edge_status": "fraction_0_1",
+        "node_demand": "m3_per_h",
+        "node_level": "m",
+        "node_pressure": "m_head",
+        "node_status": "m_head"
+      },
+      "masked_axis": "edge_valve_position"
+    },
+    "normalization_coverage": {
+      "ok": true,
+      "errors": [],
+      "expected_axes": [
+        "edge_flow",
+        "edge_power",
+        "edge_pump_speed",
+        "edge_status",
+        "node_demand",
+        "node_level",
+        "node_pressure",
+        "node_status"
+      ],
+      "covered_axes": [
+        "edge_flow",
+        "edge_power",
+        "edge_pump_speed",
+        "edge_status",
+        "node_demand",
+        "node_level",
+        "node_pressure",
+        "node_status"
+      ],
+      "missing_axes": [],
+      "extra_axes": [],
+      "stats_path": "data/normalization/yilan_2025_train_stats.json"
+    }
+  },
+  "safety": {
+    "evaluation_mode": "offline_only",
+    "write_path": "report_json_only",
+    "influences_control": false,
+    "site_integration_allowed": false
+  }
+}
