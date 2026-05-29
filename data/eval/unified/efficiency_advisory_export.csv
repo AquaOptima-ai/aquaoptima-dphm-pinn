@@ -1,0 +1,10 @@
+# ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION
+# schema=sprint34.efficiency_advisory_export.v1
+# advisory_only=true; evaluation_mode=offline_only
+# claim_discipline=counterfactual_offline_opportunity_on_supported_intervals_only
+window_start,window_end,window_minutes,supported,comparable_count,demand_m3_per_h,level_m,pressure_m_head,flow_m3_per_h,observed_specific_energy_kwh_per_m3,observed_efficient_speed_min_hz,observed_efficient_speed_max_hz,se_p25,se_p10,counterfactual_energy_kwh_p25,counterfactual_energy_kwh_p10,opportunity_kwh_p25,opportunity_kwh_p10,advisory_only,is_evidence_not_setpoint
+2026-03-03T01:30:00,2026-03-03T02:00:00,30,True,36,660.023073,4.040679,1.168453,690.788195,0.068989,35.0,35.575042,0.072494,0.070981,24.19045580305,23.685584232575,0.0,0.0,True,True
+2026-03-04T01:30:00,2026-03-04T02:00:00,30,True,117,645.684234,4.298629,1.200506,667.281231,0.069983,35.0,35.399889,0.072255,0.0709732,23.290236378030002,22.877068777319202,0.0,0.0,True,True
+2026-03-05T01:30:00,2026-03-05T02:00:00,30,True,43,743.713105,4.115503,1.177757,788.647929,0.068828,36.519255,37.196248,0.0724835,0.0712694,27.613369537394,27.150845073821596,0.0,0.0,True,True
+2026-03-06T01:30:00,2026-03-06T02:00:00,30,True,67,665.240179,4.289298,1.184287,695.328597,0.068589,35.0,35.575042,0.071245,0.0696828,23.916176697775,23.391763037346,0.0,0.0,True,True
+2026-03-07T01:30:00,2026-03-07T02:00:00,30,True,42,673.47594,4.157407,1.17862,702.454161,0.069588,35.0,36.0,0.07144225,0.0703439,24.24209754426625,23.869400606001502,0.0,0.0,True,True

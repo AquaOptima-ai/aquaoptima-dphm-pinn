@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AOPSO Sprint 34 - Unified A+B Offline Evidence</title>
+<style>
+body { font-family: -apple-system, system-ui, sans-serif; max-width: 1100px;
+  margin: 1em auto; padding: 0 1em; color: #222; line-height: 1.45; }
+h1, h2, h3 { color: #1a1a1a; }
+.banner { background: #fff3cd; border: 2px solid #b58900; color: #5a3e00;
+  padding: 0.75em 1em; margin: 0.75em 0; font-weight: 700; }
+.verdict-pass { background: #d4edda; color: #155724; padding: 0.25em 0.5em;
+  border-radius: 4px; font-weight: 700; }
+.verdict-fail { background: #f8d7da; color: #721c24; padding: 0.25em 0.5em;
+  border-radius: 4px; font-weight: 700; }
+table { border-collapse: collapse; margin: 0.5em 0; }
+td, th { padding: 0.25em 0.75em; border-bottom: 1px solid #ddd; vertical-align: top; }
+section { border-top: 1px solid #ccc; padding-top: 1em; margin-top: 1.5em; }
+ul.cannot-claim li { color: #721c24; }
+code { background: #f5f5f5; padding: 0.1em 0.3em; border-radius: 3px; }
+.meta { color: #555; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<div class="banner">ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION</div>
+<h1>AOPSO Sprint 34 - Unified A+B Offline Evidence</h1>
+<p class="meta">Generated: <code>2026-05-29T00:00:00Z</code> &middot;
+  Report version: <code>sprint34.unified_ab.v1</code></p>
+<p><strong>Product status:</strong> Pillar A validated; Pillar B FAILED its locked-March acceptance gate (honest result). Advisory evidence only; deployment NOT authorized in this version.</p>
+
+<section>
+<div class="banner">ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION</div>
+<h2>Pillar A - Health / Anomaly Detection</h2>
+<p>Verdict:
+<span class="verdict-pass">PASS</span>
+&middot; Benchmark: <em>LOCKED March 2026 holdout (out-of-sample), broad full-year 2025 fit</em>
+</p>
+<p>Holdout: <code>2026-03-01 00:00:53</code>
+to <code>2026-03-31 23:59:19</code>
+(<code>42674</code> rows).
+</p>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>baseline_auroc</td><td>0.9175359491438111</td></tr><tr><td>baseline_false_alarm_rate</td><td>0.05179302520593893</td></tr><tr><td>baseline_mean_lead_time</td><td>4.838709677419355</td></tr><tr><td>detector_auroc</td><td>0.9435953348633261</td></tr><tr><td>detector_false_alarm_rate</td><td>0.012800276229467765</td></tr><tr><td>detector_mean_lead_time</td><td>15.821428571428571</td></tr>
+</table>
+<p>Evidence: <code>data/eval/unified/health_event_export.csv</code>
+&middot; <code>data/eval/unified/health_event_export.json</code>
+(<strong>32</strong> injected-fault episodes; advisory-only evidence).</p>
+</section>
+
+<section>
+<div class="banner">ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION</div>
+<h2>Pillar B - Efficiency / Counterfactual Opportunity</h2>
+<p>Verdict:
+<span class="verdict-fail">FAIL</span>
+&middot; Frozen gate: <code>sprint32.envelope.v1</code>
+</p>
+<p>Holdout: <code>2026-03-01 00:00:53</code>
+to <code>2026-03-31 23:59:19</code>
+(<code>44469</code> rows,
+<code>58</code>
+OperatingPoints).</p>
+<h3>Coverage waterfall</h3>
+<table>
+<tr><th>Bucket</th><th>Intervals</th></tr>
+<tr><td>total</td><td>58</td></tr><tr><td>valid</td><td>58</td></tr><tr><td>supported</td><td>21</td></tr><tr><td>unsupported</td><td>37</td></tr>
+</table>
+<h3>Opportunity (counterfactual, supported intervals only)</h3>
+<table>
+<tr><th>Metric</th><th>Value</th></tr>
+<tr><td>kwh_p25 (conservative)</td><td>0.0</td></tr><tr><td>kwh_p10 (aggressive)</td><td>1.3097953444387933</td></tr><tr><td>n_supported_intervals</td><td>21</td></tr><tr><td>robust_under_conservative</td><td>False</td></tr><tr><td>march_observed_energy_kwh (supported)</td><td>498.653777</td></tr><tr><td>march_volume_m3 (supported)</td><td>7140.605527000001</td></tr>
+</table>
+<p><em>58 March-2026 OperatingPoints scored; 58 (100.0%) had finite matching-channel values; 21 (36.2%) had &gt;= MIN_SUPPORT historical neighbours under the FROZEN matching tolerances and produced advisories. The remainder were honestly REJECTED with named reasons; no savings claim is made on any rejected interval.</em></p>
+<p>Evidence: <code>data/eval/unified/efficiency_advisory_export.csv</code>
+&middot; <code>data/eval/unified/efficiency_advisory_export.json</code>
+(<strong>5</strong> supported advisories; advisory-only evidence).</p>
+</section>
+
+<section>
+<div class="banner">ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION</div>
+<h2>Cannot-Claim Statements</h2>
+<ul class="cannot-claim">
+<li>We do NOT claim guaranteed energy savings.</li><li>We do NOT claim a deployable control policy.</li><li>We do NOT claim field-validated fault recall or predictive maintenance accuracy.</li><li>We do NOT claim site integration, actuation, or write-path readiness.</li><li>We do NOT claim that an advisory operating point may be used as a setpoint.</li><li>We do NOT claim opportunity on intervals the envelope honestly REJECTED.</li>
+</ul>
+</section>
+
+<section>
+<div class="banner">ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION</div>
+<h2>Packaging boundary</h2>
+<table>
+<tr><th>Surface</th><th>Status</th></tr>
+<tr><td>onnx_export</td><td>BLOCKED -- not produced in this sprint</td></tr><tr><td>edge_wiring</td><td>BLOCKED -- no aquaoptima.edge / aquaoptima_contracts.edge imports</td></tr><tr><td>site_integration</td><td>BLOCKED -- not authorized in this version</td></tr><tr><td>control_endpoint</td><td>BLOCKED -- no control endpoints exist</td></tr><tr><td>ui_controls_that_set_anything</td><td>BLOCKED -- read-only dashboard, no form/input/button</td></tr><tr><td>write_path</td><td>BLOCKED -- no setpoint, no actuation, no OT connector</td></tr>
+</table>
+</section>
+
+</body>
+</html>

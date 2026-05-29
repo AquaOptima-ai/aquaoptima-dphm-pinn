@@ -1,0 +1,186 @@
+{
+  "advisory_only": true,
+  "cannot_claim": [
+    "We do NOT claim guaranteed energy savings.",
+    "We do NOT claim a deployable control policy.",
+    "We do NOT claim field-validated fault recall or predictive maintenance accuracy.",
+    "We do NOT claim site integration, actuation, or write-path readiness.",
+    "We do NOT claim that an advisory operating point may be used as a setpoint.",
+    "We do NOT claim opportunity on intervals the envelope honestly REJECTED."
+  ],
+  "edge_export": "BLOCKED",
+  "evaluation_mode": "offline_only",
+  "governance_scan": {
+    "clean": true,
+    "files_scanned": 46,
+    "safety_status": "PASS",
+    "violations": []
+  },
+  "packaging_blocks": {
+    "control_endpoint": "BLOCKED -- no control endpoints exist",
+    "edge_wiring": "BLOCKED -- no aquaoptima.edge / aquaoptima_contracts.edge imports",
+    "onnx_export": "BLOCKED -- not produced in this sprint",
+    "site_integration": "BLOCKED -- not authorized in this version",
+    "ui_controls_that_set_anything": "BLOCKED -- read-only dashboard, no form/input/button",
+    "write_path": "BLOCKED -- no setpoint, no actuation, no OT connector"
+  },
+  "records": [
+    {
+      "artifact_reference": {
+        "checksum": {
+          "algorithm": "sha256",
+          "hex_digest": "ddd5a5e72c110cc9b8ddc5f63eae34725e7d993b38ad37d1b14e8d98a4b37809",
+          "size_bytes": 35932
+        },
+        "id": "sprint30b_fullyear_holdout_scorecard.json",
+        "kind": "model_weights",
+        "version": "0.1.0"
+      },
+      "capability_requirement": {
+        "package_id": "model-yilan-health-detector-sprint30b",
+        "required": [
+          "validate_checksums",
+          "validate_manifest",
+          "validate_safety_flags"
+        ],
+        "sdk_version": "0.1.0"
+      },
+      "description": "offline health/anomaly detector (Pillar A, advisory reference)",
+      "framework": "onnx",
+      "model_id": "yilan-health-detector-sprint30b",
+      "model_version": "0.1.0",
+      "provenance": {
+        "build_id": "sprint34-unified-ab",
+        "component": "ai_server",
+        "version": "0.1.0"
+      },
+      "safety_flag_set": {
+        "no_control": true,
+        "no_live_ot_binding": true,
+        "no_setpoint_output": true,
+        "no_write": true,
+        "offline": true,
+        "packaging_audit_only": true,
+        "read_only": true
+      },
+      "summary": {
+        "actuates": false,
+        "advisory_only": true,
+        "architecture": "x86_64",
+        "artifact_kind": "evidence_scorecard_only_no_weights",
+        "artifact_schema_version": "1.0.0",
+        "axis_order": [
+          "edge_flow",
+          "edge_power",
+          "edge_pump_speed",
+          "edge_status",
+          "node_demand",
+          "node_level",
+          "node_pressure",
+          "node_status"
+        ],
+        "baselines_to_beat": [
+          "persistence_last_value",
+          "spc_ewma_3sigma"
+        ],
+        "edge_export": "BLOCKED_in_sprint34",
+        "evaluation_metrics": [
+          "injected_fault_auroc",
+          "detection_lead_time_steps",
+          "false_alarm_rate_per_day",
+          "reconstruction_error_p99"
+        ],
+        "output_schema_json": "{\"advisory_only\":true,\"baselines_to_beat\":[\"persistence_last_value\",\"spc_ewma_3sigma\"],\"evaluation_metrics\":[\"injected_fault_auroc\",\"detection_lead_time_steps\",\"false_alarm_rate_per_day\",\"reconstruction_error_p99\"],\"label_regime\":\"no_true_labels_inject_synthetic_faults_on_holdout\",\"outputs\":[{\"higher_is\":\"healthier\",\"kind\":\"continuous\",\"name\":\"health_score\",\"range\":\"0_1\"},{\"decode\":\"threshold_on_health_score\",\"kind\":\"binary\",\"name\":\"anomaly_flag\"},{\"axis_order\":[\"edge_flow\",\"edge_power\",\"edge_pump_speed\",\"edge_status\",\"node_demand\",\"node_level\",\"node_pressure\",\"node_status\"],\"kind\":\"vector\",\"meaning\":\"per_axis_reconstruction_or_residual_contribution_to_anomaly\",\"name\":\"axis_contribution\"}],\"pillar\":\"A_health\"}",
+        "parameter_count": 0,
+        "pillar": "A_health",
+        "safety_banner": "ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION",
+        "sprint": "30b",
+        "telemetry_axis_schema_json": "{\"axes\":[{\"index\":0,\"kind\":\"continuous\",\"name\":\"edge_flow\",\"unit\":\"m3_per_h\"},{\"index\":1,\"kind\":\"continuous\",\"name\":\"edge_power\",\"unit\":\"kW\"},{\"index\":2,\"kind\":\"continuous\",\"name\":\"edge_pump_speed\",\"unit\":\"hz\"},{\"index\":3,\"kind\":\"continuous\",\"name\":\"edge_status\",\"unit\":\"fraction_0_1\"},{\"index\":4,\"kind\":\"continuous\",\"name\":\"node_demand\",\"unit\":\"m3_per_h\"},{\"index\":5,\"kind\":\"continuous\",\"name\":\"node_level\",\"unit\":\"m\"},{\"index\":6,\"kind\":\"continuous\",\"name\":\"node_pressure\",\"unit\":\"m_head\"},{\"index\":7,\"kind\":\"continuous\",\"name\":\"node_status\",\"unit\":\"m_head\"}],\"axis_order\":[\"edge_flow\",\"edge_power\",\"edge_pump_speed\",\"edge_status\",\"node_demand\",\"node_level\",\"node_pressure\",\"node_status\"],\"masked\":[{\"name\":\"edge_valve_position\",\"reason\":\"zero_telemetry_coverage\",\"scored\":false}],\"normalization\":\"zscore_per_axis_from_yilan_2025_train_stats\"}",
+        "verdict": "PASS"
+      }
+    },
+    {
+      "artifact_reference": {
+        "checksum": {
+          "algorithm": "sha256",
+          "hex_digest": "688d617b0806e33825e62154e3345d5e9c2c2b9d90ed3d0e472d715fc62aa831",
+          "size_bytes": 18711
+        },
+        "id": "sprint33_locked_march_scorecard.json",
+        "kind": "model_weights",
+        "version": "0.1.0"
+      },
+      "capability_requirement": {
+        "package_id": "model-yilan-efficiency-envelope-sprint32",
+        "required": [
+          "validate_checksums",
+          "validate_manifest",
+          "validate_safety_flags"
+        ],
+        "sdk_version": "0.1.0"
+      },
+      "description": "offline efficiency advisory / dPL envelope (Pillar B, advisory reference)",
+      "framework": "onnx",
+      "model_id": "yilan-efficiency-envelope-sprint32",
+      "model_version": "0.1.0",
+      "provenance": {
+        "build_id": "sprint34-unified-ab",
+        "component": "ai_server",
+        "version": "0.1.0"
+      },
+      "safety_flag_set": {
+        "no_control": true,
+        "no_live_ot_binding": true,
+        "no_setpoint_output": true,
+        "no_write": true,
+        "offline": true,
+        "packaging_audit_only": true,
+        "read_only": true
+      },
+      "summary": {
+        "actuates": false,
+        "advisory_only": true,
+        "architecture": "x86_64",
+        "artifact_kind": "evidence_scorecard_only_no_weights",
+        "artifact_schema_version": "1.0.0",
+        "axis_order": [
+          "edge_flow",
+          "edge_power",
+          "edge_pump_speed",
+          "edge_status",
+          "node_demand",
+          "node_level",
+          "node_pressure",
+          "node_status"
+        ],
+        "baselines_to_beat": [
+          "site_historical_matched_condition",
+          "mvpv1_control_log"
+        ],
+        "edge_export": "BLOCKED_in_sprint34",
+        "evaluation_metrics": [
+          "specific_energy_kwh_per_m3",
+          "matched_condition_energy_reduction_pct",
+          "coverage_of_valid_intervals_pct",
+          "opportunity_realizability_flag"
+        ],
+        "operating_point_axes": [
+          "node_demand",
+          "node_pressure",
+          "node_level"
+        ],
+        "output_schema_json": "{\"actuates\":false,\"advisory_only\":true,\"baselines_to_beat\":[\"site_historical_matched_condition\",\"mvpv1_control_log\"],\"claim_discipline\":\"report_offline_opportunity_only_never_guaranteed_savings\",\"evaluation_metrics\":[\"specific_energy_kwh_per_m3\",\"matched_condition_energy_reduction_pct\",\"coverage_of_valid_intervals_pct\",\"opportunity_realizability_flag\"],\"operating_point_axes\":[\"node_demand\",\"node_pressure\",\"node_level\"],\"outputs\":[{\"actuates\":false,\"fields\":[\"edge_pump_speed\",\"expected_specific_energy_kwh_per_m3\"],\"kind\":\"vector\",\"meaning\":\"offline_efficient_envelope_point_at_matched_conditions\",\"name\":\"advisory_operating_point\"},{\"kind\":\"continuous\",\"meaning\":\"offline_specific_energy_gap_vs_realized_baseline\",\"name\":\"opportunity_estimate\",\"unit\":\"kwh_per_m3\"}],\"pillar\":\"B_efficiency\"}",
+        "parameter_count": 0,
+        "pillar": "B_efficiency",
+        "safety_banner": "ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION",
+        "sprint": "33",
+        "telemetry_axis_schema_json": "{\"axes\":[{\"index\":0,\"kind\":\"continuous\",\"name\":\"edge_flow\",\"unit\":\"m3_per_h\"},{\"index\":1,\"kind\":\"continuous\",\"name\":\"edge_power\",\"unit\":\"kW\"},{\"index\":2,\"kind\":\"continuous\",\"name\":\"edge_pump_speed\",\"unit\":\"hz\"},{\"index\":3,\"kind\":\"continuous\",\"name\":\"edge_status\",\"unit\":\"fraction_0_1\"},{\"index\":4,\"kind\":\"continuous\",\"name\":\"node_demand\",\"unit\":\"m3_per_h\"},{\"index\":5,\"kind\":\"continuous\",\"name\":\"node_level\",\"unit\":\"m\"},{\"index\":6,\"kind\":\"continuous\",\"name\":\"node_pressure\",\"unit\":\"m_head\"},{\"index\":7,\"kind\":\"continuous\",\"name\":\"node_status\",\"unit\":\"m_head\"}],\"axis_order\":[\"edge_flow\",\"edge_power\",\"edge_pump_speed\",\"edge_status\",\"node_demand\",\"node_level\",\"node_pressure\",\"node_status\"],\"masked\":[{\"name\":\"edge_valve_position\",\"reason\":\"zero_telemetry_coverage\",\"scored\":false}],\"normalization\":\"zscore_per_axis_from_yilan_2025_train_stats\"}",
+        "verdict": "FAIL"
+      }
+    }
+  ],
+  "safety_banner": "ADVISORY-ONLY OFFLINE EVIDENCE - NOT FOR ACTUATION OR CONTROL - NO LIVE SITE INTEGRATION - SITE DEPLOYMENT NOT AUTHORIZED IN THIS VERSION",
+  "schema": "sprint34.artifact_manifest.v1",
+  "site_integration_allowed": false,
+  "sprint": 34
+}
