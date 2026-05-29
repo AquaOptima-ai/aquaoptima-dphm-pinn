@@ -1,0 +1,356 @@
+{
+  "sprint": 31,
+  "pillar": "B",
+  "advisory_only": true,
+  "evaluation_mode": "offline_only",
+  "march_used_for_tuning": false,
+  "unit_confirmation": {
+    "confirmed": true,
+    "units": {
+      "edge_power": "kW",
+      "edge_flow": "m3_per_h",
+      "edge_pump_speed": "hz",
+      "node_demand": "m3_per_h",
+      "node_level": "m",
+      "node_pressure": "m_head"
+    },
+    "expected_units": {
+      "edge_power": "kW",
+      "edge_flow": "m3_per_h",
+      "edge_pump_speed": "hz",
+      "node_demand": "m3_per_h",
+      "node_level": "m",
+      "node_pressure": "m_head"
+    },
+    "conversion_notes": [
+      "energy_kwh = trapezoidal_integral(power_kw * dt) with dt in hours; kW * h = kWh.",
+      "volume_m3 = trapezoidal_integral(flow_m3_per_h * dt) with dt in hours; (m^3 / h) * h = m^3.",
+      "specific_energy_kwh_per_m3 = energy_kwh / volume_m3 (interval-integrated, never an instantaneous ratio).",
+      "interval delta-t is computed as (ts[i+1] - ts[i]) in seconds and converted to hours via /3600.0; intervals exceeding the gap threshold are excluded."
+    ],
+    "errors": []
+  },
+  "validity_waterfall": {
+    "total_intervals": 489162,
+    "kept": 267392,
+    "excluded_total": 221770,
+    "by_reason": {
+      "non_positive_interval": 80,
+      "gap_too_long": 19,
+      "nan_input": 7481,
+      "unprofiled_mode_other": 208049,
+      "pump_off": 6020,
+      "low_flow": 121,
+      "zero_or_negative_volume": 0
+    },
+    "sums_correctly": true
+  },
+  "aggregation": {
+    "windows": [
+      "15min",
+      "30min"
+    ],
+    "n_operating_points_15": 18764,
+    "n_operating_points_30": 9414,
+    "seed": 0,
+    "reproducible": true,
+    "reproducibility_detail": {
+      "reproducible": true,
+      "counts_run_a": {
+        "15": 18764,
+        "30": 9414
+      },
+      "counts_run_b": {
+        "15": 18764,
+        "30": 9414
+      },
+      "seed": 0
+    },
+    "operating_point_preview": {
+      "window_15min": {
+        "n_operating_points": 18764,
+        "head": [
+          {
+            "window_minutes": 15,
+            "window_start": "2025-03-06T10:00:00",
+            "window_end": "2025-03-06T10:15:00",
+            "n_intervals_used": 14,
+            "energy_kwh": 32.003324,
+            "volume_m3": 301.686775,
+            "specific_energy_kwh_per_m3": 0.106081,
+            "mean_speed_hz": 41.7,
+            "mean_flow_m3_per_h": 1294.484374,
+            "mean_power_kw": 137.320578,
+            "mean_demand_m3_per_h": 1416.485435,
+            "mean_level_m": 5.019642,
+            "mean_pressure_m_head": 1.593147,
+            "advisory_only": true
+          },
+          {
+            "window_minutes": 15,
+            "window_start": "2025-03-06T10:15:00",
+            "window_end": "2025-03-06T10:30:00",
+            "n_intervals_used": 14,
+            "energy_kwh": 33.0331,
+            "volume_m3": 323.307622,
+            "specific_energy_kwh_per_m3": 0.102172,
+            "mean_speed_hz": 41.839286,
+            "mean_flow_m3_per_h": 1385.604095,
+            "mean_power_kw": 141.570428,
+            "mean_demand_m3_per_h": 1480.685195,
+            "mean_level_m": 5.026786,
+            "mean_pressure_m_head": 1.575,
+            "advisory_only": true
+          },
+          {
+            "window_minutes": 15,
+            "window_start": "2025-03-06T10:30:00",
+            "window_end": "2025-03-06T10:45:00",
+            "n_intervals_used": 14,
+            "energy_kwh": 33.596591,
+            "volume_m3": 338.959529,
+            "specific_energy_kwh_per_m3": 0.099117,
+            "mean_speed_hz": 41.517857,
+            "mean_flow_m3_per_h": 1452.683694,
+            "mean_power_kw": 143.985392,
+            "mean_demand_m3_per_h": 1534.189198,
+            "mean_level_m": 5.03,
+            "mean_pressure_m_head": 1.572857,
+            "advisory_only": true
+          },
+          {
+            "window_minutes": 15,
+            "window_start": "2025-03-06T10:45:00",
+            "window_end": "2025-03-06T11:00:00",
+            "n_intervals_used": 15,
+            "energy_kwh": 35.514918,
+            "volume_m3": 338.7481,
+            "specific_energy_kwh_per_m3": 0.104842,
+            "mean_speed_hz": 41.5,
+            "mean_flow_m3_per_h": 1356.499623,
+            "mean_power_kw": 142.217693,
+            "mean_demand_m3_per_h": 1418.6298,
+            "mean_level_m": 5.038331,
+            "mean_pressure_m_head": 1.520095,
+            "advisory_only": true
+          },
+          {
+            "window_minutes": 15,
+            "window_start": "2025-03-06T11:00:00",
+            "window_end": "2025-03-06T11:15:00",
+            "n_intervals_used": 13,
+            "energy_kwh": 30.963521,
+            "volume_m3": 303.217116,
+            "specific_energy_kwh_per_m3": 0.102117,
+            "mean_speed_hz": 41.865212,
+            "mean_flow_m3_per_h": 1401.2601,
+            "mean_power_kw": 143.09201,
+            "mean_demand_m3_per_h": 1443.015204,
+            "mean_level_m": 5.046534,
+            "mean_pressure_m_head": 1.570539,
+            "advisory_only": true
+          }
+        ]
+      },
+      "window_30min": {
+        "n_operating_points": 9414,
+        "head": [
+          {
+            "window_minutes": 30,
+            "window_start": "2025-03-06T10:00:00",
+            "window_end": "2025-03-06T10:30:00",
+            "n_intervals_used": 28,
+            "energy_kwh": 65.036423,
+            "volume_m3": 624.994397,
+            "specific_energy_kwh_per_m3": 0.104059,
+            "mean_speed_hz": 41.769684,
+            "mean_flow_m3_per_h": 1340.07137,
+            "mean_power_kw": 139.446768,
+            "mean_demand_m3_per_h": 1448.604434,
+            "mean_level_m": 5.023216,
+            "mean_pressure_m_head": 1.584068,
+            "advisory_only": true
+          },
+          {
+            "window_minutes": 30,
+            "window_start": "2025-03-06T10:30:00",
+            "window_end": "2025-03-06T11:00:00",
+            "n_intervals_used": 29,
+            "energy_kwh": 69.11151,
+            "volume_m3": 677.707629,
+            "specific_energy_kwh_per_m3": 0.101978,
+            "mean_speed_hz": 41.508626,
+            "mean_flow_m3_per_h": 1402.960014,
+            "mean_power_kw": 143.071556,
+            "mean_demand_m3_per_h": 1474.449176,
+            "mean_level_m": 5.034307,
+            "mean_pressure_m_head": 1.545581,
+            "advisory_only": true
+          },
+          {
+            "window_minutes": 30,
+            "window_start": "2025-03-06T11:00:00",
+            "window_end": "2025-03-06T11:30:00",
+            "n_intervals_used": 26,
+            "energy_kwh": 62.51611,
+            "volume_m3": 641.872449,
+            "specific_energy_kwh_per_m3": 0.097396,
+            "mean_speed_hz": 41.932649,
+            "mean_flow_m3_per_h": 1482.194236,
+            "mean_power_kw": 144.360486,
+            "mean_demand_m3_per_h": 1478.390748,
+            "mean_level_m": 5.050385,
+            "mean_pressure_m_head": 1.616645,
+            "advisory_only": true
+          },
+          {
+            "window_minutes": 30,
+            "window_start": "2025-03-06T11:30:00",
+            "window_end": "2025-03-06T12:00:00",
+            "n_intervals_used": 28,
+            "energy_kwh": 69.473655,
+            "volume_m3": 695.024906,
+            "specific_energy_kwh_per_m3": 0.099959,
+            "mean_speed_hz": 42.0,
+            "mean_flow_m3_per_h": 1491.114221,
+            "mean_power_kw": 149.049558,
+            "mean_demand_m3_per_h": 1550.005506,
+            "mean_level_m": 5.06,
+            "mean_pressure_m_head": 1.675527,
+            "advisory_only": true
+          },
+          {
+            "window_minutes": 30,
+            "window_start": "2025-03-06T12:00:00",
+            "window_end": "2025-03-06T12:30:00",
+            "n_intervals_used": 30,
+            "energy_kwh": 78.512025,
+            "volume_m3": 767.473997,
+            "specific_energy_kwh_per_m3": 0.102299,
+            "mean_speed_hz": 42.983324,
+            "mean_flow_m3_per_h": 1535.801218,
+            "mean_power_kw": 157.111333,
+            "mean_demand_m3_per_h": 1605.099412,
+            "mean_level_m": 5.057499,
+            "mean_pressure_m_head": 1.704497,
+            "advisory_only": true
+          }
+        ]
+      }
+    },
+    "operating_point_csv": {
+      "window_15min": "data/eval/pillarB/operating_points_15min_2025.csv",
+      "window_30min": "data/eval/pillarB/operating_points_30min_2025.csv"
+    }
+  },
+  "train_meta": {
+    "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2025.csv",
+    "n_rows_used": 489163,
+    "timestamp_min": "2025-01-21 22:58:59",
+    "timestamp_max": "2025-12-31 23:59:54",
+    "distinct_months": [
+      "2025-01",
+      "2025-02",
+      "2025-03",
+      "2025-04",
+      "2025-05",
+      "2025-06",
+      "2025-07",
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "per_month_rows": {
+      "2025-01": 14519,
+      "2025-02": 39636,
+      "2025-03": 44026,
+      "2025-04": 42377,
+      "2025-05": 44147,
+      "2025-06": 43189,
+      "2025-07": 44192,
+      "2025-08": 44085,
+      "2025-09": 42579,
+      "2025-10": 44011,
+      "2025-11": 42568,
+      "2025-12": 43834
+    },
+    "mode_filter": [
+      "manual",
+      "other"
+    ]
+  },
+  "engine_config": {
+    "low_flow_threshold_m3_per_h": 1.0,
+    "pump_off_threshold": 0.5,
+    "gap_threshold_seconds": 300.0,
+    "excluded_modes": [
+      "manual",
+      "other"
+    ],
+    "aggregation_minutes": [
+      15,
+      30
+    ],
+    "seed": 0
+  },
+  "acceptance_gate": {
+    "gate_version": "sprint31.unit_validity.v1",
+    "criteria": [
+      {
+        "name": "units_confirmed",
+        "passed": true,
+        "detail": {
+          "errors": []
+        }
+      },
+      {
+        "name": "se_from_interval_energy_and_volume",
+        "passed": true,
+        "detail": {
+          "evidence": "specific_energy_kwh_per_m3 is computed as sum(energy_kwh)/sum(volume_m3) over kept intervals binned by window; never an instantaneous P/Q ratio."
+        }
+      },
+      {
+        "name": "exclusion_waterfall_sums_correctly",
+        "passed": true,
+        "detail": {
+          "kept": 267392,
+          "excluded_total": 221770,
+          "total_intervals": 489162
+        }
+      },
+      {
+        "name": "aggregation_reproducible",
+        "passed": true,
+        "detail": {
+          "reproducible": true,
+          "n_operating_points_by_window": {
+            "15": 18764,
+            "30": 9414
+          }
+        }
+      },
+      {
+        "name": "march_not_used_for_tuning",
+        "passed": true,
+        "detail": {
+          "march_used_for_tuning": false
+        }
+      }
+    ],
+    "passed": true,
+    "verdict": "PASS",
+    "rule": "Sprint 31 PASS iff: units_confirmed AND se_from_interval_energy_and_volume AND exclusion_waterfall_sums_correctly AND aggregation_reproducible AND march_not_used_for_tuning."
+  },
+  "verdict": "PASS",
+  "safety": {
+    "advisory_only": true,
+    "evaluation_mode": "offline_only",
+    "write_path": "scorecard_json_only",
+    "influences_control": false,
+    "site_integration_allowed": false,
+    "scorecard_role": "advisory_evidence_only"
+  }
+}
