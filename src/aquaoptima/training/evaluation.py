@@ -1,30 +1,31 @@
-"""Offline evaluation harness vs the LOCKED March 2026 benchmark (AOPSO Sprint 25).
+"""Offline evaluation harness vs the LOCKED March 2026 benchmark.
 
-Loads a trained dPHM checkpoint (``model_best.pt``), scores the **frozen March
-2026 holdout** (read-only), and emits a ``ShadowRuntimeReport``-shaped scorecard
-with per-axis normalized MSE/MAE for the 6 continuous axes and accuracy for the
-2 binary axes (``node_status``, ``edge_status``). ``edge_valve_position`` is
-N/A / masked (no backing column). An MVP-v1 persistence baseline is scored on
-the IDENTICAL holdout windows, and a machine-checkable acceptance gate decides
-PASS/FAIL ("good enough to package").
+Sprint 25 introduced this harness; **Sprint 26** reworks it for the
+residual-over-persistence reframe and multi-horizon scoring:
 
-Holdout construction
----------------------
-The March 2026 benchmark lives at ``$YILAN_2026_CSV`` (default
-``.../yearlong_drive/source1_2026.csv``), same schema as 2025. We read it,
-filter to ``month == 3`` (calendar 2026-03), apply the canonical axis map and
-the *training* normalization stats, and build gap-aware sliding windows
-identical to training (``window`` / ``horizon`` / ``stride`` from config).
+* **Residual decoding** -- when the checkpoint was trained with
+  ``target_mode="residual"`` the model emits a normalized DELTA. The absolute
+  prediction is reconstructed as ``last_value + Delta_hat`` and then
+  inverse-transformed (z-score un-normalized) to physical units. Absolute mode
+  is still supported for comparison.
+* **Absolute-value metrics** -- per-axis MSE/MAE are now reported in PHYSICAL
+  (de-normalized) units so they are directly comparable to Sprint 25 and have
+  engineering meaning, alongside the explicit dPHM-vs-persistence deltas.
+* **Multi-horizon sweep** -- ``--horizons 1 5 15 30`` (60s cadence, so steps ==
+  minutes) re-scores the holdout at each horizon. Persistence decays as the
+  horizon grows; the packaging gate is evaluated at every horizon.
+* **Binary decode fix (DEFECT 3)** -- genuine BCE axes (listed in
+  ``BINARY_AXES``) are decoded via ``sigmoid(logit) >= 0.5`` and gated on
+  BALANCED accuracy / F1, not raw accuracy. This sprint ``BINARY_AXES`` is
+  EMPTY (node_status reclassified continuous, edge_status dropped), so the
+  binary branch is vestigial but kept correct for future re-enablement.
 
-Holdout isolation
------------------
-Before scoring, the harness re-checks the split manifest and asserts the March
-2026 window (2026-03) does not intersect any train/val split day — a hard STOP
-on leakage. 2026 data is never used to fit normalization or the model.
+Holdout construction / isolation are unchanged from Sprint 25 (read the 2026
+CSV, filter to 2026-03, normalize with TRAIN stats, gap-aware windows; re-assert
+the March window does not intersect any train/val day).
 
-CRITICAL HONESTY: this harness reports whatever the model actually scores.
-There are NO hardcoded / illustrative metric values anywhere. A FAIL is a valid,
-valuable outcome (do not package; iterate training).
+CRITICAL HONESTY: this harness reports whatever the model actually scores. No
+hardcoded / illustrative metric values. A FAIL is a valid outcome.
 
 Safety: offline scoring only. Reads static CSV-derived holdout (read-only),
 loads an inert ``.pt`` state_dict, writes only an advisory scorecard JSON. No
@@ -59,16 +60,20 @@ from .acceptance import (
 from .baseline_mvp import PERSISTENCE_NAME, persistence_predict
 from .dphm_trainer import load_config
 from .eval_report import build_shadow_report, validate_shadow_report_shape
+from .metrics import binary_classification_metrics
 from .normalization import load_stats
 
 __all__ = [
     "MarchHoldoutWindows",
     "score_predictions",
+    "reconstruct_absolute",
     "evaluate",
+    "evaluate_multi_horizon",
     "assert_holdout_isolated",
     "main",
     "DEFAULT_MARCH_CSV",
     "YILAN_2026_CSV_ENV",
+    "DEFAULT_HORIZONS",
 ]
 
 DEFAULT_MARCH_CSV = (
@@ -78,6 +83,9 @@ DEFAULT_MARCH_CSV = (
 YILAN_2026_CSV_ENV = "YILAN_2026_CSV"
 
 MASKED_AXIS = "edge_valve_position"
+
+# Sprint 26 multi-horizon sweep (60s cadence -> steps == minutes).
+DEFAULT_HORIZONS: tuple[int, ...] = (1, 5, 15, 30)
 
 
 # --------------------------------------------------------------------------- #
@@ -238,14 +246,22 @@ class MarchHoldoutWindows:
     def __len__(self) -> int:
         return len(self._starts)
 
-    def arrays(self) -> tuple[np.ndarray, np.ndarray]:
-        """Return ``(X, Y)`` normalized arrays.
+    def arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return ``(X, Y, last)`` normalized arrays.
 
-        ``X``: ``[n_windows, window, n_axes]``; ``Y``: ``[n_windows, n_axes]``.
-        NaNs are zero-filled after normalization (consistent with training).
+        ``X``: ``[n_windows, window, n_axes]`` (normalized input windows);
+        ``Y``: ``[n_windows, n_axes]`` (normalized ABSOLUTE target at ``t+h``);
+        ``last``: ``[n_windows, n_axes]`` (normalized last input step ==
+        persistence prediction / residual anchor).
+
+        ``Y`` is always the absolute target regardless of the model's
+        ``target_mode``; residual reconstruction (``last + Delta_hat``) happens
+        in the scorer. NaNs are zero-filled after normalization (consistent with
+        training).
         """
         xs: list[np.ndarray] = []
         ys: list[np.ndarray] = []
+        lasts: list[np.ndarray] = []
         for start in self._starts:
             w_end = start + self.window
             t_idx = w_end + self.horizon - 1
@@ -253,57 +269,125 @@ class MarchHoldoutWindows:
             y_raw = self.features[t_idx, :]
             x = (x_raw - self._mu) / self._sigma
             y = (y_raw - self._mu) / self._sigma
-            xs.append(np.nan_to_num(x, nan=0.0))
+            x = np.nan_to_num(x, nan=0.0)
+            xs.append(x)
             ys.append(np.nan_to_num(y, nan=0.0))
+            lasts.append(x[-1, :])
         if not xs:
             n_axes = len(self.active_axes)
             return (
                 np.zeros((0, self.window, n_axes), dtype=float),
                 np.zeros((0, n_axes), dtype=float),
+                np.zeros((0, n_axes), dtype=float),
             )
-        return np.stack(xs).astype(float), np.stack(ys).astype(float)
+        return (
+            np.stack(xs).astype(float),
+            np.stack(ys).astype(float),
+            np.stack(lasts).astype(float),
+        )
 
 
 # --------------------------------------------------------------------------- #
-# Metric computation
+# Prediction reconstruction (residual / absolute -> physical units)
+# --------------------------------------------------------------------------- #
+def reconstruct_absolute(
+    model_out: np.ndarray,
+    last_norm: np.ndarray,
+    mu: np.ndarray,
+    sigma: np.ndarray,
+    *,
+    target_mode: str,
+    active_axes: list[str],
+    binary_axes: Iterable[str] = (),
+) -> np.ndarray:
+    """Turn raw model output into ABSOLUTE (physical-unit) predictions.
+
+    Parameters
+    ----------
+    model_out
+        Raw model output ``[N, n_axes]``. For ``target_mode="residual"`` this is
+        a normalized DELTA per axis; for ``"absolute"`` it is the normalized
+        absolute value. For binary axes it is a BCE LOGIT.
+    last_norm
+        Normalized last-observed value ``[N, n_axes]`` (the residual anchor /
+        persistence prediction).
+    mu, sigma
+        Per-axis z-score parameters ``[n_axes]``.
+    target_mode
+        ``"residual"`` or ``"absolute"``.
+    binary_axes
+        Axes decoded via ``sigmoid(logit) >= 0.5`` (DEFECT 3 fix). For those
+        axes the output is the 0/1 class, NOT a de-normalized value.
+
+    Returns
+    -------
+    np.ndarray
+        ``[N, n_axes]`` absolute predictions in physical units (continuous axes)
+        or 0/1 class (binary axes).
+    """
+    model_out = np.asarray(model_out, dtype=float)
+    last_norm = np.asarray(last_norm, dtype=float)
+    binset = set(binary_axes)
+
+    if target_mode == "residual":
+        abs_norm = last_norm + model_out  # last_value + Delta_hat (normalized)
+    elif target_mode == "absolute":
+        abs_norm = model_out
+    else:
+        raise ValueError(f"unknown target_mode {target_mode!r}")
+
+    # Inverse z-score -> physical units for continuous axes.
+    abs_phys = abs_norm * sigma + mu
+
+    out = abs_phys.copy()
+    for j, axis in enumerate(active_axes):
+        if axis in binset:
+            # DEFECT 3 fix: binary axes are BCE logits -> sigmoid -> 0/1 class.
+            prob = 1.0 / (1.0 + np.exp(-model_out[:, j]))
+            out[:, j] = (prob >= 0.5).astype(float)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Metric computation (PHYSICAL / absolute units)
 # --------------------------------------------------------------------------- #
 def score_predictions(
-    pred: np.ndarray,
-    target: np.ndarray,
+    pred_abs: np.ndarray,
+    target_abs: np.ndarray,
     active_axes: list[str],
     *,
-    mu: np.ndarray | None = None,
-    sigma: np.ndarray | None = None,
+    binary_axes: Iterable[str] = (),
 ) -> dict[str, dict]:
-    """Per-axis metrics: MSE/MAE (normalized) for continuous axes, accuracy for binary.
+    """Per-axis metrics in PHYSICAL units.
 
-    ``pred`` / ``target`` are normalized ``[N, n_axes]`` arrays in ``active_axes``
-    column order. For binary axes, accuracy is computed on the de-normalized
-    values thresholded at 0.5 (recovering the 0/1 status class). ``mu`` / ``sigma``
-    are required to de-normalize binary axes; if absent, binary accuracy is None.
+    ``pred_abs`` / ``target_abs`` are ABSOLUTE ``[N, n_axes]`` arrays in
+    ``active_axes`` column order (physical units for continuous axes; 0/1 class
+    for binary axes -- see :func:`reconstruct_absolute`). Continuous axes report
+    absolute MSE/MAE; binary axes report raw accuracy PLUS imbalance-aware
+    balanced accuracy / F1 (DEFECT 2 fix).
     """
-    pred = np.asarray(pred, dtype=float)
-    target = np.asarray(target, dtype=float)
+    pred_abs = np.asarray(pred_abs, dtype=float)
+    target_abs = np.asarray(target_abs, dtype=float)
+    binset = set(binary_axes)
     out: dict[str, dict] = {}
     for j, axis in enumerate(active_axes):
-        p = pred[:, j]
-        t = target[:, j]
-        if axis in BINARY_AXES:
-            if mu is not None and sigma is not None:
-                p_denorm = p * sigma[j] + mu[j]
-                t_denorm = t * sigma[j] + mu[j]
-                p_cls = (p_denorm >= 0.5).astype(int)
-                t_cls = (t_denorm >= 0.5).astype(int)
-            else:
-                p_cls = (p >= 0.5).astype(int)
-                t_cls = (t >= 0.5).astype(int)
-            acc = float(np.mean(p_cls == t_cls)) if p_cls.size else float("nan")
+        p = pred_abs[:, j]
+        t = target_abs[:, j]
+        if axis in binset:
+            p_cls = (p >= 0.5).astype(int)
+            t_cls = (t >= 0.5).astype(int)
+            bm = binary_classification_metrics(t_cls, p_cls)
             out[axis] = {
                 "kind": "binary",
-                "accuracy": acc,
-                # Also report normalized MSE/MAE for completeness / reporting.
-                "mse": float(np.mean((p - t) ** 2)) if p.size else float("nan"),
-                "mae": float(np.mean(np.abs(p - t))) if p.size else float("nan"),
+                "accuracy": bm["accuracy"],
+                "balanced_accuracy": bm["balanced_accuracy"],
+                "f1": bm["f1"],
+                "confusion": {
+                    "tp": bm["tp"],
+                    "tn": bm["tn"],
+                    "fp": bm["fp"],
+                    "fn": bm["fn"],
+                },
             }
         else:
             out[axis] = {
@@ -324,6 +408,121 @@ def _resolve_march_csv(explicit: str | None) -> str:
     return os.environ.get(YILAN_2026_CSV_ENV, DEFAULT_MARCH_CSV)
 
 
+def _load_run_meta(checkpoint: str) -> dict:
+    """Read sibling ``run_meta.json`` (target_mode/horizon) next to a checkpoint."""
+    meta_path = Path(checkpoint).parent / "run_meta.json"
+    if meta_path.exists():
+        try:
+            return json.loads(meta_path.read_text())
+        except Exception:  # pragma: no cover - defensive
+            return {}
+    return {}
+
+
+def _score_one_horizon(
+    *,
+    holdout: "MarchHoldoutWindows",
+    active_axes: list[str],
+    binary_axes: frozenset[str],
+    model: torch.nn.Module,
+    target_mode: str,
+    baseline: str,
+    thresholds: AcceptanceThresholds,
+) -> dict:
+    """Score one already-built holdout (single horizon). Returns a per-horizon block."""
+    X, Y, last = holdout.arrays()
+    n_windows = X.shape[0]
+    if n_windows == 0:
+        raise ValueError(
+            "STOP: March 2026 holdout produced 0 scorable windows "
+            "(check gap threshold / window length vs available rows)"
+        )
+
+    mu = holdout._mu
+    sigma = holdout._sigma
+
+    # --- dPHM raw output -> reconstructed ABSOLUTE (physical) prediction ---
+    model.eval()
+    with torch.no_grad():
+        x_t = torch.as_tensor(X, dtype=torch.float32)
+        dphm_raw = model(x_t).cpu().numpy()
+    dphm_abs = reconstruct_absolute(
+        dphm_raw, last, mu, sigma,
+        target_mode=target_mode, active_axes=active_axes, binary_axes=binary_axes,
+    )
+
+    # --- persistence baseline: predict last value (residual Delta == 0) ---
+    if baseline != PERSISTENCE_NAME:
+        raise ValueError(f"unsupported baseline {baseline!r}; only {PERSISTENCE_NAME}")
+    base_raw = persistence_predict(X)  # normalized last step == last
+    # Persistence in residual space is Delta=0; in absolute space it's `last`.
+    base_abs = reconstruct_absolute(
+        np.zeros_like(base_raw), last, mu, sigma,
+        target_mode="residual", active_axes=active_axes, binary_axes=binary_axes,
+    )
+
+    # --- ground truth ABSOLUTE (physical) values ---
+    target_abs = reconstruct_absolute(
+        np.zeros_like(Y), Y, mu, sigma,
+        target_mode="residual", active_axes=active_axes, binary_axes=binary_axes,
+    )
+    # NB: target reconstruction uses Y as the "last" anchor with Delta=0 so that
+    # `abs_norm = Y` and inverse-transform yields the true physical target; for
+    # binary axes the sigmoid path keys off model_out (zeros) -> harmless, so we
+    # recompute the binary truth class directly from Y below.
+    for j, axis in enumerate(active_axes):
+        if axis in binary_axes:
+            t_norm = Y[:, j]
+            t_phys = t_norm * sigma[j] + mu[j]
+            target_abs[:, j] = (t_phys >= 0.5).astype(float)
+
+    dphm_metrics = score_predictions(
+        dphm_abs, target_abs, active_axes, binary_axes=binary_axes
+    )
+    base_metrics = score_predictions(
+        base_abs, target_abs, active_axes, binary_axes=binary_axes
+    )
+
+    gate = evaluate_gate(dphm_metrics, base_metrics, thresholds=thresholds)
+
+    # --- per-axis dPHM-vs-persistence deltas (absolute units) ---
+    deltas: dict[str, dict] = {}
+    for axis in active_axes:
+        d = dphm_metrics[axis]
+        b = base_metrics[axis]
+        if axis in binary_axes:
+            deltas[axis] = {
+                "dphm_balanced_accuracy": d.get("balanced_accuracy"),
+                "baseline_balanced_accuracy": b.get("balanced_accuracy"),
+                "dphm_f1": d.get("f1"),
+                "baseline_f1": b.get("f1"),
+                "beats_baseline": (
+                    d.get("balanced_accuracy") is not None
+                    and b.get("balanced_accuracy") is not None
+                    and d["balanced_accuracy"] > b["balanced_accuracy"]
+                ),
+            }
+        else:
+            deltas[axis] = {
+                "dphm_mse": d["mse"],
+                "baseline_mse": b["mse"],
+                "mse_improvement": b["mse"] - d["mse"],
+                "dphm_mae": d["mae"],
+                "baseline_mae": b["mae"],
+                "beats_baseline": d["mse"] < b["mse"],
+            }
+
+    return {
+        "horizon": holdout.horizon,
+        "windows_scored": n_windows,
+        "metric_space": "absolute_physical_units",
+        "dphm_metrics": dphm_metrics,
+        "baseline_metrics": base_metrics,
+        "dphm_vs_baseline": deltas,
+        "acceptance_gate": gate.to_dict(),
+    }
+
+
 def evaluate(
     *,
     checkpoint: str,
@@ -335,25 +534,39 @@ def evaluate(
     config: dict | None = None,
     nrows: int | None = None,
     model: torch.nn.Module | None = None,
+    target_mode: str | None = None,
+    horizon: int | None = None,
 ) -> dict:
-    """Score a checkpoint on the March 2026 holdout + baseline; return a scorecard.
+    """Score a checkpoint at ONE horizon on the March 2026 holdout; return a scorecard.
 
-    Returns a dict containing the contract-shaped ``shadow_report`` payload, the
-    per-axis dPHM & baseline metrics, the dPHM-vs-baseline deltas, and the
-    acceptance gate verdict. Performs holdout-isolation and contract-validation
-    STOP-condition checks.
+    Sprint 26: predictions are reconstructed to ABSOLUTE physical units (residual
+    or absolute mode) and metrics are reported in those units, with explicit
+    dPHM-vs-persistence deltas. ``target_mode`` / ``horizon`` fall back to the
+    checkpoint's ``run_meta.json``, then the config, then residual / h=1.
     """
     cfg = config or {}
     dcfg = cfg.get("data", {})
     window = int(dcfg.get("window", 10))
-    horizon = int(dcfg.get("horizon", 1))
     stride = int(dcfg.get("stride", 1))
+
+    meta = _load_run_meta(checkpoint)
+    target_mode = str(
+        target_mode
+        if target_mode is not None
+        else meta.get("target_mode", dcfg.get("target_mode", "residual"))
+    )
+    horizon = int(
+        horizon
+        if horizon is not None
+        else meta.get("horizon", dcfg.get("horizon", 1))
+    )
 
     manifest = json.loads(Path(split_manifest).read_text())
     isolation = assert_holdout_isolated(manifest, holdout_key=holdout_key)
 
     stats = load_stats(norm_stats)
     active_axes = list(stats["active_axes"])
+    binary_axes = frozenset(a for a in active_axes if a in BINARY_AXES)
 
     march_path = _resolve_march_csv(march_csv)
     holdout = MarchHoldoutWindows(
@@ -364,44 +577,31 @@ def evaluate(
         stride=stride,
         nrows=nrows,
     )
-    X, Y = holdout.arrays()
-    n_windows = X.shape[0]
-    if n_windows == 0:
-        raise ValueError(
-            "STOP: March 2026 holdout produced 0 scorable windows "
-            "(check gap threshold / window length vs available rows)"
-        )
 
-    # --- dPHM predictions ---
     if model is None:
         model = TCN_DPHM.from_norm_stats(stats)
         state = torch.load(checkpoint, map_location="cpu", weights_only=True)
         model.load_state_dict(state)
-    model.eval()
-    with torch.no_grad():
-        x_t = torch.as_tensor(X, dtype=torch.float32)
-        dphm_pred = model(x_t).cpu().numpy()
 
-    # --- baseline predictions (identical holdout windows) ---
-    if baseline != PERSISTENCE_NAME:
-        raise ValueError(f"unsupported baseline {baseline!r}; only {PERSISTENCE_NAME}")
-    base_pred = persistence_predict(X)
+    thresholds = AcceptanceThresholds.from_config(cfg)
+    block = _score_one_horizon(
+        holdout=holdout,
+        active_axes=active_axes,
+        binary_axes=binary_axes,
+        model=model,
+        target_mode=target_mode,
+        baseline=baseline,
+        thresholds=thresholds,
+    )
+    n_windows = block["windows_scored"]
+    dphm_metrics = block["dphm_metrics"]
 
-    mu = holdout._mu
-    sigma = holdout._sigma
-    dphm_metrics = score_predictions(dphm_pred, Y, active_axes, mu=mu, sigma=sigma)
-    base_metrics = score_predictions(base_pred, Y, active_axes, mu=mu, sigma=sigma)
-
-    # --- contract-shaped report (continuous axes only carry MSE/MAE) ---
+    # --- contract-shaped report (continuous axes carry absolute MSE/MAE) ---
     mse_by_axis = {
-        a: dphm_metrics[a]["mse"]
-        for a in active_axes
-        if a in CONTINUOUS_AXES
+        a: dphm_metrics[a]["mse"] for a in active_axes if a in CONTINUOUS_AXES
     }
     mae_by_axis = {
-        a: dphm_metrics[a]["mae"]
-        for a in active_axes
-        if a in CONTINUOUS_AXES
+        a: dphm_metrics[a]["mae"] for a in active_axes if a in CONTINUOUS_AXES
     }
     report = build_shadow_report(
         mse_by_axis=mse_by_axis,
@@ -412,41 +612,15 @@ def evaluate(
         warnings=[
             "advisory scorecard: offline evaluation only, never drives actuation",
             f"{MASKED_AXIS} reported N/A (no backing telemetry column / masked)",
+            f"target_mode={target_mode}; metrics in absolute physical units; "
+            f"horizon={horizon} step(s)",
         ],
     )
     shadow_payload = report.to_dict()
-    # STOP-condition guard: payload MUST validate against the real contract.
     validate_shadow_report_shape(shadow_payload)
 
-    # --- acceptance gate ---
-    thresholds = AcceptanceThresholds.from_config(cfg)
-    gate = evaluate_gate(dphm_metrics, base_metrics, thresholds=thresholds)
-
-    # --- per-axis dPHM-vs-baseline deltas ---
-    deltas: dict[str, dict] = {}
-    for axis in active_axes:
-        d = dphm_metrics[axis]
-        b = base_metrics[axis]
-        if axis in CONTINUOUS_AXES:
-            deltas[axis] = {
-                "dphm_mse": d["mse"],
-                "baseline_mse": b["mse"],
-                "mse_improvement": b["mse"] - d["mse"],
-                "beats_baseline": d["mse"] < b["mse"],
-            }
-        elif axis in BINARY_AXES:
-            deltas[axis] = {
-                "dphm_accuracy": d["accuracy"],
-                "baseline_accuracy": b["accuracy"],
-                "beats_baseline": (
-                    d["accuracy"] is not None
-                    and b["accuracy"] is not None
-                    and d["accuracy"] > b["accuracy"]
-                ),
-            }
-
     scorecard = {
-        "sprint": "AOPSO Sprint 25",
+        "sprint": "AOPSO Sprint 26",
         "benchmark": "LOCKED March 2026 holdout",
         "advisory_only": True,
         "checkpoint": str(checkpoint),
@@ -463,10 +637,13 @@ def evaluate(
         "binary_axes": sorted(a for a in active_axes if a in BINARY_AXES),
         "masked_axes": {MASKED_AXIS: "N/A"},
         "baseline": baseline,
+        "target_mode": target_mode,
+        "horizon": horizon,
+        "metric_space": "absolute_physical_units",
         "dphm_metrics": dphm_metrics,
-        "baseline_metrics": base_metrics,
-        "dphm_vs_baseline": deltas,
-        "acceptance_gate": gate.to_dict(),
+        "baseline_metrics": block["baseline_metrics"],
+        "dphm_vs_baseline": block["dphm_vs_baseline"],
+        "acceptance_gate": block["acceptance_gate"],
         "shadow_report": shadow_payload,
         "safety": {
             "evaluation_mode": "offline_only",
@@ -480,27 +657,151 @@ def evaluate(
     return scorecard
 
 
+def evaluate_multi_horizon(
+    *,
+    checkpoint: str,
+    horizons: Iterable[int] = DEFAULT_HORIZONS,
+    split_manifest: str = "data/splits/yilan_2025_split_v1.json",
+    norm_stats: str = "data/normalization/yilan_2025_train_stats.json",
+    holdout_key: str = "holdout_march2026",
+    baseline: str = PERSISTENCE_NAME,
+    march_csv: str | None = None,
+    config: dict | None = None,
+    nrows: int | None = None,
+    model: torch.nn.Module | None = None,
+    target_mode: str | None = None,
+) -> dict:
+    """Sweep horizons (default 1/5/15/30) and produce a multi-horizon scorecard.
+
+    Re-builds the holdout windows at each horizon and scores the SAME model.
+    Reports per-horizon, per-axis absolute MSE/MAE + persistence deltas, and a
+    per-horizon acceptance gate. The aggregate ``packaging_gate`` PASSes only if
+    EVERY evaluated horizon passes (the bar must hold at the longer horizons too).
+    """
+    cfg = config or {}
+    dcfg = cfg.get("data", {})
+    window = int(dcfg.get("window", 10))
+    stride = int(dcfg.get("stride", 1))
+
+    meta = _load_run_meta(checkpoint)
+    target_mode = str(
+        target_mode
+        if target_mode is not None
+        else meta.get("target_mode", dcfg.get("target_mode", "residual"))
+    )
+
+    manifest = json.loads(Path(split_manifest).read_text())
+    isolation = assert_holdout_isolated(manifest, holdout_key=holdout_key)
+
+    stats = load_stats(norm_stats)
+    active_axes = list(stats["active_axes"])
+    binary_axes = frozenset(a for a in active_axes if a in BINARY_AXES)
+    march_path = _resolve_march_csv(march_csv)
+    thresholds = AcceptanceThresholds.from_config(cfg)
+
+    if model is None:
+        model = TCN_DPHM.from_norm_stats(stats)
+        state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        model.load_state_dict(state)
+
+    horizons = [int(h) for h in horizons]
+    per_horizon: dict[str, dict] = {}
+    date_range = None
+    rows_loaded = 0
+    for h in horizons:
+        holdout = MarchHoldoutWindows(
+            stats,
+            csv_path=march_path,
+            window=window,
+            horizon=h,
+            stride=stride,
+            nrows=nrows,
+        )
+        date_range = holdout.date_range
+        rows_loaded = holdout.n_rows
+        per_horizon[str(h)] = _score_one_horizon(
+            holdout=holdout,
+            active_axes=active_axes,
+            binary_axes=binary_axes,
+            model=model,
+            target_mode=target_mode,
+            baseline=baseline,
+            thresholds=thresholds,
+        )
+
+    all_pass = all(
+        per_horizon[str(h)]["acceptance_gate"]["passed"] for h in horizons
+    )
+
+    return {
+        "sprint": "AOPSO Sprint 26",
+        "benchmark": "LOCKED March 2026 holdout (multi-horizon)",
+        "advisory_only": True,
+        "checkpoint": str(checkpoint),
+        "split_manifest": str(split_manifest),
+        "norm_stats": str(norm_stats),
+        "march_csv": str(march_path),
+        "holdout_key": holdout_key,
+        "holdout_isolation": isolation,
+        "march_2026_rows_loaded": rows_loaded,
+        "holdout_date_range": date_range,
+        "active_axes": active_axes,
+        "continuous_axes": sorted(a for a in active_axes if a in CONTINUOUS_AXES),
+        "binary_axes": sorted(a for a in active_axes if a in BINARY_AXES),
+        "masked_axes": {MASKED_AXIS: "N/A"},
+        "baseline": baseline,
+        "target_mode": target_mode,
+        "horizons": horizons,
+        "metric_space": "absolute_physical_units",
+        "per_horizon": per_horizon,
+        "packaging_gate": {
+            "verdict": "PASS" if all_pass else "FAIL",
+            "passed": all_pass,
+            "rule": "every evaluated horizon must pass the acceptance gate",
+            "per_horizon_verdict": {
+                str(h): per_horizon[str(h)]["acceptance_gate"]["verdict"]
+                for h in horizons
+            },
+        },
+        "safety": {
+            "evaluation_mode": "offline_only",
+            "write_path": "scorecard_json_only",
+            "influences_control": False,
+            "site_integration_allowed": False,
+            "scorecard_role": "advisory_evidence_only",
+            "fail_blocks_packaging": True,
+        },
+    }
+
+
 def _print_summary(scorecard: dict) -> None:
     n = scorecard["march_2026_windows_scored"]
     rows = scorecard["march_2026_rows_loaded"]
     print(f"=== March 2026 LOCKED holdout ({rows} rows, {n} windows) ===")
-    print(f"{'axis':<22}{'MSE(norm)':>11}{'MAE(norm)':>11}{'baseline_MSE':>14}{'beats':>8}")
+    tm = scorecard.get("target_mode", "?")
+    h = scorecard.get("horizon", "?")
+    print(f"target_mode={tm}  horizon={h} step(s)  metrics=ABSOLUTE physical units")
+    print(f"{'axis':<22}{'MSE(abs)':>13}{'MAE(abs)':>13}{'baseline_MSE':>15}{'beats':>8}")
     dphm = scorecard["dphm_metrics"]
     base = scorecard["baseline_metrics"]
     for axis in scorecard["continuous_axes"]:
         d = dphm[axis]
         b = base[axis]
         beats = "yes" if d["mse"] < b["mse"] else "no"
-        print(f"{axis:<22}{d['mse']:>11.4f}{d['mae']:>11.4f}{b['mse']:>14.4f}{beats:>8}")
+        print(f"{axis:<22}{d['mse']:>13.4f}{d['mae']:>13.4f}{b['mse']:>15.4f}{beats:>8}")
     for axis in scorecard["binary_axes"]:
         d = dphm[axis]
         b = base[axis]
-        beats = "yes" if (d["accuracy"] or 0) > (b["accuracy"] or 0) else "no"
-        print(f"{axis+' (acc)':<22}{d['accuracy']:>11.4f}{'-':>11}{b['accuracy']:>14.4f}{beats:>8}")
-    print(f"{MASKED_AXIS:<22}{'N/A':>11}{'N/A':>11}{'N/A':>14}{'N/A':>8}")
+        d_bal = d.get("balanced_accuracy") or 0.0
+        b_bal = b.get("balanced_accuracy") or 0.0
+        beats = "yes" if d_bal > b_bal else "no"
+        print(
+            f"{axis+' (bal_acc)':<22}{d_bal:>13.4f}{'-':>13}{b_bal:>15.4f}{beats:>8}"
+        )
+    print(f"{MASKED_AXIS:<22}{'N/A':>13}{'N/A':>13}{'N/A':>15}{'N/A':>8}")
     gate = scorecard["acceptance_gate"]
     verdict = gate["verdict"]
-    suffix = "good enough to package -> Sprint 26 unblocked" if verdict == "PASS" else "DO NOT package -> iterate training (Sprint 24)"
+    suffix = "good enough to package -> Sprint 27 unblocked" if verdict == "PASS" else "DO NOT package -> iterate / pivot objective"
     print(f"GATE: {verdict} ({suffix})")
 
 

@@ -28,23 +28,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Single source of truth for axis taxonomy (Sprint 26): import from the axis
+# map rather than redefining here, so loss / trainer / evaluation cannot drift
+# apart. ``BINARY_AXES`` is EMPTY by default this sprint (node_status
+# reclassified continuous, edge_status dropped as a binary target); the BCE
+# routing below remains correct for any axis re-listed in ``BINARY_AXES``.
+from ..dataio.yilan_axis_map import BINARY_AXES, CONTINUOUS_AXES
+
 __all__ = ["MultiAxisLoss", "BINARY_AXES", "CONTINUOUS_AXES"]
-
-# The two binary axes routed to BCE. Everything else among the active axes is
-# treated as continuous (MSE). Names come from the Sprint 23 axis contract.
-BINARY_AXES: frozenset[str] = frozenset({"node_status", "edge_status"})
-
-# The 6 continuous axes (informational / used for assertions in tests).
-CONTINUOUS_AXES: frozenset[str] = frozenset(
-    {
-        "edge_flow",
-        "edge_power",
-        "edge_pump_speed",
-        "node_demand",
-        "node_level",
-        "node_pressure",
-    }
-)
 
 
 class MultiAxisLoss(nn.Module):

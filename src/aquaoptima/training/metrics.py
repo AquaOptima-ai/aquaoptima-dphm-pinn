@@ -11,6 +11,77 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+
+
+def binary_classification_metrics(
+    y_true: "np.ndarray", y_pred: "np.ndarray"
+) -> dict[str, float]:
+    """Imbalance-aware binary metrics (AOPSO Sprint 26, DEFECT 2 fix).
+
+    Computes raw accuracy, **balanced accuracy**, **F1**, plus the confusion
+    counts, from already-thresholded integer 0/1 class arrays. Raw accuracy is
+    meaningless on the 99.85%-imbalanced pump status (always-on scores 0.9985),
+    so the acceptance gate uses balanced accuracy / F1 from here.
+
+    Balanced accuracy = mean(sensitivity, specificity); a do-nothing always-on
+    (or always-off) predictor scores 0.5. F1 = harmonic mean of precision and
+    recall. Degenerate cases (no positives or no negatives in ``y_true``) are
+    handled so the metric stays finite.
+    """
+    yt = np.asarray(y_true).astype(int).ravel()
+    yp = np.asarray(y_pred).astype(int).ravel()
+    if yt.size == 0:
+        return {
+            "accuracy": float("nan"),
+            "balanced_accuracy": float("nan"),
+            "f1": float("nan"),
+            "tp": 0,
+            "tn": 0,
+            "fp": 0,
+            "fn": 0,
+            "n": 0,
+        }
+    tp = int(np.sum((yt == 1) & (yp == 1)))
+    tn = int(np.sum((yt == 0) & (yp == 0)))
+    fp = int(np.sum((yt == 0) & (yp == 1)))
+    fn = int(np.sum((yt == 1) & (yp == 0)))
+
+    accuracy = (tp + tn) / yt.size
+
+    # Sensitivity (recall on positives) and specificity (recall on negatives).
+    pos = tp + fn
+    neg = tn + fp
+    # If a class is absent, its recall is undefined; balanced accuracy then
+    # reduces to the recall of the present class (single-class fallback).
+    recalls = []
+    if pos > 0:
+        recalls.append(tp / pos)
+    if neg > 0:
+        recalls.append(tn / neg)
+    balanced_accuracy = float(np.mean(recalls)) if recalls else float("nan")
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / pos if pos > 0 else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
+    )
+
+    return {
+        "accuracy": float(accuracy),
+        "balanced_accuracy": float(balanced_accuracy),
+        "f1": float(f1),
+        "precision": float(precision),
+        "recall": float(recall),
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
+        "n": int(yt.size),
+    }
+
 
 @dataclass
 class TrainingMetrics:
@@ -61,4 +132,4 @@ class TrainingMetrics:
         return out
 
 
-__all__ = ["TrainingMetrics"]
+__all__ = ["TrainingMetrics", "binary_classification_metrics"]
