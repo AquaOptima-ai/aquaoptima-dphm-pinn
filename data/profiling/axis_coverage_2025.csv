@@ -1,0 +1,10 @@
+axis,source_column,active,coverage_pct_total,coverage_pct_auto,coverage_pct_manual,coverage_pct_other
+edge_flow,system_flow_rate,True,99.0786,99.2997,96.5257,99.6278
+edge_power,tb_system_real_power,True,99.5161,100.0,95.8654,100.0
+edge_pump_speed,P_1531A_frequency,True,94.4456,99.1789,58.532,99.2542
+edge_status,P_1531A_status,True,94.3295,98.8845,58.567,99.4025
+edge_valve_position,,False,0.0,0.0,0.0,0.0
+node_demand,tb_system_predicted_flow_rate,True,98.4774,99.9903,87.0426,99.9981
+node_level,tank_level,True,99.1091,99.4619,96.0419,99.6122
+node_pressure,system_pressure,True,99.5975,100.0,96.5606,100.0
+node_status,tb_system_head,True,99.4217,99.9996,95.0637,99.9987

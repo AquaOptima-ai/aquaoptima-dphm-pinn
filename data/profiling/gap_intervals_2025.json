@@ -1,0 +1,139 @@
+{
+  "gap_threshold_seconds": 300,
+  "gap_count": 19,
+  "gaps": [
+    {
+      "index_before": 18432,
+      "index_after": 18433,
+      "start": "2025-02-03T16:53:59",
+      "end": "2025-02-03T17:48:59",
+      "seconds": 3300.0
+    },
+    {
+      "index_before": 18459,
+      "index_after": 18460,
+      "start": "2025-02-03T18:14:59",
+      "end": "2025-02-03T18:23:59",
+      "seconds": 540.0
+    },
+    {
+      "index_before": 18583,
+      "index_after": 18584,
+      "start": "2025-02-03T21:24:59",
+      "end": "2025-02-03T21:31:59",
+      "seconds": 420.0
+    },
+    {
+      "index_before": 19485,
+      "index_after": 19486,
+      "start": "2025-02-04T17:11:59",
+      "end": "2025-02-04T17:17:59",
+      "seconds": 360.0
+    },
+    {
+      "index_before": 21809,
+      "index_after": 21810,
+      "start": "2025-02-06T08:50:59",
+      "end": "2025-02-06T09:05:59",
+      "seconds": 900.0
+    },
+    {
+      "index_before": 21810,
+      "index_after": 21811,
+      "start": "2025-02-06T09:05:59",
+      "end": "2025-02-06T10:36:59",
+      "seconds": 5460.0
+    },
+    {
+      "index_before": 22020,
+      "index_after": 22021,
+      "start": "2025-02-06T14:07:59",
+      "end": "2025-02-06T15:48:56",
+      "seconds": 6057.0
+    },
+    {
+      "index_before": 23234,
+      "index_after": 23235,
+      "start": "2025-02-07T12:03:00",
+      "end": "2025-02-07T12:13:00",
+      "seconds": 600.0
+    },
+    {
+      "index_before": 107564,
+      "index_after": 107565,
+      "start": "2025-04-07T15:09:57",
+      "end": "2025-04-07T19:28:57",
+      "seconds": 15540.0
+    },
+    {
+      "index_before": 119710,
+      "index_after": 119711,
+      "start": "2025-04-16T09:34:36",
+      "end": "2025-04-16T10:01:13",
+      "seconds": 1597.0
+    },
+    {
+      "index_before": 141453,
+      "index_after": 141454,
+      "start": "2025-05-01T15:01:37",
+      "end": "2025-05-01T15:58:02",
+      "seconds": 3385.0
+    },
+    {
+      "index_before": 164976,
+      "index_after": 164977,
+      "start": "2025-05-18T05:14:57",
+      "end": "2025-05-18T05:58:04",
+      "seconds": 2587.0
+    },
+    {
+      "index_before": 262745,
+      "index_after": 262746,
+      "start": "2025-07-25T08:01:02",
+      "end": "2025-07-25T08:14:40",
+      "seconds": 818.0
+    },
+    {
+      "index_before": 375383,
+      "index_after": 375384,
+      "start": "2025-10-12T19:45:03",
+      "end": "2025-10-12T19:51:17",
+      "seconds": 374.0
+    },
+    {
+      "index_before": 397909,
+      "index_after": 397910,
+      "start": "2025-10-28T13:58:06",
+      "end": "2025-10-28T14:44:39",
+      "seconds": 2793.0
+    },
+    {
+      "index_before": 411924,
+      "index_after": 411925,
+      "start": "2025-11-07T14:06:28",
+      "end": "2025-11-07T14:13:04",
+      "seconds": 396.0
+    },
+    {
+      "index_before": 411932,
+      "index_after": 411933,
+      "start": "2025-11-07T14:20:33",
+      "end": "2025-11-07T14:30:43",
+      "seconds": 610.0
+    },
+    {
+      "index_before": 441146,
+      "index_after": 441147,
+      "start": "2025-11-28T00:49:18",
+      "end": "2025-11-28T01:20:16",
+      "seconds": 1858.0
+    },
+    {
+      "index_before": 441475,
+      "index_after": 441476,
+      "start": "2025-11-28T06:53:02",
+      "end": "2025-11-28T06:59:56",
+      "seconds": 414.0
+    }
+  ]
+}
