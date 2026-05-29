@@ -22,7 +22,7 @@
   for edge deployment.
 
   **Justification:**
-  1. **Zero edge-profile change risk:** AMAX-5580 CPU profile already
+  1. **Zero edge-profile change risk:** AMAX-8580 CPU profile already
   advertises ONNX; validate_deployment_package_for_edge accepts immediately.
   2. **Hardware-agnostic safety:** ONNX CPU runtime (onnxruntime) is
   deterministic, well-tested, no CUDA/libtorch dependency surprises.
@@ -37,7 +37,7 @@
   EPIC** pending:
   - Edge-profile schema extension to advertise `'pytorch'` in
   `supported_model_frameworks`.
-  - Libtorch CPU runtime integration + determinism audit on AMAX-5580
+  - Libtorch CPU runtime integration + determinism audit on AMAX-8580
   hardware.
   - Safety review of non-ONNX artifact path with Operational Console team.
 
@@ -613,7 +613,7 @@
   with a torch-vs-ONNX **numerical parity gate**, then build a
   `ModelArtifactRecord` + `DeploymentPackageManifest` and prove that
   `validate_deployment_package_for_edge(...)` accepts the package **UNCHANGED**
-  on the AMAX-5580 default CPU edge profile (advertises `onnx`/`tflite`;
+  on the AMAX-8580 default CPU edge profile (advertises `onnx`/`tflite`;
   rejects `pytorch`/`cuda`/`tensorrt`/`jetson`/`orin`/`arm64`/`aarch64`).
   **User value:** a checksummed, contract-valid, CPU-deployable shadow-mode
   artifact that the existing edge validator passes with **zero contract or
@@ -643,7 +643,7 @@
   shared contract dataclasses (`ModelArtifactRecord`,
   `DeploymentPackageManifest`, `SafetyFlagSet`) but must NOT reach into
   `src/aquaoptima/edge/*` runtime internals.
-  - **No edge-profile schema change.** The AMAX-5580 default CPU profile must
+  - **No edge-profile schema change.** The AMAX-8580 default CPU profile must
   remain UNCHANGED; if a change is needed, that is Option B (see Backlog).
   - `framework` field in `ModelArtifactRecord` **MUST be `"onnx"`** for Option
   A.
@@ -660,7 +660,7 @@
   True, matching `package_id`s, `schema_family="manifest"`, label contract =
   9 canonical axes / `TelemetryTagMap` roles**
   5. **Write a test asserting
-  `validate_deployment_package_for_edge(manifest, amax5580_cpu_profile).accepted
+  `validate_deployment_package_for_edge(manifest, amax8580_cpu_profile).accepted
   is True` (artifact accepted UNCHANGED)**
   6. **Add negative tests: a `framework="pytorch"` artifact and a
   `cuda`/`tensorrt`/`aarch64`-tagged artifact are REJECTED by the same
@@ -684,13 +684,13 @@
   and prediction labels = the 9 canonical telemetry axes /
   `TelemetryTagMap` input roles.
   - [ ] **`validate_deployment_package_for_edge(manifest,
-  amax5580_cpu_profile).accepted is True`** — accepted UNCHANGED on the
+  amax8580_cpu_profile).accepted is True`** — accepted UNCHANGED on the
   default CPU edge profile, with NO edge-profile or contract modification.
   - [ ] Negative tests pass: `framework="pytorch"` → `accepted is False`;
   `cuda`/`tensorrt`/`jetson`/`orin`/`arm64`/`aarch64` accelerator/architecture
   tokens → `accepted is False`.
   - [ ] `git diff` shows **no change** under
-  `src/aquaoptima_contracts/edge/package_validator.py` or the AMAX-5580
+  `src/aquaoptima_contracts/edge/package_validator.py` or the AMAX-8580
   profile definition (validator/profile untouched).
   - [ ] `pytest -q tests/contracts/test_edge_package_accept.py` is GREEN.
 
@@ -710,7 +710,7 @@
 
   **Modified:** NONE in
   `src/aquaoptima_contracts/edge/package_validator.py` and NONE in the
-  AMAX-5580 profile — that is the whole point of Option A.
+  AMAX-8580 profile — that is the whole point of Option A.
 
   ### Tests to Create
   1. `tests/training/test_onnx_parity.py`: export a tiny model, run torch +
@@ -738,11 +738,11 @@
     --report data/packages/yilan_dphm_v1/parity_report.json
   # Expected: parity OK | max_abs_diff=3.1e-05 (< 1e-4) -> PASS
 
-  # 2. Build package + validate against AMAX-5580 CPU profile
+  # 2. Build package + validate against AMAX-8580 CPU profile
   python -m aquaoptima_contracts.edge.package_builder \
     --onnx data/models/yilan_dphm_v1/model.onnx \
     --framework onnx \
-    --hardware-profile amax5580_cpu \
+    --hardware-profile amax8580_cpu \
     --out data/packages/yilan_dphm_v1/deployment_package_manifest.json
   # Expected:
   # ModelArtifactRecord.framework = onnx
@@ -789,10 +789,10 @@
   **Option B = native TorchScript edge artifact + extend the edge profile to
   advertise `pytorch` (libtorch CPU).** This is explicitly **NOT** the default
   and is deferred to Backlog. Activating Option B requires ALL of:
-  1. A dedicated **contracts change** adding `"pytorch"` to the AMAX-5580
+  1. A dedicated **contracts change** adding `"pytorch"` to the AMAX-8580
   profile's `supported_model_frameworks` (its own PR + contracts review).
   2. Independent **verification**: libtorch CPU determinism audit on
-  AMAX-5580 hardware (100× identical-input → bitwise-identical output) and a
+  AMAX-8580 hardware (100× identical-input → bitwise-identical output) and a
   TorchScript-vs-PyTorch parity check.
   3. A separate **safety review** confirming the profile extension does NOT
   weaken accelerator/architecture rejection (cuda/tensorrt/jetson/orin/
@@ -808,7 +808,7 @@
   - Add torch-vs-ONNX numerical parity gate (max abs diff < 1e-4); BLOCK on failure
   - Build ModelArtifactRecord(framework="onnx", sha256 checksum, external uri) — no inline weights
   - Build DeploymentPackageManifest (7/7 SafetyFlagSet True, matching package_ids, schema_family=manifest)
-  - Assert validate_deployment_package_for_edge(...).accepted is True on AMAX-5580 CPU profile (UNCHANGED)
+  - Assert validate_deployment_package_for_edge(...).accepted is True on AMAX-8580 CPU profile (UNCHANGED)
   - Add negative tests: pytorch/cuda/tensorrt/aarch64 still rejected; Option B deferred to Backlog
 
   Component: Shared contracts (package builder) + core export util (no edge runtime, no validator/profile edits)

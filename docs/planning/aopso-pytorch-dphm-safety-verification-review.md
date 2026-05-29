@@ -184,7 +184,7 @@
   ### 3.1 Option A (PyTorch → ONNX Export): APPROVED
 
   **Rationale:**
-  - ✅ **Edge validator compliance:** AMAX-5580 CPU profile already
+  - ✅ **Edge validator compliance:** AMAX-8580 CPU profile already
   advertises `'onnx'` (and `'tflite'`) in `supported_model_frameworks`. No
   edge-profile schema change required.
   - ✅ **Determinism:** ONNX CPU runtime (onnxruntime) is deterministic,
@@ -230,14 +230,14 @@
 
   **Required Prerequisites for Option B activation (ALL must hold):**
   1. **Edge-profile schema extension:** Add `'pytorch'` to
-  `supported_model_frameworks` in the AMAX-5580 hardware profile — its own
+  `supported_model_frameworks` in the AMAX-8580 hardware profile — its own
   contracts-change PR.
      - **Safety gate:** This schema change MUST go through contracts review
   + edge validator integration test + deployment dry-run.
      - **Verification command:**
        ```bash
        python -m aquaoptima_contracts.edge.package_validator \
-         --hardware-profile amax5580_cpu \
+         --hardware-profile amax8580_cpu \
          --model-artifact model.pt \
          --framework pytorch
        # Must pass validation OR fail with explicit "pytorch not supported"
@@ -247,7 +247,7 @@
   2. **Libtorch CPU runtime integration:** Add libtorch as edge dependency,
   audit for non-determinism (e.g., TorchScript JIT optimizations, CPU
   threading).
-     - **Safety gate:** Determinism test on AMAX-5580 hardware (not just dev
+     - **Safety gate:** Determinism test on AMAX-8580 hardware (not just dev
   laptop). Run same input 100 times, assert bitwise-identical outputs.
 
   3. **Accelerator/architecture rejection preserved:** Confirm that even with
@@ -259,7 +259,7 @@
        ```bash
        # Attempt to package a CUDA model for CPU-only hardware
        python -m aquaoptima_contracts.edge.package_validator \
-         --hardware-profile amax5580_cpu \
+         --hardware-profile amax8580_cpu \
          --model-artifact model_cuda.pt \
          --framework pytorch
        # Expected: ERROR "CUDA artifact rejected for CPU-only profile"
@@ -417,7 +417,7 @@
     --onnx data/models/yilan_dphm_v1/model.onnx --holdout-sample 1000 \
     --report data/packages/yilan_dphm_v1/parity_report.json
   python -m aquaoptima_contracts.edge.package_builder --onnx data/models/yilan_dphm_v1/model.onnx \
-    --framework onnx --hardware-profile amax5580_cpu \
+    --framework onnx --hardware-profile amax8580_cpu \
     --out data/packages/yilan_dphm_v1/deployment_package_manifest.json
   pytest -q tests/training/test_onnx_parity.py tests/contracts/test_edge_package_accept.py \
            tests/contracts/test_edge_package_reject.py
@@ -437,7 +437,7 @@
   + verification + safety review.
 
   **Safety note:** This is the most safety-critical sprint. Approval is
-  contingent on the validator and AMAX-5580 profile remaining **byte-unchanged**
+  contingent on the validator and AMAX-8580 profile remaining **byte-unchanged**
   (verified via `git diff`) and on the parity gate + rejection negative-tests
   being GREEN.
 

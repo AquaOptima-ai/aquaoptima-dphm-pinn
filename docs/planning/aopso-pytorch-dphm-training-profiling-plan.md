@@ -310,7 +310,7 @@
     "framework": "onnx",  # post-export
   "model_file_uri": "file:///opt/aquaoptima/models/yilan_dphm_v1/model.onnx",
   "checksum": {"algorithm": "sha256", "hex_digest": "<64-hex>", "size_bytes": <int>},
-  "framework": "onnx"   // PyTorch-trained, exported to ONNX for the AMAX-5580 CPU edge profile
+  "framework": "onnx"   // PyTorch-trained, exported to ONNX for the AMAX-8580 CPU edge profile
 }
 ```
 
