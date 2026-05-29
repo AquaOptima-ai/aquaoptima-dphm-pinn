@@ -1,348 +1,137 @@
-# Sprint 28 Report — EPANET `[EMITTERS]` / `[DEMANDS]` per-row diagnostics
+# AOPSO Sprint 28 — Pillar A interpretable health baselines
 
-Branch: `sprint28` (worktree at
-`/home/hunter_lin/projects/aquaoptima-dphm-pinn-sprint28`).
+Branch: `aopso/sprint28-pillarA-baselines`
+Pivot: A+B advisory (Health + Efficiency) — Sprint 28 ships Pillar A FOUNDATION.
 
-Based on Sprint 27 head `9d78a63 feat: classify epanet control diagnostics`.
+This sprint BUILDS the bar that the Sprint 29 learned detector must clear. Nothing
+here is learned; the three baselines are transparent, fit/score-separated, pure
+statistical methods on 2025 auto-mode normal operation.
 
-## Sprint goal
+> NOTE: this file supersedes an earlier, unrelated EPANET `[EMITTERS]`/`[DEMANDS]`
+> diagnostics report that lived at this path before the A+B pivot. The Sprint-28
+> work below is the active AOPSO Pillar A foundation.
 
-Add **read-only per-row `[EMITTERS]` / `[DEMANDS]` diagnostics** on top
-of the existing EPANET import diagnostics surface (Sprints 23–27),
-continuing the analyst-visibility ladder for ignored EPANET sections
-without changing hydraulics.
+## Hard boundary (unchanged)
+- `evaluation_mode = offline_only`, `write_path = none`,
+  `influences_control = False`, `site_integration_allowed = False`.
+- No `aquaoptima.edge` / `aquaoptima_contracts.edge` imports. Contracts SDK
+  read-only. Governance scan green on the advisory package.
+- March 2026 (`2026-03`) is a LOCKED holdout. The Sprint-27 leakage guard
+  (`advisory.governance.assert_holdout_isolated`) is invoked before every fit
+  in `health_baselines`; March-2026 keys raise `LeakageError` and the report
+  script exits non-zero (exit code 2).
 
-## Files changed
+## Files added
+| Path | Purpose |
+|------|---------|
+| `src/aquaoptima/advisory/health_baselines.py` | EWMA/SPC, Mahalanobis, physical-residual baselines + `HealthBaselineSuite`. Pure pandas/numpy. |
+| `tests/advisory/test_health_baselines.py` | 22 subset/fixture tests covering all three baselines, the suite, determinism, and the leakage guard. |
+| `scripts/sprint28_baseline_report.py` | Subset-capable report generator. Exits 2 on leakage; emits the JSON below. |
+| `data/eval/pillarA/sprint28_baseline_report.json` | Per-axis SPC limits, Mahalanobis covariance summary, combined-score distribution, false-alarm summary. |
 
-```
- M docs/epanet-inp-import.md       | +221 lines
- M src/aquaoptima/dphm/__init__.py |   +2 lines
- M src/aquaoptima/dphm/inp_io.py   | ~225 lines (additions only; no semantic changes to prior code)
-?? tests/dphm/test_inp_emitter_demand_row_diagnostics.py  (NEW, 46 tests)
-```
+No edge imports, no packaging changes, no neural-net training.
 
-No edits to any active hydraulic field, helper, parser branch, or
-WNTR adapter logic beyond:
+## The three baselines
 
-* a new `EpanetEmitterDemandDiagnostic` frozen dataclass;
-* a new `_collect_emitter_demand_row_diagnostics` helper;
-* an additional `emitter_demand_rows` tuple field on the existing
-  `EpanetImportDiagnostics` container (default `()`);
-* one new call site in `_fallback_parse` that collects the diagnostics
-  and attaches them to the returned container;
-* one extended comment on the WNTR adapter's empty-container return
-  (no behaviour change — still returns an empty
-  `EpanetImportDiagnostics` as documented);
-* package `__init__.py` exporting the new dataclass.
+### 1. EWMA / SPC control chart (`fit_ewma_spc` → `EwmaSpcModel`)
+Per continuous active axis we store the in-control mean ``μ``, sample std ``σ``,
+the asymptotic EWMA-statistic std ``σ_z = σ · √(λ/(2−λ))`` (λ=0.2 default), and
+3-sigma control limits ``μ ± L·σ_z`` (L=3). Scoring recomputes the causal EWMA
+``z_t = λ·x_t + (1−λ)·z_{t-1}`` seeded at ``μ`` and emits, per row and per axis,
+the EWMA value, an out-of-control flag, and the per-axis |z-score|. A combined
+``spc_fraction_axes_out`` summarises the row.
 
-## API design
+### 2. Multivariate Mahalanobis distance (`fit_mahalanobis` → `MahalanobisModel`)
+Standardises the active-axis vector with input ``μ``/``σ``, computes the sample
+covariance, ridge-regularises (``Σ + ε(tr(Σ)/k + 1)·I``, ε=1e-6) so the matrix
+is reliably invertible at small N, and calibrates the train-time 99.5-percentile
+of the Mahalanobis distance as the in-control envelope. Scoring returns both
+the raw distance and a [0,1] normalised score (1.0 = at or above calibration).
 
-```python
-@dataclass(frozen=True)
-class EpanetEmitterDemandDiagnostic:
-    section: str            # always "EMITTERS" or "DEMANDS"
-    row_index: int          # 0-based within the section bucket
-    tokens: tuple[str, ...] # exact parser tokens, comments stripped
-    text: str               # single-space-joined token text
-    message: str            # human-readable no-op explanation
+### 3. Residual vs. physical expectation (`residual_vs_physical` → `PhysicalResidualModel`)
+Fits a closed-form OLS for ``edge_power ~ α + β_flow · edge_flow + β_speed ·
+edge_pump_speed`` — the documented affinity-law-style linear proxy. Computes
+R² and residual σ. If features are missing or R² falls below ``min_r2`` (0.30
+default) the model is returned with ``high_confidence=False`` and ``score()``
+emits zeros across all rows; we deliberately refuse to fabricate a physical
+signal we don't trust. On the real Yilan 2025 auto-mode subset the fit is
+strong: **R² = 0.933** → high-confidence path active.
 
+### Suite — combined per-row health score and anomaly flag
+``HealthBaselineSuite`` combines the three normalised component scores into a
+per-row deviation in [0, 1] (mean of the components used; the residual term is
+dropped when ``low_confidence``), and emits
 
-@dataclass(frozen=True)
-class EpanetImportDiagnostics:
-    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()                  # Sprint 23
-    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()     # Sprint 24
-    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()       # Sprint 25 + Sprint 27 `kind`
-    pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()   # Sprint 26
-    emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()   # Sprint 28
-```
+  - ``health_score = 1 − combined_deviation`` in [0, 1] (higher = healthier),
+  - ``anomaly_flag = (health_score < health_threshold)`` (threshold 0.5),
+  - the three component norm scores for interpretability,
+  - ``components_used`` (2 or 3) for downstream audit.
 
-Public entry points (unchanged signatures):
+A ``false_alarm_summary(frames)`` reports the alarm-rate behaviour on the input
+data — that is the Sprint-28 gate artifact.
 
-* `load_inp_diagnostics(path, parser="fallback")` returns a fully
-  populated `EpanetImportDiagnostics`.
-* `load_network_from_inp(path, parser="fallback", return_diagnostics=True)`
-  returns `(Network, EpanetImportDiagnostics)`.
-* `load_network_from_inp(path)` (no `return_diagnostics`) still returns
-  the bare `Network` (backwards compatible — explicitly tested).
+## Held-in normal-data false-alarm behaviour (Sprint 28 gate artifact)
 
-Naming and shape mirror the Sprint 25 / Sprint 26 per-row channels for
-consistency. The records are tuple-backed and frozen; reassignment
-raises `dataclasses.FrozenInstanceError`.
+Source data: real 2025 Yilan CSV, **28,931 auto-mode rows** (subset cap
+30k specified to the report script; the auto-mode prefix in the source yields
+≈29k rows after dropping NaN axes). Axes used: all 8 active continuous axes
+from the canonical taxonomy (`edge_flow`, `edge_power`, `edge_pump_speed`,
+`edge_status`, `node_demand`, `node_level`, `node_pressure`, `node_status`).
 
-## Fallback parser behaviour
+| Metric | Value | Notes |
+|---|---|---|
+| Combined anomaly-flag rate | **15.69%** | Health < 0.5 threshold |
+| EWMA/SPC any-axis-out rate | **67.47%** | EWMA-statistic 3-σ limits are tight relative to real pump-station autocorrelation/drift |
+| Mahalanobis alarm rate | **0.50%** | Calibrated by construction (99.5-pct envelope on train) |
+| Physical-residual R² | **0.933** | High-confidence; residual term contributes |
+| Health-score mean | **0.677** | |
+| Health-score p05 | **0.404** | |
 
-`_collect_emitter_demand_row_diagnostics(sections)` walks the
-per-section tokenised rows that `_split_sections` already produces and
-emits one `EpanetEmitterDemandDiagnostic` for every row whose section
-is `"EMITTERS"` or `"DEMANDS"`. Rules:
+These numbers are reproducible: re-running the report script on the same CSV
+yields a bit-identical JSON (no RNG; all statistics deterministic).
 
-* Section ordering follows source-file order
-  (`_split_sections` is built on a regular `dict`; Python 3.7+
-  preserves insertion order).
-* `row_index` resets per section, 0-based within the section bucket.
-* `tokens` is a `tuple` (parser-emitted lists are coerced); token
-  order matches the source row.
-* Inline `; ...` comments are stripped before tokenisation by
-  `_strip_comment`; blank rows are dropped by `_split_sections`
-  before they can reach the collector.
-* Bare `[EMITTERS]` / `[DEMANDS]` headers with no body emit no row
-  diagnostics (no rows to surface), but Sprint 24 still surfaces the
-  section name through `ignored_sections`.
-* The collector is read-only — it never mutates `sections` and never
-  affects parsing outcomes. The existing hydraulic pipeline is
-  untouched.
+**Interpretation.** The EWMA 3-σ chart is the tightest of the three baselines on
+this site's autocorrelated telemetry, and produces the high any-axis-out rate —
+exactly the kind of behaviour the Sprint-29 learned detector needs to improve
+on (raise detection on injected faults while staying at or below this
+characteristic false-alarm rate). Mahalanobis sits at its calibration target
+(~0.5%) by design. The physical residual contributes the third leg only when
+the fit clears 0.30 R²; here it does.
 
-## Read-only / no-op evidence
+## Tests
 
-Hydraulic invariance is proven by two pytest tests:
+`tests/advisory/test_health_baselines.py` — 22 new tests covering:
 
-* `test_emitter_demand_diagnostics_do_not_change_network` — loads a
-  baseline fixture and a perturbed fixture (with two `[EMITTERS]`
-  rows + two `[DEMANDS]` rows) and asserts byte-for-byte equality of
-  every `Network` field: `edge_index`, `pipe_mask`, `pump_mask`,
-  `demands`, `fixed_head_values`, `lengths`, `diameters`,
-  `c_factors`, `pump_speeds`, `pump_coeffs` (via
-  `_assert_networks_identical`).
-* `test_emitter_demand_diagnostics_do_not_change_solve` — runs
-  `newton_solve(..., max_iterations=200, tol=1e-9,
-  jacobian_mode="analytic")` on both networks and asserts heads match
-  to 1e-9 and flows match to 1e-12.
+- EWMA/SPC: low false-alarm rate on a pure-normal synthetic frame; an injected
+  large step deviation is flagged in ≥ 90% of post-step rows; rejects
+  out-of-range λ.
+- Mahalanobis: invertible covariance; an out-of-envelope point scores high
+  (norm = 1.0) and at or above the train calibration distance; an in-envelope
+  point scores near zero; refuses to fit on too few rows.
+- Residual: high-confidence path on a strong synthetic linear relationship;
+  flags a 20-σ deviation; drops to low-confidence (zero score) when features
+  are missing or the relationship is pure noise.
+- Determinism: identical seed/data → bit-identical fitted params and scored
+  DataFrames for both individual models and the suite.
+- Leakage guard: every fit entry point (`fit_ewma_spc`, `fit_mahalanobis`,
+  `residual_vs_physical`, `fit_health_baseline_suite`) raises `LeakageError`
+  on input containing a `2026-03` key (timestamp column AND index fallback).
+- Suite: score columns and health-range invariants; held-in normal false-alarm
+  summary stays low on the synthetic fixture; ``to_summary_dict`` is JSON-safe.
 
-Additionally:
+### Verification gate results
+- `python -m pytest tests/advisory -q` → **43 passed** in 0.51s (21 prior
+  Sprint-27 conformance/governance tests + 22 new Sprint-28 baseline tests).
+- `python -m pytest tests -q` → **2463 passed, 1 skipped** in 134s
+  (Sprint-26/27 regressions absent; the only skip is the unconditional WNTR
+  optional-import skip, unchanged from main).
+- Report script reproducibility verified: two consecutive runs produce
+  identical false-alarm rates (15.6891%, byte-identical JSON).
 
-* Sprint 22 `[STATUS]` rejection paths still raise: a parametrised
-  test mixes each rejected status token (`CLOSED`, `CV`, numeric
-  pump-status, unknown link id, arbitrary token) with `[EMITTERS]` +
-  `[DEMANDS]` rows and confirms `load_inp_diagnostics` and
-  `load_network_from_inp(..., return_diagnostics=True)` both still
-  raise `ValueError`. No partial diagnostics leak out of the failure.
-* Sprint 25 `control_rule_rows` and Sprint 26 `pattern_energy_rows`
-  channels never include `[EMITTERS]` / `[DEMANDS]` rows
-  (explicitly tested).
-* Sprint 24 `ignored_sections` continues to surface `EMITTERS` /
-  `DEMANDS` at the section level when those sections are present.
-* Default `load_network_from_inp(path)` (no `return_diagnostics`)
-  still returns only a `Network` (explicitly tested).
+## What is NOT in this sprint (by design)
+- The learned detector (TCN reconstruction / autoencoder) — that is Sprint 29.
+- A "beat the baseline" claim — Sprint 28 only BUILDS the bar.
+- Any packaging, ONNX export, or contracts artifact wrap — Sprint 30+.
+- Any read/write/actuation against the OT side. (None imported, none invoked.)
 
-## WNTR back-end behaviour / asymmetry
-
-The WNTR adapter (`_wntr_parse`) continues to return an empty
-`EpanetImportDiagnostics()` — i.e. `status_rows = ()`,
-`ignored_sections = ()`, `control_rule_rows = ()`,
-`pattern_energy_rows = ()`, `emitter_demand_rows = ()`. WNTR has its
-own `[EMITTERS]` / `[DEMANDS]` handling, and the dPHM WNTR adapter
-does not re-emit emitter/demand row diagnostics — the fallback parser
-is documented as authoritative for every diagnostics channel.
-
-The asymmetry is documented in `docs/epanet-inp-import.md` and tested
-via `test_wntr_back_end_returns_container_without_raising`, which is
-gated by `pytest.importorskip("wntr")` (currently runs because WNTR
-1.4.0 is installed in the environment; would skip cleanly without).
-
-The WNTR HEAD / POWER / PRV / TCV / demand-multiplier hydraulic parity
-tests from Sprints 13–27 all still pass (full suite is green).
-
-## Tests added/updated
-
-`tests/dphm/test_inp_emitter_demand_row_diagnostics.py` — 46 new
-tests, all passing:
-
-* **Public surface (6 tests).** `EpanetEmitterDemandDiagnostic` is a
-  frozen dataclass; reassigning any field raises
-  `FrozenInstanceError`; defaults; `tokens` is a `tuple`;
-  `EpanetImportDiagnostics.emitter_demand_rows` defaults to `()` and
-  is itself tuple-backed and frozen.
-* **Empty / absent cases (3 tests).** Fixtures without
-  `[EMITTERS]` / `[DEMANDS]`, bare `[EMITTERS]` header, bare
-  `[DEMANDS]` header — all produce empty `emitter_demand_rows`; the
-  bare-header fixtures still surface the section via
-  `ignored_sections`.
-* **Single rows (2 tests).** One `[EMITTERS]` row and one `[DEMANDS]`
-  row each produce exactly one record with the expected section,
-  `row_index = 0`, exact tokens, and reconstructed text.
-* **Multi-row order preservation (2 tests).** Three `[EMITTERS]`
-  rows / three `[DEMANDS]` rows preserve `row_index = [0, 1, 2]` and
-  source order.
-* **Mixed source order (2 tests).** `[EMITTERS]` first then
-  `[DEMANDS]`, and the reverse; section ordering follows source-file
-  order; `row_index` resets per section.
-* **Comments + blanks (2 tests).** Inline `; ...` stripped before
-  tokenisation; blank rows dropped before `row_index` assignment.
-* **Exclusion of other sections (11 parametrised + 3 explicit).**
-  Other ignored sections (`CONTROLS`, `RULES`, `PATTERNS`, `ENERGY`,
-  `QUALITY`, `SOURCES`, `REACTIONS`, `MIXING`, `TIMES`, `REPORT`),
-  `STATUS`, and active hydraulic sections (`JUNCTIONS`,
-  `RESERVOIRS`, `TANKS`, `PIPES`, `PUMPS`, `VALVES`, `OPTIONS`,
-  `CURVES`) never appear in `emitter_demand_rows`. A combined test
-  asserts every emitted record's section is one of `EMITTERS` /
-  `DEMANDS`.
-* **Cross-channel disjointness (2 tests).** The Sprint 25
-  `control_rule_rows` channel and the Sprint 26
-  `pattern_energy_rows` channel never include `[EMITTERS]` /
-  `[DEMANDS]` rows; conversely they still cover their own sections.
-* **Sprint 24 coverage (1 test).** `ignored_sections` still lists
-  `EMITTERS` and `DEMANDS` when those sections are present.
-* **Hydraulic inertness (2 tests).** `Network` byte-for-byte
-  invariance and Newton-solve heads/flows invariance.
-* **Return-diagnostics API (3 tests).**
-  `load_network_from_inp(..., return_diagnostics=True)` returns the
-  same `Network` as the default call, and the same diagnostics as
-  `load_inp_diagnostics`. Default `load_network_from_inp(path)`
-  remains backwards-compatible.
-* **Combined Sprint 23+24+25+26+28 coexistence (2 tests).** A
-  five-channel fixture and a status-only fixture confirm `[STATUS]`
-  is never surfaced through `ignored_sections` or
-  `emitter_demand_rows`.
-* **Sprint 22 rejection preservation (5 parametrised tests).** Every
-  rejected `[STATUS]` token (`CLOSED`, `CV`, numeric pump-status,
-  unknown link id, arbitrary token) still raises when `[EMITTERS]` +
-  `[DEMANDS]` are also present; no partial diagnostics leak out.
-* **WNTR asymmetry (1 test).** With WNTR installed,
-  `load_inp_diagnostics(..., parser="wntr")` returns an
-  `EpanetImportDiagnostics` with empty `emitter_demand_rows`.
-  Skipped via `pytest.importorskip` when WNTR is not installed.
-
-## Validation commands & results
-
-```bash
-$ python -m pip install -e .
-Successfully installed aquaoptima-dphm-pinn-0.1.0
-
-$ python -m pytest tests/dphm tests/models tests/training tests/dataio -q
-1173 passed, 1 skipped, 3 warnings in 87.31s (0:01:27)
-
-$ python -m pytest tests -q
-1181 passed, 1 skipped, 3 warnings in 85.01s (0:01:25)
-
-$ python -m compileall src tests
-(clean — no SyntaxError, no compile failures)
-
-$ git status --short
- M docs/epanet-inp-import.md
- M src/aquaoptima/dphm/__init__.py
- M src/aquaoptima/dphm/inp_io.py
-?? tests/dphm/test_inp_emitter_demand_row_diagnostics.py
-```
-
-Sprint 27 baseline: 1127 passed, 1 skipped (targeted) / 1135 passed,
-1 skipped (full). Sprint 28 delta: +46 new tests (1173 / 1181). No
-prior-sprint test regressed.
-
-Secret-scan grep over the diff: zero matches for private-key headers,
-`aws_access_key`, or quoted `api_key` assignments.
-
-## Compatibility notes
-
-* `load_network_from_inp(path)` (default — no
-  `return_diagnostics`) is **byte-for-byte backwards compatible**.
-  Every Sprint 11–27 caller continues to receive a bare `Network`.
-* `EpanetImportDiagnostics()` (no kwargs) keeps the Sprint 23 / 24 /
-  25 / 26 surface intact: the new `emitter_demand_rows` field
-  defaults to `()`, so any keyword-only consumer that ignores the
-  new field continues to work.
-* The Sprint 22 `[STATUS]` rejection contract is fully preserved.
-* The Sprint 21 ignored-section no-op contract is fully preserved:
-  `EMITTERS` and `DEMANDS` remain members of `IGNORED_SECTIONS`, the
-  fallback parser never reads their content for any hydraulic
-  purpose, and the loaded `Network` is unchanged.
-* The Sprint 25 `control_rule_rows` channel and Sprint 26
-  `pattern_energy_rows` channel are unchanged.
-* The Sprint 27 `EpanetControlKind` classification is unchanged.
-* The Sprint 24 `ignored_sections` channel is unchanged.
-* `__all__` exports gain `EpanetEmitterDemandDiagnostic` from both
-  `aquaoptima.dphm.inp_io` and the top-level `aquaoptima.dphm`
-  package.
-
-## Known limitations
-
-Sprint 28 deliberately does **not**:
-
-* model pressure-dependent emitter outflow
-  (`Q_emitter = C * P^gamma`) on any junction;
-* model background leakage / pressure-dependent demand;
-* parse multi-category demands, demand patterns, or per-category
-  pattern multipliers — the `[OPTIONS] Demand Multiplier` (Sprint 18)
-  remains the only steady-state demand scalar honoured;
-* reject malformed `[EMITTERS]` / `[DEMANDS]` rows — a row with
-  non-numeric tokens still surfaces as a diagnostic with the
-  offending tokens; this is row-visibility, not row-validation;
-* re-emit `emitter_demand_rows` from the WNTR back-end — the
-  fallback parser is authoritative for every diagnostics channel.
-  Documented asymmetry preserved.
-
-These are deferred to future sprints if and when the dPHM core grows
-the corresponding physics (pressure-dependent demand, multi-category
-demands, time-varying patterns).
-
-## Verdict
-
-`VERDICT: APPROVED`
-
-All Sprint 28 hard approval gates pass:
-
-* targeted pytest exits 0 (1173 passed, 1 skipped);
-* full pytest exits 0 (1181 passed, 1 skipped);
-* compileall exits 0;
-* `SPRINT28_REPORT.md` exists (this file);
-* emitter/demand row diagnostics API exists, is exported, and is
-  tested (46 new tests);
-* row diagnostics surface only `[EMITTERS]` and `[DEMANDS]` rows
-  (parametrised exclusion tests confirm every other ignored
-  section, `[STATUS]`, and every active hydraulic section is
-  excluded);
-* Sprint 23 status diagnostics, Sprint 24 ignored-section
-  diagnostics, Sprint 25 control/rule row diagnostics + Sprint 27
-  classification, and Sprint 26 pattern/energy row diagnostics all
-  still work (combined coexistence test);
-* no active emitter / demand / control / rule / pattern / energy
-  semantics are implemented;
-* diagnostics are proven read-only and hydraulically inert
-  (`Network` invariance + Newton-solve invariance);
-* `load_network_from_inp(path)` remains backward compatible by
-  default;
-* Sprint 22 / 23 rejection behaviour remains intact for
-  status-changing / invalid `[STATUS]` rows even when `[EMITTERS]`
-  / `[DEMANDS]` rows are present;
-* existing SI / GPM / pressure / demand / SG / viscosity /
-  diagnostics fixture behaviour passes;
-* HEAD pump tests pass; POWER pump tests pass; PRV / TCV valve
-  tests pass;
-* WNTR optional tests pass (WNTR 1.4.0 installed) with the
-  documented empty-container asymmetry; would skip cleanly without
-  WNTR;
-* no obvious secret files / strings introduced (diff secret-scan
-  zero);
-* `git status` contains only intended Sprint 28 changes.
-
-WNTR-installed additional gates:
-
-* WNTR HEAD / POWER / PRV / TCV / demand-multiplier parity from
-  Sprints 13–27 still pass.
-* WNTR asymmetry around emitter/demand row diagnostics is documented
-  in `docs/epanet-inp-import.md` and asserted by the WNTR
-  smoke-check test.
-
-## Sprint 29 recommendation
-
-Extend the per-row visibility surface to the remaining
-content-bearing members of `IGNORED_SECTIONS` — specifically
-`[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, and `[MIXING]` — through a
-single `EpanetWaterQualityDiagnostic` dataclass and a
-`water_quality_rows` field on `EpanetImportDiagnostics`. The shape
-should mirror Sprints 25 / 26 / 28 exactly: frozen dataclass,
-section / row_index / tokens / text / message, tuple-backed,
-section-name normalised to upper-case, source order preserved, no
-hydraulic side effects, fallback parser authoritative, WNTR adapter
-returns empty.
-
-This closes the per-row visibility ladder for every ignored section
-that carries semantic row content in EPANET-exported fixtures, and
-sets up a future Sprint 30 to add a single
-`EpanetImportDiagnostics.summary()` view across all channels (or a
-`row_count_by_section()` accessor) for downstream UI consumers.
-
-Out of scope for Sprint 29 (and explicitly **not** recommended yet):
-real water-quality modelling, real pressure-dependent emitter
-physics, real demand-pattern support, real control/rule
-interpretation, WNTR-side diagnostic parity, or any write/control
-path.
+SPRINT28_STATUS: COMPLETE
