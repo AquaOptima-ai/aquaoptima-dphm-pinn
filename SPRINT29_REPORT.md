@@ -1,399 +1,243 @@
-# Sprint 29 Report — EPANET water-quality per-row diagnostics
+# AOPSO Sprint 29 — Pillar A learned detector + injected-fault harness + frozen health gate
 
-Branch: `sprint29` (worktree at
-`/home/hunter_lin/projects/aquaoptima-dphm-pinn-sprint29`).
+Branch: `aopso/sprint29-pillarA-detector`
+Worktree: `/home/hunter_lin/projects/aopso-sprint29-impl`
 
-Based on Sprint 28 head `b8ace61 feat: add epanet emitter demand
-diagnostics`.
+> NOTE: this file replaces a previous, unrelated EPANET water-quality
+> diagnostics report that lived at this path before the AOPSO A+B pivot. The
+> active Sprint-29 work is the Pillar A learned health detector documented
+> below.
 
 ## Sprint goal
 
-Add **read-only per-row diagnostics for the four water-quality-family
-ignored sections** (`[QUALITY]`, `[SOURCES]`, `[REACTIONS]`,
-`[MIXING]`) on top of the existing EPANET import diagnostics surface
-(Sprints 23–28), closing the analyst-visibility ladder for every
-content-bearing member of `IGNORED_SECTIONS` without changing
-hydraulics.
+Ship the **learned** Pillar A health detector that the Sprint 28 interpretable
+baselines (EWMA/SPC + Mahalanobis + physical residual) had pre-registered as
+the bar to clear, evaluate it honestly on a FROZEN-seed injected-fault test
+set, and decide PASS/FAIL against a pre-registered rule.
 
-## Files changed
+This is the first sprint in the A+B pivot where a LEARNED model is asked to
+beat a statistical baseline. The prior forecasting objective FAILed exactly
+this kind of gate twice (Sprint 25: 0/6 vs persistence; Sprint 26: 0/8 vs
+persistence). A FAIL verdict on the model gate is an ACCEPTABLE, VALUABLE
+outcome — and is what the script reports below.
+
+## Hard safety boundary (unchanged)
+- `evaluation_mode = offline_only`, `write_path = none`,
+  `influences_control = False`, `site_integration_allowed = False`.
+- No `aquaoptima.edge` / `aquaoptima_contracts.edge` imports. Contracts SDK
+  read-only.
+- March 2026 (`2026-03`) is a LOCKED holdout. The Sprint-27 leakage guard
+  (`advisory.governance.assert_holdout_isolated`) runs before every detector
+  fit; March-2026 keys raise `LeakageError` and the report script exits
+  non-zero (exit code 2).
+- Training data: 2025 auto-mode rows only (the first 30 000 auto-mode rows of
+  `source1_2025.csv`, split 50/50 into a fitting frame and the eval pool
+  before any fault injection).
+- The injected-fault harness operates only on holdout-of-training 2025 rows.
+  March 2026 is NEVER touched.
+
+## Files added
+
+| Path | Purpose |
+|------|---------|
+| `src/aquaoptima/advisory/health_detector.py` | Small CPU MLP autoencoder (`HealthAutoencoder`), deterministic `fit_health_detector`, frozen `FittedHealthDetector` with `.score()` returning `detector_anomaly_score` and `detector_flag`. Standardises inputs with the frozen 2025 stats when available; falls back to input-frame statistics for tests. Sprint-27 leakage guard runs before every fit. |
+| `src/aquaoptima/advisory/injected_faults.py` | FROZEN-seed injected-fault harness producing the four documented families (`sensor_drift`, `stuck_flatline`, `spike`, `envelope_violation`), per-row labels, and per-episode onsets. |
+| `src/aquaoptima/advisory/health_gate.py` | `evaluate_detector_vs_baseline` (AUROC + lead-time + false-alarm for BOTH detector and baseline) and `health_acceptance_gate` (FROZEN pre-registered rule). Composes with `apply_governance_to_verdict` from Sprint 27. |
+| `tests/advisory/test_health_detector.py` | 14 detector tests: determinism, seed sensitivity, leakage guard, normalisation priority, scoring columns. |
+| `tests/advisory/test_injected_faults.py` | 16 harness tests: labels/onsets alignment, all four fault families present, determinism, read-only on input, spike-detectability invariant. |
+| `tests/advisory/test_health_gate.py` | 12 gate tests: PASS / FAIL by each of the three rule clauses, governance override, AUROC helper edge cases. |
+| `scripts/sprint29_detector_eval.py` | Subset-capable CLI: fits both detector + baseline on 2025, builds the FROZEN-seed injected-fault set, evaluates, applies governance, writes the scorecard JSON. |
+| `data/eval/pillarA/sprint29_detector_scorecard.json` | The Sprint 29 scorecard: detector vs baseline AUROC / lead-time / false-alarm, verdict, gate rule, safety + governance block. |
+
+No edits to `aquaoptima.edge`, `aquaoptima_contracts`, packaging, or any
+existing Sprint 27 / 28 module.
+
+## Detector architecture
+
+Small symmetric MLP autoencoder over the standardised active-axis vector, CPU
+only:
 
 ```
- M docs/epanet-inp-import.md       | +260 lines (new Sprint 29 section + intro updates)
- M src/aquaoptima/dphm/__init__.py |   +2 lines (new symbol export)
- M src/aquaoptima/dphm/inp_io.py   | ~140 lines (additions only; no semantic changes to prior code)
-?? tests/dphm/test_inp_water_quality_row_diagnostics.py  (NEW, 50 tests)
+input (n_axes=8) --Linear--> 16 --Tanh--> Linear --> 8 (latent) --Tanh
+                                                                     \
+        Linear <-- 16 <--Tanh-- Linear <-- 8 (latent)                /
+        |
+        v
+output (n_axes=8)
 ```
 
-No edits to any active hydraulic field, helper, parser branch, or
-WNTR adapter logic beyond:
+Activations: `Tanh` everywhere. Per-axis standardisation uses the frozen
+`data/normalization/yilan_2025_train_stats.json` mu/sigma when present (the
+production path); tests fall back to input-frame statistics. Deterministic
+parameter init is sampled from a local `torch.Generator` so the init does
+not depend on global torch state.
 
-* a new `EpanetWaterQualityDiagnostic` frozen dataclass;
-* a new `_collect_water_quality_row_diagnostics` helper;
-* an additional `water_quality_rows` tuple field on the existing
-  `EpanetImportDiagnostics` container (default `()`);
-* one new call site in `_fallback_parse` that collects the diagnostics
-  and attaches them to the returned container;
-* one extended comment on the WNTR adapter's empty-container return
-  (no behaviour change — still returns an empty
-  `EpanetImportDiagnostics` as documented);
-* package `__init__.py` exporting the new dataclass.
+Training: Adam (lr 1e-3, weight decay 1e-5), MSE reconstruction loss, seeded
+mini-batch order from `np.random.default_rng(seed)`, 40 epochs at batch
+size 256 on the Yilan subset. Held-in normal val split (20%) is used to
+calibrate the reconstruction-error 99.5 percentile (for the [0,1] anomaly
+score) and the 99-percentile flag threshold.
 
-## API design
+Per-row scoring outputs:
 
-```python
-@dataclass(frozen=True)
-class EpanetWaterQualityDiagnostic:
-    section: str            # one of "QUALITY", "SOURCES", "REACTIONS", "MIXING"
-    row_index: int          # 0-based within the section bucket
-    tokens: tuple[str, ...] # exact parser tokens, comments stripped
-    text: str               # single-space-joined token text
-    message: str            # human-readable no-op explanation
+- `detector_recon_error`: per-row MSE over the standardised axes.
+- `detector_anomaly_score`: `clip(err / val_error_p995, 0, 1)` — the
+  comparable [0,1] score used for AUROC against the baseline's
+  `combined_deviation`.
+- `detector_flag`: 1 iff `err >= flag_threshold_error` (val 99-percentile).
 
+## Injected-fault harness (FROZEN seed)
 
-@dataclass(frozen=True)
-class EpanetImportDiagnostics:
-    status_rows: tuple[EpanetStatusDiagnostic, ...] = ()                  # Sprint 23
-    ignored_sections: tuple[EpanetIgnoredSectionDiagnostic, ...] = ()     # Sprint 24
-    control_rule_rows: tuple[EpanetControlRuleDiagnostic, ...] = ()       # Sprint 25 + Sprint 27 `kind`
-    pattern_energy_rows: tuple[EpanetPatternEnergyDiagnostic, ...] = ()   # Sprint 26
-    emitter_demand_rows: tuple[EpanetEmitterDemandDiagnostic, ...] = ()   # Sprint 28
-    water_quality_rows: tuple[EpanetWaterQualityDiagnostic, ...] = ()     # Sprint 29
+`inject_faults(normal_frames, seed=29, …)` operates on a copy of the input
+frame and returns a faulted frame plus per-row 0/1 labels and per-episode
+`(kind, axis, onset_index, end_index)` records.
+
+Four fault families (all knobs FROZEN; no tuning against the detector):
+
+| Kind | Default knobs | Mechanism |
+|------|---------------|-----------|
+| `sensor_drift` | 4 episodes, window=120 rows, end magnitude = 4·σ_axis | Linear ramp `0 → 4σ` added to one randomly-chosen axis over the window. Models slow sensor or pump-degradation drift. |
+| `stuck_flatline` | 4 episodes, window=80 rows | Window replaced with the pre-onset axis mean. Models a frozen sensor or stuck-output failure. |
+| `spike` | 4 episodes, single step + 5-row decaying tail, magnitude = 6·σ_axis | Multi-sigma additive spike with exponential decay tail. Models transient instrumentation glitches. |
+| `envelope_violation` | 4 episodes, window=60 rows, magnitude = 4·σ_power | `edge_power` is pushed by ±4σ while `edge_flow` and `edge_pump_speed` remain coherent. Models a multivariate break of the physical relationship that the Sprint 28 residual model expects. |
+
+All onsets, lengths, axis selections, and signs are sampled from a single
+seeded `np.random.default_rng(29)`. Same seed + same input ⇒ bit-identical
+output. Episodes never overlap; minimum gap is 5 rows so labels do not
+contaminate one another.
+
+## Frozen acceptance rule (pre-registered before evaluation)
+
+```
+detector_auroc >= baseline_auroc + 0.02
+AND detector_false_alarm_rate <= baseline_false_alarm_rate
+AND detector_auroc >= 0.70
 ```
 
-Public entry points (unchanged signatures):
+Each clause is evaluated as its own named criterion (the same shape as the
+existing scorecard acceptance gate) so the failure mode is explicit in the
+artifact. Defaults are fixed module-level constants
+(`FROZEN_AUROC_MARGIN = 0.02`, `FROZEN_DETECTOR_MIN_AUROC = 0.70`). On
+governance FAIL, `apply_governance_to_verdict` forces the gate verdict to
+FAIL regardless of metrics (the Sprint-27 contract). The rule is NOT adjusted
+based on the empirical outcome.
 
-* `load_inp_diagnostics(path, parser="fallback")` returns a fully
-  populated `EpanetImportDiagnostics`.
-* `load_network_from_inp(path, parser="fallback", return_diagnostics=True)`
-  returns `(Network, EpanetImportDiagnostics)`.
-* `load_network_from_inp(path)` (no `return_diagnostics`) still returns
-  the bare `Network` (backwards compatible — explicitly tested).
+## REAL evaluation numbers (subset run: 30 000 auto-mode 2025 rows)
 
-Naming and shape mirror the Sprint 25 / Sprint 26 / Sprint 28 per-row
-channels for consistency. The records are tuple-backed and frozen;
-reassignment raises `dataclasses.FrozenInstanceError`.
+| Metric | Detector | Baseline | Delta |
+|---|---|---|---|
+| AUROC on injected faults | **0.8158** | **0.8072** | **+0.0085** |
+| False-alarm rate (normal rows) | **0.76 %** | **16.18 %** | **−15.42 pp** |
+| Mean detection lead-time (steps) | **9.56** | **6.76** | +2.80 |
+| Episodes detected | 27 / 32 | 29 / 32 | −2 |
 
-## Fallback parser behaviour
+Per-kind detection lead time (detector / baseline):
 
-`_collect_water_quality_row_diagnostics(sections)` walks the
-per-section tokenised rows that `_split_sections` already produces and
-emits one `EpanetWaterQualityDiagnostic` for every row whose section
-is `"QUALITY"`, `"SOURCES"`, `"REACTIONS"`, or `"MIXING"`. Rules:
+| Kind | Detector mean | Baseline mean | Detector misses |
+|---|---|---|---|
+| sensor_drift | 29.13 | 19.00 | 1 |
+| stuck_flatline | 8.33 | 8.80 | 2 |
+| spike | 0.00 | 0.00 | 0 |
+| envelope_violation | 0.00 | 0.00 | 2 |
 
-* Section ordering follows source-file order (`_split_sections` is
-  built on a regular `dict`; Python 3.7+ preserves insertion order).
-* `row_index` resets per section, 0-based within the section bucket.
-* `tokens` is a `tuple` (parser-emitted lists are coerced); token
-  order matches the source row.
-* Inline `; ...` comments are stripped before tokenisation by
-  `_strip_comment`; blank rows are dropped by `_split_sections`
-  before they can reach the collector.
-* Bare `[QUALITY]` / `[SOURCES]` / `[REACTIONS]` / `[MIXING]` headers
-  with no body emit no row diagnostics (no rows to surface), but
-  Sprint 24 still surfaces the section name through
-  `ignored_sections`.
-* The collector is read-only — it never mutates `sections` and never
-  affects parsing outcomes. The existing hydraulic pipeline is
-  untouched.
+Frozen gate clauses:
 
-## Read-only / no-op evidence
+| Clause | Required | Observed | Passed |
+|---|---|---|---|
+| R1: detector AUROC beats baseline by ≥ 0.02 | Δ ≥ 0.02 | Δ = 0.0085 | **FAIL** |
+| R2: detector false-alarm rate ≤ baseline | 0.0076 ≤ 0.1618 | true | PASS |
+| R3: detector AUROC ≥ 0.70 | 0.8158 ≥ 0.70 | true | PASS |
 
-Hydraulic invariance is proven by two pytest tests:
+Governance (`safety.governance_status`): **PASS**. The four Sprint-27
+guards (holdout isolation, modeling-source import/connector scan, axis
+taxonomy, normalisation coverage) are all green.
 
-* `test_water_quality_diagnostics_do_not_change_network` — loads a
-  baseline fixture and a perturbed fixture (with two rows in each of
-  `[QUALITY]`, `[SOURCES]`, `[REACTIONS]`, `[MIXING]`) and asserts
-  byte-for-byte equality of every `Network` field: `edge_index`,
-  `pipe_mask`, `pump_mask`, `demands`, `fixed_head_values`, `lengths`,
-  `diameters`, `c_factors`, `pump_speeds`, `pump_coeffs` (via
-  `_assert_networks_identical`).
-* `test_water_quality_diagnostics_do_not_change_solve` — runs
-  `newton_solve(..., max_iterations=200, tol=1e-9,
-  jacobian_mode="analytic")` on both networks and asserts heads match
-  to 1e-9 and flows match to 1e-12.
+### Honest interpretation
 
-Additionally:
+The learned autoencoder matches the interpretable baseline's separating
+power (Δ AUROC ≈ +0.0085) but does NOT clear the pre-registered margin of
++0.02. It does, however, deliver a dramatically lower false-alarm rate on
+normal rows (0.76 % vs the EWMA chart's ~16 %), and it detects sensor drifts
+earlier (mean lead-time 29 vs 19 steps). The reverse pattern is that the
+EWMA chart catches two more episodes overall and is competitive on
+stuck-flatline lead-time.
 
-* Sprint 23 accepted `[STATUS] OPEN` diagnostics are preserved:
-  `test_status_section_never_in_water_quality_rows` loads
-  `[STATUS]\n P1 OPEN\n` and asserts `diag.status_rows` still contains
-  the accepted row (`link_id == "P1"`) while `STATUS` remains absent from
-  `water_quality_rows`; `test_all_diagnostics_coexist` loads a combined
-  fixture containing `[STATUS]\n P1 OPEN\n P2 OPEN\n` plus every
-  diagnostics family and asserts `diag.status_rows == ["P1", "P2"]` with
-  every status record normalised to `OPEN`. Thus Sprint 29 preserves the
-  Sprint 23 accepted-OPEN status channel rather than shadowing or
-  reclassifying it as water-quality metadata.
-* Sprint 22 `[STATUS]` rejection paths still raise: a parametrised
-  test mixes each rejected status token (`CLOSED`, `CV`, numeric
-  pump-status, unknown link id, arbitrary token) with all four
-  water-quality sections present and confirms `load_inp_diagnostics`
-  and `load_network_from_inp(..., return_diagnostics=True)` both
-  still raise `ValueError`. No partial diagnostics leak out of the
-  failure.
-* Sprint 25 `control_rule_rows`, Sprint 26 `pattern_energy_rows`, and
-  Sprint 28 `emitter_demand_rows` channels never include water-quality
-  rows (explicitly tested).
-* Sprint 24 `ignored_sections` continues to surface `QUALITY` /
-  `SOURCES` / `REACTIONS` / `MIXING` at the section level when those
-  sections are present.
-* Default `load_network_from_inp(path)` (no `return_diagnostics`) still
-  returns only a `Network` (explicitly tested).
+That is exactly the *kind* of evidence that justifies a FAIL verdict on the
+frozen rule: the detector is meaningfully better in some dimensions but
+fails the clause we pre-registered as the gating one. We are NOT relaxing
+the rule. The detector goes back for iteration; the rule stays.
 
-## WNTR back-end behaviour / asymmetry
-
-The WNTR adapter (`_wntr_parse`) continues to return an empty
-`EpanetImportDiagnostics()` — i.e. `status_rows = ()`,
-`ignored_sections = ()`, `control_rule_rows = ()`,
-`pattern_energy_rows = ()`, `emitter_demand_rows = ()`,
-`water_quality_rows = ()`. WNTR has its own `[QUALITY]` / `[SOURCES]`
-/ `[REACTIONS]` / `[MIXING]` parsers, and the dPHM WNTR adapter does
-not re-emit water-quality row diagnostics — the fallback parser is
-documented as authoritative for every diagnostics channel.
-
-The asymmetry is documented in `docs/epanet-inp-import.md` and tested
-via `test_wntr_back_end_returns_container_without_raising`, which is
-gated by `pytest.importorskip("wntr")` (currently runs because WNTR
-1.4.0 is installed in the environment; would skip cleanly without).
-
-WNTR-side note: WNTR's `[MIXING]` parser raises `KeyError` if the
-referenced tank id is not declared in `[TANKS]`, and its `[SOURCES]`
-parser is similarly strict about node ids. Those raises are WNTR-side
-behaviour, not Sprint 29 behaviour — the fallback parser tolerates
-such rows as diagnostics. The WNTR smoke fixture therefore uses only
-`[QUALITY]` + `[REACTIONS]` (which WNTR accepts on a tank-less loop
-fixture); the other two sections are exercised against the fallback
-parser elsewhere in the test file. The asymmetry is documented in
-both the docs and the test docstring.
-
-The WNTR HEAD / POWER / PRV / TCV / demand-multiplier hydraulic parity
-tests from Sprints 13–28 all still pass (82 passed, 1 skipped on the
-focused WNTR test set; full suite is green).
-
-## Tests added/updated
-
-`tests/dphm/test_inp_water_quality_row_diagnostics.py` — 50 new
-tests, all passing:
-
-* **Public surface (6 tests).** `EpanetWaterQualityDiagnostic` is a
-  frozen dataclass; reassigning any field raises
-  `FrozenInstanceError`; defaults; `tokens` is a `tuple`;
-  `EpanetImportDiagnostics.water_quality_rows` defaults to `()` and
-  is itself tuple-backed and frozen.
-* **Empty / absent cases (5 tests).** Fixture without any water-
-  quality section, plus four parametrised bare-header cases (one per
-  section) — all produce empty `water_quality_rows`; the bare-header
-  fixtures still surface the section via `ignored_sections`.
-* **Single rows (4 tests).** One `[QUALITY]`, one `[SOURCES]`, one
-  `[REACTIONS]`, and one `[MIXING]` row each produce exactly one
-  record with the expected section, `row_index = 0`, exact tokens,
-  and reconstructed text.
-* **Multi-row order preservation (2 tests).** Three `[QUALITY]` rows
-  / three `[REACTIONS]` rows preserve `row_index = [0, 1, 2]` and
-  source order.
-* **Mixed source order (3 tests).** All four sections in canonical
-  order, all four sections in reverse order, plus a multi-row-per-
-  section all-four-mixed test confirming `row_index` resets per
-  section.
-* **Comments + blanks (2 tests).** Inline `; ...` stripped before
-  tokenisation; blank rows dropped before `row_index` assignment.
-* **Exclusion of other sections (8 parametrised + 3 explicit).**
-  Other ignored sections (`CONTROLS`, `RULES`, `PATTERNS`, `ENERGY`,
-  `EMITTERS`, `DEMANDS`, `TIMES`, `REPORT`), `STATUS`, and active
-  hydraulic sections (`JUNCTIONS`, `RESERVOIRS`, `TANKS`, `PIPES`,
-  `PUMPS`, `VALVES`, `OPTIONS`, `CURVES`) never appear in
-  `water_quality_rows`. A combined test asserts every emitted
-  record's section is one of `QUALITY` / `SOURCES` / `REACTIONS`
-  / `MIXING`.
-* **Cross-channel disjointness (3 tests).** The Sprint 25
-  `control_rule_rows` channel, the Sprint 26 `pattern_energy_rows`
-  channel, and the Sprint 28 `emitter_demand_rows` channel never
-  include water-quality rows; conversely they still cover their own
-  sections.
-* **Sprint 24 coverage (1 test).** `ignored_sections` still lists
-  `QUALITY`, `SOURCES`, `REACTIONS`, and `MIXING` when those sections
-  are present.
-* **Hydraulic inertness (2 tests).** `Network` byte-for-byte
-  invariance and Newton-solve heads/flows invariance.
-* **Return-diagnostics API (3 tests).**
-  `load_network_from_inp(..., return_diagnostics=True)` returns the
-  same `Network` as the default call, and the same diagnostics as
-  `load_inp_diagnostics`. Default `load_network_from_inp(path)`
-  remains backwards-compatible.
-* **Combined Sprint 23 + 24 + 25 + 26 + 28 + 29 coexistence (2 tests).**
-  A six-channel fixture (all twelve content-bearing ignored
-  sections plus `[STATUS]`) and a status-only fixture confirm
-  `[STATUS]` is never surfaced through `ignored_sections` or
-  `water_quality_rows`.
-* **Sprint 22 rejection preservation (5 parametrised tests).** Every
-  rejected `[STATUS]` token (`CLOSED`, `CV`, numeric pump-status,
-  unknown link id, arbitrary token) still raises when all four
-  water-quality sections are also present; no partial diagnostics
-  leak out.
-* **WNTR asymmetry (1 test).** With WNTR installed,
-  `load_inp_diagnostics(..., parser="wntr")` returns an
-  `EpanetImportDiagnostics` with empty `water_quality_rows`. Skipped
-  via `pytest.importorskip` when WNTR is not installed.
-
-## Validation commands & results
-
-```bash
-$ python -m pip install -e .
-Successfully installed aquaoptima-dphm-pinn-0.1.0
-
-$ python -m pytest tests/dphm tests/models tests/training tests/dataio -q
-1223 passed, 1 skipped, 3 warnings in 88.40s (0:01:28)
-
-$ python -m pytest tests -q
-1231 passed, 1 skipped, 3 warnings in 83.25s (0:01:23)
-
-$ python -m compileall src tests
-(clean — no SyntaxError, no compile failures)
-
-$ git status --short
- M docs/epanet-inp-import.md
- M src/aquaoptima/dphm/__init__.py
- M src/aquaoptima/dphm/inp_io.py
-?? tests/dphm/test_inp_water_quality_row_diagnostics.py
+```
+SPRINT29_GATE: FAIL
 ```
 
-Sprint 28 baseline: 1173 passed, 1 skipped (targeted) / 1181 passed,
-1 skipped (full). Sprint 29 delta: +50 new tests (1223 / 1231). No
-prior-sprint test regressed.
+## Verification gate (Sprint 29 *implementation* gate — distinct from model gate)
 
-Secret-scan grep over the diff (private-key headers, `aws_access_key`,
-quoted `api_key` assignments): zero matches.
+1. `python -m pytest tests/advisory -q`
+   ```
+   103 passed in 5.66s
+   ```
 
-## Compatibility notes
+2. `python -m pytest tests -q`
+   ```
+   2523 passed, 1 skipped, 3 warnings in 143.71s (0:02:23)
+   ```
 
-* `load_network_from_inp(path)` (default — no `return_diagnostics`) is
-  **byte-for-byte backwards compatible**. Every Sprint 11–28 caller
-  continues to receive a bare `Network`.
-* `EpanetImportDiagnostics()` (no kwargs) keeps the Sprint 23 / 24 /
-  25 / 26 / 28 surface intact: the new `water_quality_rows` field
-  defaults to `()`, so any keyword-only consumer that ignores the new
-  field continues to work.
-* The Sprint 22 `[STATUS]` rejection contract is fully preserved.
-* The Sprint 21 ignored-section no-op contract is fully preserved:
-  `QUALITY`, `SOURCES`, `REACTIONS`, and `MIXING` remain members of
-  `IGNORED_SECTIONS`, the fallback parser never reads their content
-  for any hydraulic purpose, and the loaded `Network` is unchanged.
-* The Sprint 25 `control_rule_rows` channel, Sprint 26
-  `pattern_energy_rows` channel, and Sprint 28 `emitter_demand_rows`
-  channel are unchanged.
-* The Sprint 27 `EpanetControlKind` classification is unchanged.
-* The Sprint 24 `ignored_sections` channel is unchanged.
-* `__all__` exports gain `EpanetWaterQualityDiagnostic` from both
-  `aquaoptima.dphm.inp_io` and the top-level `aquaoptima.dphm`
-  package.
+3. `python scripts/sprint29_detector_eval.py --subset 30000 --epochs 40 --episodes-per-kind 8`
+   ```
+   [sprint29] wrote data/eval/pillarA/sprint29_detector_scorecard.json
+   [sprint29] detector_auroc=0.8158 baseline_auroc=0.8072 verdict=FAIL
+   ```
+   Exits 0 (a model-gate FAIL is a valid run — only true errors, leakage, or
+   missing data cause non-zero exits).
 
-## Known limitations
+```
+SPRINT29_STATUS: COMPLETE
+SPRINT29_GATE: FAIL
+```
 
-Sprint 29 deliberately does **not**:
+`STATUS=COMPLETE` means the code, tests, and report ship cleanly per the
+verification gate above. `GATE=FAIL` reflects the honest empirical verdict
+under the pre-registered rule. The two are intentionally separate.
 
-* run any water-quality simulation, age modelling, or
-  contaminant-transport integration;
-* interpret `[QUALITY]` rows as initial-concentration boundary
-  conditions on `Network` nodes;
-* interpret `[SOURCES]` rows as source-injection terms (`CONCEN`,
-  `MASS`, `FLOWPACED`, `SETPOINT`) on `Network` nodes;
-* interpret `[REACTIONS]` rows as bulk / wall reaction coefficients
-  (`Order Bulk`, `Order Wall`, `Global Bulk`, `Global Wall`, per-pipe
-  / per-tank coefficients, `Limiting Potential`, `Roughness
-  Correlation`);
-* interpret `[MIXING]` rows as tank-mixing models (`MIXED`, `2COMP`,
-  `FIFO`, `LIFO`) — the dPHM steady-state core does not model tank
-  dynamics in the first place;
-* reject malformed water-quality rows — a row with non-numeric or
-  unknown tokens still surfaces as a diagnostic with the offending
-  tokens; this is row-visibility, not row-validation;
-* re-emit `water_quality_rows` from the WNTR back-end — the fallback
-  parser is authoritative for every diagnostics channel. Documented
-  asymmetry preserved.
+## Test coverage (subset / fixture only)
 
-These are deferred to future sprints if and when the dPHM core grows
-the corresponding physics (water-quality simulation, transport,
-reactions, tank mixing).
+| File | Tests | Highlights |
+|------|-------|-----------|
+| `test_health_detector.py` | 14 | Same-seed → bit-identical state-dict and scores; different seed → different scores; March-2026 key → `LeakageError`; explicit norm-stats and JSON-path priority over input-frame fallback; missing-axis raise on score; summary dict is JSON-safe. |
+| `test_injected_faults.py` | 16 | Labels alignment to episode windows; all four fault families present; episodes never overlap; spike alters target axis at the onset index (≥ 3σ deviation invariant); stuck window is constant; envelope_violation only edits `edge_power`; harness is read-only on the input frame; empty/missing-axes input raises. |
+| `test_health_gate.py` | 12 | PASS on a synthetic eval where detector clearly beats baseline; explicit FAIL on each of the three rule clauses (margin, FAR, absolute minimum); governance FAIL forces verdict FAIL even on passing metrics; end-to-end pipeline runs and produces a verdict in `{PASS, FAIL}`; AUROC helper returns 0.5 on all-positive / all-negative labels (no fabricated pass). |
 
-## Verdict
+Subset-only / fixture-based throughout. No test loads the full ~489 000-row
+CSV. No test asserts a specific real-data outcome of the model gate.
 
-`VERDICT: APPROVED`
+## What this sprint did NOT do
 
-All Sprint 29 hard approval gates pass:
+* It did NOT train or score against any March-2026 data.
+* It did NOT tune the detector hyperparameters against the injected-fault
+  set after seeing the AUROC numbers.
+* It did NOT relax the pre-registered acceptance rule.
+* It did NOT package, sign, or write an artifact contract.
+* It did NOT add any edge / OT / write-capable connector.
 
-* targeted pytest exits 0 (1223 passed, 1 skipped);
-* full pytest exits 0 (1231 passed, 1 skipped);
-* compileall exits 0;
-* `SPRINT29_REPORT.md` exists (this file);
-* water-quality row diagnostics API exists, is exported, and is
-  tested (50 new tests);
-* row diagnostics surface only `[QUALITY]`, `[SOURCES]`,
-  `[REACTIONS]`, and `[MIXING]` rows (parametrised exclusion tests
-  confirm every other ignored section, `[STATUS]`, and every active
-  hydraulic section is excluded);
-* Sprint 23 status diagnostics, Sprint 24 ignored-section
-  diagnostics, Sprint 25 control/rule row diagnostics + Sprint 27
-  classification, Sprint 26 pattern/energy row diagnostics, and
-  Sprint 28 emitter/demand row diagnostics all still work (combined
-  coexistence test);
-* no active water-quality / emitter / demand / control / rule /
-  pattern / energy semantics are implemented;
-* diagnostics are proven read-only and hydraulically inert
-  (`Network` invariance + Newton-solve invariance);
-* `load_network_from_inp(path)` remains backward compatible by
-  default;
-* Sprint 22 / 23 rejection behaviour remains intact for
-  status-changing / invalid `[STATUS]` rows even when water-quality
-  rows are present;
-* existing SI / GPM / pressure / demand / SG / viscosity /
-  diagnostics fixture behaviour passes;
-* HEAD pump tests pass; POWER pump tests pass; PRV / TCV valve
-  tests pass;
-* WNTR optional tests pass (WNTR 1.4.0 installed) with the
-  documented empty-container asymmetry; would skip cleanly without
-  WNTR;
-* no obvious secret files / strings introduced (diff secret-scan
-  zero);
-* `git status` contains only intended Sprint 29 changes.
+## Recommended next-sprint focus (Sprint 30)
 
-WNTR-installed additional gates:
+The honest verdict here is "the autoencoder ties the baseline on AUROC and
+beats it on false-alarm". Two reasonable directions for Sprint 30:
 
-* WNTR HEAD / POWER / PRV / TCV / demand-multiplier parity from
-  Sprints 13–28 still pass.
-* WNTR asymmetry around water-quality row diagnostics is documented
-  in `docs/epanet-inp-import.md` and asserted by the WNTR smoke-check
-  test. The WNTR-side `[MIXING]` / `[SOURCES]` strict-id behaviour is
-  also documented; the WNTR smoke fixture uses only `[QUALITY]` +
-  `[REACTIONS]` because of that strict-id behaviour.
+1. **Architecture / capacity**: a temporally-aware encoder (small TCN /
+   1-D conv over a short window, or a multi-step reconstruction target)
+   would give the detector access to the autocorrelation structure that
+   the EWMA chart is implicitly exploiting. The current per-row MLP throws
+   that away.
 
-## Sprint 30 recommendation
+2. **Loss / calibration**: train with a Mahalanobis-aware reconstruction
+   loss (whiten the residual against the train covariance) so the detector
+   does not waste capacity on the per-axis variance that the EWMA term
+   already covers; calibrate the flag threshold against the baseline's
+   false-alarm rate target so the gate's R2 clause has explicit headroom.
 
-With Sprint 29, every content-bearing member of `IGNORED_SECTIONS`
-now has a dedicated per-row diagnostic channel:
-
-| Section family                  | Channel                | Sprint |
-|---------------------------------|------------------------|--------|
-| `[STATUS]` (accepted rows)      | `status_rows`          | 23     |
-| All ignored sections (presence) | `ignored_sections`     | 24     |
-| `[CONTROLS]` / `[RULES]`        | `control_rule_rows`    | 25 / 27|
-| `[PATTERNS]` / `[ENERGY]`       | `pattern_energy_rows`  | 26     |
-| `[EMITTERS]` / `[DEMANDS]`      | `emitter_demand_rows`  | 28     |
-| `[QUALITY]` / `[SOURCES]` / `[REACTIONS]` / `[MIXING]` | `water_quality_rows`   | 29     |
-
-Sprint 30 should pivot from *channel expansion* to *channel
-ergonomics*: a single read-only `EpanetImportDiagnostics.summary()`
-view (or `row_count_by_section()` accessor) that aggregates row
-counts across every channel for downstream UI consumers, without
-adding any new semantic processing. The accessor must remain
-diagnostics-only (no hydraulic side effects, no `Network` changes,
-no rejection-path changes, no WNTR asymmetry change), should
-preserve the Sprint 21 ignored-section no-op contract, and should
-be tested both standalone (correct counts) and in combination with
-the existing per-channel tests (no double-counting, no leakage
-between channels).
-
-Out of scope for Sprint 30 (and explicitly **not** recommended yet):
-real water-quality modelling, real pressure-dependent emitter
-physics, real demand-pattern support, real control / rule
-interpretation, WNTR-side diagnostic parity, or any write / control
-path.
+Both are clean improvements that respect the FROZEN rule unchanged. Whichever
+is chosen, the empirical gate stays at AUROC + 0.02 / FAR ≤ baseline / AUROC
+≥ 0.70 — those numbers were pre-registered before Sprint 29's run and remain
+pre-registered for the next attempt.
