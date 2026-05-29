@@ -1,0 +1,42 @@
+# AOPSO Sprint 24 -- dPHM TCN training hyperparameters (Yilan 2025 v1).
+#
+# DIMENSION NOTE: n_features / n_axes are NOT set here. They are derived at
+# runtime from the normalization stats' active-axis set (8 active axes for
+# Yilan 2025), per the Sprint 23 data contract. The roadmap's "11 features"
+# guess does not match reality (edge_valve_position has 0% coverage).
+#
+# Safety: offline training only; .pt state_dict checkpoints; no ONNX; no edge.
+
+model:
+  channels: 32       # TCN hidden channel width
+  kernel_size: 3
+  dropout: 0.0
+
+data:
+  window: 10         # input window length (timesteps)
+  horizon: 1         # next-step prediction
+  stride: 1
+
+train:
+  lr: 0.001
+  batch_size: 128
+  epochs: 50
+  weight_decay: 0.0001
+  optimizer: adamw
+  scheduler:
+    name: reduce_lr_on_plateau
+    patience: 5
+    factor: 0.5
+  early_stopping:
+    patience: 10
+    monitor: val_loss
+
+loss:
+  # Per-axis weights default to 1.0. Binary axes (node_status, edge_status)
+  # are routed to BCEWithLogits; the other 6 active axes to MSE.
+  default_weight: 1.0
+
+seed:
+  torch_seed: 42
+  numpy_seed: 42
+  random_seed: 42
