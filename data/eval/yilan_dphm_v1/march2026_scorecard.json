@@ -1,0 +1,408 @@
+{
+  "sprint": "AOPSO Sprint 25",
+  "benchmark": "LOCKED March 2026 holdout",
+  "advisory_only": true,
+  "checkpoint": "data/models/yilan_dphm_v1/model_best.pt",
+  "split_manifest": "data/splits/yilan_2025_split_v1.json",
+  "norm_stats": "data/normalization/yilan_2025_train_stats.json",
+  "march_csv": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv",
+  "holdout_key": "holdout_march2026",
+  "holdout_isolation": {
+    "holdout_key": "holdout_march2026",
+    "holdout_window": {
+      "start": "2026-03-01 00:00:00",
+      "end": "2026-03-31 23:59:59"
+    },
+    "train_val_intersection": {},
+    "isolated": true
+  },
+  "march_2026_rows_loaded": 44469,
+  "march_2026_windows_scored": 44429,
+  "holdout_date_range": {
+    "start": "2026-03-01 00:00:53",
+    "end": "2026-03-31 23:59:19"
+  },
+  "active_axes": [
+    "edge_flow",
+    "edge_power",
+    "edge_pump_speed",
+    "edge_status",
+    "node_demand",
+    "node_level",
+    "node_pressure",
+    "node_status"
+  ],
+  "continuous_axes": [
+    "edge_flow",
+    "edge_power",
+    "edge_pump_speed",
+    "node_demand",
+    "node_level",
+    "node_pressure"
+  ],
+  "binary_axes": [
+    "edge_status",
+    "node_status"
+  ],
+  "masked_axes": {
+    "edge_valve_position": "N/A"
+  },
+  "baseline": "mvp_persistence",
+  "dphm_metrics": {
+    "edge_flow": {
+      "kind": "continuous",
+      "mse": 0.07011181048236728,
+      "mae": 0.07538334251041375,
+      "accuracy": null
+    },
+    "edge_power": {
+      "kind": "continuous",
+      "mse": 0.026112561095763636,
+      "mae": 0.03827500708304132,
+      "accuracy": null
+    },
+    "edge_pump_speed": {
+      "kind": "continuous",
+      "mse": 0.6233523815072287,
+      "mae": 0.1431613709289416,
+      "accuracy": null
+    },
+    "edge_status": {
+      "kind": "binary",
+      "accuracy": 0.9878682842287695,
+      "mse": 110.62926518074508,
+      "mae": 5.496432425935465
+    },
+    "node_demand": {
+      "kind": "continuous",
+      "mse": 0.02244401762886704,
+      "mae": 0.04185130766660604,
+      "accuracy": null
+    },
+    "node_level": {
+      "kind": "continuous",
+      "mse": 0.04826304535391104,
+      "mae": 0.04697626656711265,
+      "accuracy": null
+    },
+    "node_pressure": {
+      "kind": "continuous",
+      "mse": 0.03196277679013991,
+      "mae": 0.05849634401585843,
+      "accuracy": null
+    },
+    "node_status": {
+      "kind": "binary",
+      "accuracy": 0.6677170316685048,
+      "mse": 49.11448521371552,
+      "mae": 5.784728585982901
+    }
+  },
+  "baseline_metrics": {
+    "edge_flow": {
+      "kind": "continuous",
+      "mse": 0.005249350274085719,
+      "mae": 0.040923247700619475,
+      "accuracy": null
+    },
+    "edge_power": {
+      "kind": "continuous",
+      "mse": 0.002518739002439762,
+      "mae": 0.011622871555515248,
+      "accuracy": null
+    },
+    "edge_pump_speed": {
+      "kind": "continuous",
+      "mse": 0.2246431854594499,
+      "mae": 0.06530144703815226,
+      "accuracy": null
+    },
+    "edge_status": {
+      "kind": "binary",
+      "accuracy": 0.9999099687141282,
+      "mse": 0.7472895118588502,
+      "mae": 0.00828344175773078
+    },
+    "node_demand": {
+      "kind": "continuous",
+      "mse": 0.004622910067971926,
+      "mae": 0.0181463982454919,
+      "accuracy": null
+    },
+    "node_level": {
+      "kind": "continuous",
+      "mse": 0.006535443168796939,
+      "mae": 0.010513832437420755,
+      "accuracy": null
+    },
+    "node_pressure": {
+      "kind": "continuous",
+      "mse": 0.007144825770028915,
+      "mae": 0.03149416186054991,
+      "accuracy": null
+    },
+    "node_status": {
+      "kind": "binary",
+      "accuracy": 1.0,
+      "mse": 0.007208970788273744,
+      "mae": 0.031834169978530585
+    }
+  },
+  "dphm_vs_baseline": {
+    "edge_flow": {
+      "dphm_mse": 0.07011181048236728,
+      "baseline_mse": 0.005249350274085719,
+      "mse_improvement": -0.06486246020828157,
+      "beats_baseline": false
+    },
+    "edge_power": {
+      "dphm_mse": 0.026112561095763636,
+      "baseline_mse": 0.002518739002439762,
+      "mse_improvement": -0.023593822093323873,
+      "beats_baseline": false
+    },
+    "edge_pump_speed": {
+      "dphm_mse": 0.6233523815072287,
+      "baseline_mse": 0.2246431854594499,
+      "mse_improvement": -0.3987091960477788,
+      "beats_baseline": false
+    },
+    "edge_status": {
+      "dphm_accuracy": 0.9878682842287695,
+      "baseline_accuracy": 0.9999099687141282,
+      "beats_baseline": false
+    },
+    "node_demand": {
+      "dphm_mse": 0.02244401762886704,
+      "baseline_mse": 0.004622910067971926,
+      "mse_improvement": -0.01782110756089511,
+      "beats_baseline": false
+    },
+    "node_level": {
+      "dphm_mse": 0.04826304535391104,
+      "baseline_mse": 0.006535443168796939,
+      "mse_improvement": -0.0417276021851141,
+      "beats_baseline": false
+    },
+    "node_pressure": {
+      "dphm_mse": 0.03196277679013991,
+      "baseline_mse": 0.007144825770028915,
+      "mse_improvement": -0.024817951020110994,
+      "beats_baseline": false
+    },
+    "node_status": {
+      "dphm_accuracy": 0.6677170316685048,
+      "baseline_accuracy": 1.0,
+      "beats_baseline": false
+    }
+  },
+  "acceptance_gate": {
+    "verdict": "FAIL",
+    "passed": false,
+    "thresholds": {
+      "continuous_mse_max": 0.15,
+      "continuous_mae_max": 0.3,
+      "binary_accuracy_min": 0.95,
+      "beats_baseline_min": 5,
+      "n_continuous_axes": 6
+    },
+    "criteria": [
+      {
+        "name": "continuous_mse_within_threshold",
+        "passed": false,
+        "detail": {
+          "per_axis": {
+            "edge_flow": {
+              "mse": 0.07011181048236728,
+              "max": 0.15,
+              "passed": true
+            },
+            "edge_power": {
+              "mse": 0.026112561095763636,
+              "max": 0.15,
+              "passed": true
+            },
+            "edge_pump_speed": {
+              "mse": 0.6233523815072287,
+              "max": 0.15,
+              "passed": false
+            },
+            "node_demand": {
+              "mse": 0.02244401762886704,
+              "max": 0.15,
+              "passed": true
+            },
+            "node_level": {
+              "mse": 0.04826304535391104,
+              "max": 0.15,
+              "passed": true
+            },
+            "node_pressure": {
+              "mse": 0.03196277679013991,
+              "max": 0.15,
+              "passed": true
+            }
+          },
+          "n_axes": 6
+        }
+      },
+      {
+        "name": "continuous_mae_within_threshold",
+        "passed": true,
+        "detail": {
+          "per_axis": {
+            "edge_flow": {
+              "mae": 0.07538334251041375,
+              "max": 0.3,
+              "passed": true
+            },
+            "edge_power": {
+              "mae": 0.03827500708304132,
+              "max": 0.3,
+              "passed": true
+            },
+            "edge_pump_speed": {
+              "mae": 0.1431613709289416,
+              "max": 0.3,
+              "passed": true
+            },
+            "node_demand": {
+              "mae": 0.04185130766660604,
+              "max": 0.3,
+              "passed": true
+            },
+            "node_level": {
+              "mae": 0.04697626656711265,
+              "max": 0.3,
+              "passed": true
+            },
+            "node_pressure": {
+              "mae": 0.05849634401585843,
+              "max": 0.3,
+              "passed": true
+            }
+          },
+          "n_axes": 6
+        }
+      },
+      {
+        "name": "binary_accuracy_within_threshold",
+        "passed": false,
+        "detail": {
+          "per_axis": {
+            "edge_status": {
+              "accuracy": 0.9878682842287695,
+              "min": 0.95,
+              "passed": true
+            },
+            "node_status": {
+              "accuracy": 0.6677170316685048,
+              "min": 0.95,
+              "passed": false
+            }
+          },
+          "n_axes": 2
+        }
+      },
+      {
+        "name": "beats_baseline_on_continuous_axes",
+        "passed": false,
+        "detail": {
+          "per_axis": {
+            "edge_flow": {
+              "dphm_mse": 0.07011181048236728,
+              "baseline_mse": 0.005249350274085719,
+              "beats_baseline": false
+            },
+            "edge_power": {
+              "dphm_mse": 0.026112561095763636,
+              "baseline_mse": 0.002518739002439762,
+              "beats_baseline": false
+            },
+            "edge_pump_speed": {
+              "dphm_mse": 0.6233523815072287,
+              "baseline_mse": 0.2246431854594499,
+              "beats_baseline": false
+            },
+            "node_demand": {
+              "dphm_mse": 0.02244401762886704,
+              "baseline_mse": 0.004622910067971926,
+              "beats_baseline": false
+            },
+            "node_level": {
+              "dphm_mse": 0.04826304535391104,
+              "baseline_mse": 0.006535443168796939,
+              "beats_baseline": false
+            },
+            "node_pressure": {
+              "dphm_mse": 0.03196277679013991,
+              "baseline_mse": 0.007144825770028915,
+              "beats_baseline": false
+            }
+          },
+          "n_beats": 0,
+          "required": 5
+        }
+      }
+    ]
+  },
+  "shadow_report": {
+    "steps": [
+      {
+        "frame_index": 0,
+        "timestamp": "2026-03-01 00:00:53",
+        "observation_counts": {},
+        "prediction_axes": [
+          "edge_flow",
+          "edge_power",
+          "edge_pump_speed",
+          "edge_status",
+          "node_demand",
+          "node_level",
+          "node_pressure",
+          "node_status"
+        ],
+        "prediction_counts": {},
+        "observation_count": 44429,
+        "mse_by_axis": {
+          "edge_flow": 0.07011181048236728,
+          "edge_power": 0.026112561095763636,
+          "edge_pump_speed": 0.6233523815072287,
+          "node_demand": 0.02244401762886704,
+          "node_level": 0.04826304535391104,
+          "node_pressure": 0.03196277679013991
+        },
+        "mae_by_axis": {
+          "edge_flow": 0.07538334251041375,
+          "edge_power": 0.03827500708304132,
+          "edge_pump_speed": 0.1431613709289416,
+          "node_demand": 0.04185130766660604,
+          "node_level": 0.04697626656711265,
+          "node_pressure": 0.05849634401585843
+        },
+        "accepted_count": 0,
+        "rejected_count": 0
+      }
+    ],
+    "frame_count": 1,
+    "observation_count": 44429,
+    "proposal_count": 0,
+    "accepted_count": 0,
+    "rejected_count": 0,
+    "diagnostics": {
+      "warnings": [
+        "advisory scorecard: offline evaluation only, never drives actuation",
+        "edge_valve_position reported N/A (no backing telemetry column / masked)"
+      ],
+      "errors": []
+    }
+  },
+  "safety": {
+    "evaluation_mode": "offline_only",
+    "write_path": "scorecard_json_only",
+    "influences_control": false,
+    "site_integration_allowed": false,
+    "scorecard_role": "advisory_evidence_only",
+    "fail_blocks_packaging": true
+  }
+}

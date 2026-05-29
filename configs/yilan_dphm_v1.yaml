@@ -40,3 +40,21 @@ seed:
   torch_seed: 42
   numpy_seed: 42
   random_seed: 42
+
+# AOPSO Sprint 25 -- offline-evaluation acceptance gate ("good enough to
+# package"). These are the contractually-encoded packaging thresholds, NOT
+# illustrative example numbers. The evaluation harness reads this block; a FAIL
+# blocks Sprint 26 packaging. Scorecards are advisory evidence only.
+eval:
+  # Per active CONTINUOUS axis (normalized): both must hold.
+  continuous_mse_max: 0.15
+  continuous_mae_max: 0.30
+  # Per BINARY axis (node_status, edge_status).
+  binary_accuracy_min: 0.95
+  # dPHM must beat the MVP-v1 persistence baseline (lower MSE) on at least this
+  # many of the 6 continuous axes.
+  beats_baseline_min: 5
+  n_continuous_axes: 6
+  # The 2026 benchmark CSV (read-only). Overridable via $YILAN_2026_CSV or the
+  # --march-csv CLI flag. Filtered to calendar month March (2026-03).
+  march_csv: /home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv
