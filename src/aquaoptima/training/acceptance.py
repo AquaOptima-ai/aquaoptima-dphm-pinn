@@ -37,27 +37,33 @@ __all__ = [
     "CONTINUOUS_AXES",
 ]
 
-# Axis routing -- kept consistent with aquaoptima.training.dphm_loss.
-BINARY_AXES: frozenset[str] = frozenset({"node_status", "edge_status"})
-CONTINUOUS_AXES: frozenset[str] = frozenset(
-    {
-        "edge_flow",
-        "edge_power",
-        "edge_pump_speed",
-        "node_demand",
-        "node_level",
-        "node_pressure",
-    }
-)
+# Axis routing -- single source of truth in the axis map (Sprint 26). Imported
+# (not redefined) so loss / trainer / evaluation / gate cannot drift. This
+# sprint ``BINARY_AXES`` is EMPTY (node_status reclassified continuous,
+# edge_status dropped as a binary target); the binary-gating branch below stays
+# correct for any axis re-listed in ``BINARY_AXES`` and now gates on BALANCED
+# accuracy / F1 rather than raw accuracy (DEFECT 2 fix).
+from ..dataio.yilan_axis_map import BINARY_AXES, CONTINUOUS_AXES
 
 
 @dataclass(frozen=True)
 class AcceptanceThresholds:
-    """The encoded "good enough to package" bar (defaults are the Sprint 25 spec)."""
+    """The encoded "good enough to package" bar (defaults are the Sprint 25 spec).
+
+    Sprint 26 (DEFECT 2 fix): binary axes are gated on BALANCED accuracy / F1,
+    NOT raw accuracy. Raw accuracy is meaningless on the 99.85%-imbalanced pump
+    status (always-on scores 0.9985). ``binary_balanced_accuracy_min`` /
+    ``binary_f1_min`` are the new imbalance-aware bars. ``binary_accuracy_min``
+    is retained for backward-compatible reporting only and is NOT the gate.
+    """
 
     continuous_mse_max: float = 0.15
     continuous_mae_max: float = 0.30
     binary_accuracy_min: float = 0.95
+    # Imbalance-aware gate bars (Sprint 26). Default 0.70 balanced-accuracy /
+    # 0.70 F1 -- a do-nothing always-on predictor scores 0.5 balanced accuracy.
+    binary_balanced_accuracy_min: float = 0.70
+    binary_f1_min: float = 0.70
     beats_baseline_min: int = 5
     n_continuous_axes: int = 6
 
@@ -78,6 +84,13 @@ class AcceptanceThresholds:
             binary_accuracy_min=float(
                 ev.get("binary_accuracy_min", defaults.binary_accuracy_min)
             ),
+            binary_balanced_accuracy_min=float(
+                ev.get(
+                    "binary_balanced_accuracy_min",
+                    defaults.binary_balanced_accuracy_min,
+                )
+            ),
+            binary_f1_min=float(ev.get("binary_f1_min", defaults.binary_f1_min)),
             beats_baseline_min=int(
                 ev.get("beats_baseline_min", defaults.beats_baseline_min)
             ),
@@ -91,6 +104,8 @@ class AcceptanceThresholds:
             "continuous_mse_max": self.continuous_mse_max,
             "continuous_mae_max": self.continuous_mae_max,
             "binary_accuracy_min": self.binary_accuracy_min,
+            "binary_balanced_accuracy_min": self.binary_balanced_accuracy_min,
+            "binary_f1_min": self.binary_f1_min,
             "beats_baseline_min": self.beats_baseline_min,
             "n_continuous_axes": self.n_continuous_axes,
         }
@@ -193,25 +208,58 @@ def evaluate_gate(
         )
     )
 
-    # --- Criterion 3: binary-axis accuracy >= min ---
+    # --- Criterion 3: binary-axis BALANCED-accuracy / F1 >= min (DEFECT 2 fix) ---
+    # Raw accuracy is meaningless on the 99.85%-imbalanced pump status. We gate
+    # on balanced accuracy AND F1 instead. If there are NO binary axes (the
+    # Sprint 26 default -- node_status reclassified continuous, edge_status
+    # dropped), this criterion passes VACUOUSLY (there is nothing to gate).
     bin_axes = _binary_axes_in(dphm_metrics)
     acc_detail: dict[str, dict] = {}
     acc_ok = True
     for axis in bin_axes:
-        acc = dphm_metrics[axis].get("accuracy")
-        if acc is None:
-            acc_detail[axis] = {"accuracy": None, "min": th.binary_accuracy_min, "passed": False}
+        m = dphm_metrics[axis]
+        bal = m.get("balanced_accuracy")
+        f1 = m.get("f1")
+        if bal is None or f1 is None:
+            acc_detail[axis] = {
+                "balanced_accuracy": bal,
+                "f1": f1,
+                "balanced_accuracy_min": th.binary_balanced_accuracy_min,
+                "f1_min": th.binary_f1_min,
+                "accuracy": m.get("accuracy"),
+                "passed": False,
+                "note": "missing balanced_accuracy/f1 -> cannot gate",
+            }
             acc_ok = False
             continue
-        acc = float(acc)
-        ok = acc >= th.binary_accuracy_min
-        acc_detail[axis] = {"accuracy": acc, "min": th.binary_accuracy_min, "passed": ok}
+        bal = float(bal)
+        f1 = float(f1)
+        ok = bal >= th.binary_balanced_accuracy_min and f1 >= th.binary_f1_min
+        acc_detail[axis] = {
+            "balanced_accuracy": bal,
+            "f1": f1,
+            "balanced_accuracy_min": th.binary_balanced_accuracy_min,
+            "f1_min": th.binary_f1_min,
+            # Raw accuracy reported for context but NOT gated on.
+            "accuracy": m.get("accuracy"),
+            "passed": ok,
+        }
         acc_ok = acc_ok and ok
     criteria.append(
         CriterionResult(
-            name="binary_accuracy_within_threshold",
-            passed=acc_ok and bool(bin_axes),
-            detail={"per_axis": acc_detail, "n_axes": len(bin_axes)},
+            name="binary_balanced_accuracy_within_threshold",
+            # Vacuously true when no binary axes exist (nothing to gate).
+            passed=acc_ok,
+            detail={
+                "per_axis": acc_detail,
+                "n_axes": len(bin_axes),
+                "metric": "balanced_accuracy_and_f1",
+                "note": (
+                    "no binary axes this sprint -> criterion vacuously satisfied"
+                    if not bin_axes
+                    else "gated on balanced accuracy + F1 (NOT raw accuracy)"
+                ),
+            },
         )
     )
 

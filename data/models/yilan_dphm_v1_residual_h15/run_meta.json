@@ -1,0 +1,16 @@
+{
+  "target_mode": "residual",
+  "horizon": 15,
+  "window": 10,
+  "stride": 1,
+  "active_axes": [
+    "edge_flow",
+    "edge_power",
+    "edge_pump_speed",
+    "edge_status",
+    "node_demand",
+    "node_level",
+    "node_pressure",
+    "node_status"
+  ]
+}

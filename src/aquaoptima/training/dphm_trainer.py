@@ -96,9 +96,16 @@ def train(
     subset_rows: int | None = None,
     checkpoint_dir: str = DEFAULT_CHECKPOINT_DIR,
     csv_path: str | None = None,
+    target_mode: str | None = None,
+    horizon: int | None = None,
     verbose: bool = True,
 ) -> dict:
-    """Run the training loop and write checkpoints. Returns a result dict."""
+    """Run the training loop and write checkpoints. Returns a result dict.
+
+    Sprint 26 adds ``target_mode`` (``"residual"`` default, ``"absolute"`` for
+    comparison) and ``horizon`` (steps-ahead; 60s cadence so steps==minutes).
+    Both fall back to the config ``data`` block, then to residual / h=1.
+    """
     cfg = config or {}
     mcfg = cfg.get("model", {})
     dcfg = cfg.get("data", {})
@@ -114,8 +121,11 @@ def train(
     )
 
     window = int(dcfg.get("window", 10))
-    horizon = int(dcfg.get("horizon", 1))
+    horizon = int(horizon if horizon is not None else dcfg.get("horizon", 1))
     stride = int(dcfg.get("stride", 1))
+    # Sprint 26: residual-over-persistence target by default. Overridable via
+    # config (data.target_mode) or the ``target_mode`` argument.
+    target_mode = str(target_mode or dcfg.get("target_mode", "residual"))
     channels = int(mcfg.get("channels", 32))
     kernel_size = int(mcfg.get("kernel_size", 3))
     dropout = float(mcfg.get("dropout", 0.0))
@@ -134,6 +144,7 @@ def train(
         window=window,
         horizon=horizon,
         stride=stride,
+        target_mode=target_mode,
         csv_path=csv_path,
     )
     val_ds = YilanTimeSeriesDataset.from_paths(
@@ -143,6 +154,7 @@ def train(
         window=window,
         horizon=horizon,
         stride=stride,
+        target_mode=target_mode,
         csv_path=csv_path,
     )
 
@@ -174,6 +186,21 @@ def train(
     final_path = ckpt / "model_final.pt"
     stats_copy = ckpt / "normalization_stats.json"
     shutil.copyfile(norm_stats, stats_copy)
+    # Sprint 26: persist run metadata (target_mode/horizon) so eval can decode
+    # residual-vs-absolute predictions correctly without re-guessing.
+    (ckpt / "run_meta.json").write_text(
+        json.dumps(
+            {
+                "target_mode": target_mode,
+                "horizon": horizon,
+                "window": window,
+                "stride": stride,
+                "active_axes": active_axes,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
     log_rows: list[dict] = []
     best_val = float("inf")
@@ -257,6 +284,8 @@ def train(
         "n_features": model.n_features,
         "n_axes": model.n_axes,
         "active_axes": active_axes,
+        "target_mode": target_mode,
+        "horizon": horizon,
     }
 
 
@@ -275,6 +304,18 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--subset-rows", type=int, default=None)
     parser.add_argument("--checkpoint-dir", default=DEFAULT_CHECKPOINT_DIR)
     parser.add_argument("--csv-path", default=None)
+    parser.add_argument(
+        "--target-mode",
+        default=None,
+        choices=["residual", "absolute", None],
+        help="Prediction target: 'residual' (Sprint 26 default) or 'absolute'.",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=None,
+        help="Steps ahead (60s cadence -> steps == minutes). Default config/h=1.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     cfg = load_config(args.config)
@@ -298,6 +339,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         subset_rows=args.subset_rows,
         checkpoint_dir=args.checkpoint_dir,
         csv_path=args.csv_path,
+        target_mode=args.target_mode,
+        horizon=args.horizon,
     )
     return 0
 

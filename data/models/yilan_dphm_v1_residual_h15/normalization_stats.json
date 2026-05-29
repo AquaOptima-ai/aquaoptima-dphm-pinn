@@ -1,0 +1,76 @@
+{
+  "split_version": "v1",
+  "split_key": "train",
+  "computed_on": "train split only (no val/manual/holdout leakage)",
+  "n_train_rows_used": 235156,
+  "active_axes": [
+    "edge_flow",
+    "edge_power",
+    "edge_pump_speed",
+    "edge_status",
+    "node_demand",
+    "node_level",
+    "node_pressure",
+    "node_status"
+  ],
+  "excluded_axes": [
+    "edge_valve_position"
+  ],
+  "excluded_reason": "zero coverage / no backing column / zero variance (e.g. edge_valve_position has no Yilan telemetry column)",
+  "stats": {
+    "edge_flow": {
+      "source_column": "system_flow_rate",
+      "mu": 1479.7038882199108,
+      "sigma": 471.6005355243434,
+      "n": 233214
+    },
+    "edge_power": {
+      "source_column": "tb_system_real_power",
+      "mu": 146.87225118783806,
+      "sigma": 56.815460680501445,
+      "n": 235156
+    },
+    "edge_pump_speed": {
+      "source_column": "P_1531A_frequency",
+      "mu": 42.23751598698723,
+      "sigma": 3.1877691068825564,
+      "n": 233002
+    },
+    "edge_status": {
+      "source_column": "P_1531A_status",
+      "mu": 0.9998795082214122,
+      "sigma": 0.010976213387094981,
+      "n": 232381
+    },
+    "node_demand": {
+      "source_column": "tb_system_predicted_flow_rate",
+      "mu": 1519.643939282277,
+      "sigma": 442.80316960383584,
+      "n": 235129
+    },
+    "node_level": {
+      "source_column": "tank_level",
+      "mu": 4.570445886521794,
+      "sigma": 0.4517466887449275,
+      "n": 234230
+    },
+    "node_pressure": {
+      "source_column": "system_pressure",
+      "mu": 1.5635890642807326,
+      "sigma": 0.2287361502405617,
+      "n": 235156
+    },
+    "node_status": {
+      "source_column": "tb_system_head",
+      "mu": 18.28868619378708,
+      "sigma": 2.2909898456458606,
+      "n": 235155
+    }
+  },
+  "safety": {
+    "evaluation_mode": "offline_only",
+    "write_path": "none",
+    "influences_control": false,
+    "site_integration_allowed": false
+  }
+}

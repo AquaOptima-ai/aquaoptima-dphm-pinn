@@ -56,6 +56,65 @@ CANONICAL_AXIS_TO_COLUMN: dict[str, str | None] = {
 CANONICAL_AXES_ORDERED: list[str] = sorted(CANONICAL_TELEMETRY_AXES)
 
 
+# --------------------------------------------------------------------------- #
+# Axis TAXONOMY (Sprint 26 correction) -- single source of truth.
+# --------------------------------------------------------------------------- #
+# Sprint 25 diagnostic dig found two labeling defects in the original
+# ``BINARY_AXES = {node_status, edge_status}`` assumption:
+#
+#   DEFECT 1 -- ``node_status`` is mapped to ``tb_system_head``, a CONTINUOUS
+#   hydraulic head (~7.2-24.0 m, 10,102 unique values), NOT a binary status.
+#   It was wrongly thresholded at 0.5 against a ~18 m de-normalized value, so
+#   the "true class" was always 1 and accuracy was meaningless. FIX: reclassify
+#   ``node_status`` as CONTINUOUS (treated like pressure / level).
+#
+#   DEFECT 2 -- ``edge_status`` (``P_1531A_status``) is the only GENUINE binary
+#   signal, but the pump is on 99.85% of the time (sigma ~ 0.011). Raw accuracy
+#   is the wrong metric (always-on scores 0.9985). DECISION: DROP ``edge_status``
+#   as a *binary* target for this sprint. It is hollow (no learnable on/off
+#   signal in this site's data) and was masking the real modeling problem. It
+#   stays an ACTIVE axis (it is in the normalization stats and the model still
+#   emits a column for it), but it is handled as a CONTINUOUS axis (residual of
+#   its near-constant value) rather than a BCE classification target. With
+#   ``node_status`` reclassified and ``edge_status`` dropped, ``BINARY_AXES`` is
+#   EMPTY by default this sprint.
+#
+# The binary INFRASTRUCTURE (BCEWithLogits routing, sigmoid decode, and
+# balanced-accuracy / F1 gating) is preserved and fully tested so that a future
+# genuine binary axis can be re-enabled by listing it in ``BINARY_AXES`` (loss /
+# eval read this set), WITHOUT reintroducing the raw-accuracy or
+# missing-sigmoid bugs.
+#
+# Continuous axes = every active axis NOT in ``BINARY_AXES``. The
+# active-axis set is unchanged from Sprint 23 (8 axes); only the *taxonomy*
+# (which axis is binary vs continuous) changed, so the cached normalization
+# stats (``data/normalization/yilan_2025_train_stats.json``) remain VALID and
+# do NOT need regeneration -- node_status / edge_status already carry continuous
+# mu/sigma there.
+
+# The full set of canonical axes that are continuous-valued in this site's data
+# (everything except a genuine binary status). node_status -> tb_system_head is
+# continuous; edge_status -> P_1531A_status is near-constant but handled as
+# continuous this sprint (dropped as a binary target).
+CONTINUOUS_AXES: frozenset[str] = frozenset(
+    {
+        "edge_flow",
+        "edge_power",
+        "edge_pump_speed",
+        "edge_status",
+        "node_demand",
+        "node_level",
+        "node_pressure",
+        "node_status",
+    }
+)
+
+# Genuine binary (BCE-classification) axes. EMPTY this sprint (see DEFECT notes
+# above). Loss, trainer and evaluation all read this set as the single source
+# of truth for binary-vs-continuous routing.
+BINARY_AXES: frozenset[str] = frozenset()
+
+
 def _validate_mapping() -> None:
     mapped = set(CANONICAL_AXIS_TO_COLUMN)
     canonical = set(CANONICAL_TELEMETRY_AXES)
@@ -78,4 +137,6 @@ __all__ = [
     "MODE_MANUAL_COLUMN",
     "CANONICAL_AXIS_TO_COLUMN",
     "CANONICAL_AXES_ORDERED",
+    "CONTINUOUS_AXES",
+    "BINARY_AXES",
 ]

@@ -39,7 +39,10 @@ def test_returns_nonnegative_scalar():
 def test_zero_loss_when_continuous_matches_and_binary_certain():
     # Continuous axes: pred == target -> MSE 0.
     # Binary axes: target 0/1, logit pushed to +-inf-ish -> BCE ~ 0.
-    loss_fn = MultiAxisLoss(ACTIVE_AXES)
+    # Sprint 26 emptied the DEFAULT binary set (node_status reclassified
+    # continuous, edge_status dropped), so we exercise BCE routing by passing
+    # binary_axes explicitly -- the routing machinery is still general.
+    loss_fn = MultiAxisLoss(ACTIVE_AXES, binary_axes=["edge_status", "node_status"])
     target = torch.zeros(4, 8)
     # set binary axis targets to 1.0 to exercise both classes
     bin_idx = [ACTIVE_AXES.index(a) for a in ("edge_status", "node_status")]
@@ -62,9 +65,10 @@ def test_binary_axes_routed_to_bce_continuous_to_mse():
     target = torch.rand(16, 8)  # in [0,1] so BCE target is well defined
 
     # Only edge_status active (binary) -> equals BCEWithLogits on that column.
+    # Sprint 26: pass binary_axes explicitly since the default set is now empty.
     w_bin = {a: 0.0 for a in ACTIVE_AXES}
     w_bin["edge_status"] = 1.0
-    loss_bin = MultiAxisLoss(ACTIVE_AXES, weights=w_bin)
+    loss_bin = MultiAxisLoss(ACTIVE_AXES, weights=w_bin, binary_axes=["edge_status"])
     j = ACTIVE_AXES.index("edge_status")
     expected_bce = torch.nn.functional.binary_cross_entropy_with_logits(
         pred[:, j], target[:, j].clamp(0, 1)
@@ -109,7 +113,10 @@ def test_all_masked_is_exactly_zero():
 
 
 def test_axis_routing_sets_are_disjoint_and_cover():
-    # Sanity on the routing contract.
-    assert BINARY_AXES == {"node_status", "edge_status"}
+    # Sprint 26 routing contract: the DEFAULT binary set is now EMPTY
+    # (node_status reclassified continuous; edge_status dropped as a binary
+    # target). All 8 active axes default to continuous (MSE). BCE routing is
+    # still available per-instance via the binary_axes override.
+    assert BINARY_AXES == set()
     assert BINARY_AXES.isdisjoint(CONTINUOUS_AXES)
-    assert len(BINARY_AXES) + len(CONTINUOUS_AXES) == 8
+    assert len(CONTINUOUS_AXES) == 8

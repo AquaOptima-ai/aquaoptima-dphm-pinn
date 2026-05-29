@@ -53,9 +53,26 @@ class YilanTimeSeriesDataset(Dataset):
         Prediction horizon (timesteps ahead). Default 1.
     stride
         Window start stride. Default 1.
+    target_mode
+        ``"residual"`` (Sprint 26 default) or ``"absolute"``.
+
+        * ``"absolute"`` (Sprint 24/25 behaviour): the target is the normalized
+          value at ``t+h`` -- the model predicts the absolute next value.
+        * ``"residual"`` (Sprint 26, residual-over-persistence): the target is
+          the normalized DELTA ``Delta = x_norm[t+h] - x_norm[t_last]`` where
+          ``t_last`` is the last input step of the window. The model predicts
+          the *change* from the last observed value; the final absolute
+          prediction is ``last_value + Delta_hat``. This makes the persistence
+          baseline equivalent to predicting ``Delta = 0`` by construction, so
+          the model can only score by *beating* last-value. Because both terms
+          are z-scored with the same per-axis sigma, the normalized residual
+          equals ``(x_raw[t+h] - x_raw[t_last]) / sigma`` -- inverse-transforming
+          back to an absolute value uses ``last_raw + Delta_norm * sigma``.
     csv_path / nrows
         Forwarded to ``load_frame``.
     """
+
+    VALID_TARGET_MODES = ("absolute", "residual")
 
     def __init__(
         self,
@@ -66,16 +83,23 @@ class YilanTimeSeriesDataset(Dataset):
         window: int = 10,
         horizon: int = 1,
         stride: int = 1,
+        target_mode: str = "residual",
         csv_path: str | os.PathLike[str] | None = None,
         nrows: int | None = None,
         gap_threshold_seconds: float = GAP_THRESHOLD_SECONDS,
     ) -> None:
         if window < 1 or horizon < 1 or stride < 1:
             raise ValueError("window, horizon, stride must all be >= 1")
+        if target_mode not in self.VALID_TARGET_MODES:
+            raise ValueError(
+                f"target_mode must be one of {self.VALID_TARGET_MODES}, "
+                f"got {target_mode!r}"
+            )
 
         self.window = window
         self.horizon = horizon
         self.stride = stride
+        self.target_mode = target_mode
 
         self.active_axes: list[str] = list(stats["active_axes"])
         if not self.active_axes:
@@ -149,8 +173,18 @@ class YilanTimeSeriesDataset(Dataset):
         x_raw = self.features[start:w_end, :]  # [window, n_active_axes]
         y_raw = self.features[t_idx, :]  # [n_active_axes]
 
-        x = (x_raw - self._mu) / self._sigma
-        y = (y_raw - self._mu) / self._sigma
+        x = (x_raw - self._mu) / self._sigma  # normalized window
+        y_abs = (y_raw - self._mu) / self._sigma  # normalized absolute target
+
+        if self.target_mode == "residual":
+            # Delta = x_norm[t+h] - x_norm[t_last]. The last input step is the
+            # persistence prediction; the residual target is what must be ADDED
+            # to it. Persistence == predicting Delta=0. NaNs in either term
+            # collapse to a 0 residual after nan_to_num (consistent w/ training).
+            last_norm = x[-1, :]
+            y = y_abs - last_norm
+        else:  # "absolute"
+            y = y_abs
 
         x_t = torch.as_tensor(np.nan_to_num(x, nan=0.0), dtype=torch.float32)
         y_t = torch.as_tensor(np.nan_to_num(y, nan=0.0), dtype=torch.float32)

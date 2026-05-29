@@ -3,8 +3,9 @@
 Runs the evaluator on a TINY synthetic March-2026 holdout fixture and asserts:
 * the scorecard's ``shadow_report`` payload validates against the real
   ``ShadowRuntimeReport`` contract shape (not a fork),
-* per-axis MSE/MAE keys are present for the continuous axes and accuracy keys
-  for the binary axes (8 active axes total; edge_valve_position N/A/masked),
+* per-axis MSE/MAE keys are present for all 8 active axes (Sprint 26 taxonomy:
+  every active axis is continuous; BINARY_AXES is empty; edge_valve_position is
+  N/A/masked and excluded),
 * the holdout-isolation check ran and the March row/window counts are real.
 
 NO heavy training or full-March read happens here: we build a small fixture CSV
@@ -41,15 +42,22 @@ ACTIVE_AXES = [
     "node_pressure",
     "node_status",
 ]
+# Sprint 26 taxonomy: ALL 8 active axes are CONTINUOUS. node_status was
+# reclassified continuous (tb_system_head is a continuous hydraulic head, not a
+# status) and edge_status was dropped as a binary target (handled as a
+# near-constant continuous axis), so BINARY_AXES is empty. Every active axis now
+# carries absolute MSE/MAE; none carry a binary accuracy.
 CONTINUOUS = {
     "edge_flow",
     "edge_power",
     "edge_pump_speed",
+    "edge_status",
     "node_demand",
     "node_level",
     "node_pressure",
+    "node_status",
 }
-BINARY = {"node_status", "edge_status"}
+BINARY: set[str] = set()
 
 
 def _build_march_fixture(tmp_path, n_rows=400):
@@ -134,15 +142,27 @@ def test_evaluate_produces_contract_shaped_scorecard(tmp_path):
         assert axis in step.mse_by_axis
         assert axis in step.mae_by_axis
 
-    # --- per-axis metric keys for all 8 active axes ---
+    # --- per-axis metric keys for all 8 active axes (ALL continuous now) ---
     dphm = scorecard["dphm_metrics"]
     assert set(dphm.keys()) == set(ACTIVE_AXES)
     for axis in CONTINUOUS:
         assert "mse" in dphm[axis] and "mae" in dphm[axis]
         assert np.isfinite(dphm[axis]["mse"]) and np.isfinite(dphm[axis]["mae"])
-    for axis in BINARY:
-        assert dphm[axis]["accuracy"] is not None
-        assert 0.0 <= dphm[axis]["accuracy"] <= 1.0
+    # No binary axes this sprint -> no axis reports a binary accuracy.
+    assert BINARY == set()
+    assert scorecard["binary_axes"] == []
+    assert sorted(scorecard["continuous_axes"]) == sorted(ACTIVE_AXES)
+    for axis in ACTIVE_AXES:
+        assert dphm[axis].get("accuracy") is None
+
+    # --- acceptance-gate criterion names are the Sprint 26 set ---
+    crit_names = {c["name"] for c in scorecard["acceptance_gate"]["criteria"]}
+    assert crit_names == {
+        "continuous_mse_within_threshold",
+        "continuous_mae_within_threshold",
+        "binary_balanced_accuracy_within_threshold",
+        "beats_baseline_on_continuous_axes",
+    }
 
     # --- edge_valve_position is N/A / masked ---
     assert scorecard["masked_axes"] == {"edge_valve_position": "N/A"}
