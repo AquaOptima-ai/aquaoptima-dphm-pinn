@@ -44,6 +44,11 @@ import numpy as np
 import pandas as pd
 import torch
 
+from ..advisory.schema_validation import (
+    DEFAULT_MODELING_ROOTS,
+    apply_governance_to_verdict,
+    build_governance_block,
+)
 from ..dataio.yilan_axis_map import (
     CANONICAL_AXIS_TO_COLUMN,
     TIMESTAMP_COLUMN,
@@ -596,6 +601,15 @@ def evaluate(
     n_windows = block["windows_scored"]
     dphm_metrics = block["dphm_metrics"]
 
+    governance_block = build_governance_block(
+        split_manifest=manifest,
+        modeling_roots=DEFAULT_MODELING_ROOTS,
+        normalization_stats=norm_stats,
+    )
+    acceptance_gate = apply_governance_to_verdict(
+        block["acceptance_gate"], governance_block
+    )
+
     # --- contract-shaped report (continuous axes carry absolute MSE/MAE) ---
     mse_by_axis = {
         a: dphm_metrics[a]["mse"] for a in active_axes if a in CONTINUOUS_AXES
@@ -643,7 +657,7 @@ def evaluate(
         "dphm_metrics": dphm_metrics,
         "baseline_metrics": block["baseline_metrics"],
         "dphm_vs_baseline": block["dphm_vs_baseline"],
-        "acceptance_gate": block["acceptance_gate"],
+        "acceptance_gate": acceptance_gate,
         "shadow_report": shadow_payload,
         "safety": {
             "evaluation_mode": "offline_only",
@@ -652,6 +666,7 @@ def evaluate(
             "site_integration_allowed": False,
             "scorecard_role": "advisory_evidence_only",
             "fail_blocks_packaging": True,
+            "governance": governance_block,
         },
     }
     return scorecard
@@ -733,6 +748,24 @@ def evaluate_multi_horizon(
         per_horizon[str(h)]["acceptance_gate"]["passed"] for h in horizons
     )
 
+    governance_block = build_governance_block(
+        split_manifest=manifest,
+        modeling_roots=DEFAULT_MODELING_ROOTS,
+        normalization_stats=norm_stats,
+    )
+    packaging_gate = apply_governance_to_verdict(
+        {
+            "verdict": "PASS" if all_pass else "FAIL",
+            "passed": all_pass,
+            "rule": "every evaluated horizon must pass the acceptance gate",
+            "per_horizon_verdict": {
+                str(h): per_horizon[str(h)]["acceptance_gate"]["verdict"]
+                for h in horizons
+            },
+        },
+        governance_block,
+    )
+
     return {
         "sprint": "AOPSO Sprint 26",
         "benchmark": "LOCKED March 2026 holdout (multi-horizon)",
@@ -754,15 +787,7 @@ def evaluate_multi_horizon(
         "horizons": horizons,
         "metric_space": "absolute_physical_units",
         "per_horizon": per_horizon,
-        "packaging_gate": {
-            "verdict": "PASS" if all_pass else "FAIL",
-            "passed": all_pass,
-            "rule": "every evaluated horizon must pass the acceptance gate",
-            "per_horizon_verdict": {
-                str(h): per_horizon[str(h)]["acceptance_gate"]["verdict"]
-                for h in horizons
-            },
-        },
+        "packaging_gate": packaging_gate,
         "safety": {
             "evaluation_mode": "offline_only",
             "write_path": "scorecard_json_only",
@@ -770,6 +795,7 @@ def evaluate_multi_horizon(
             "site_integration_allowed": False,
             "scorecard_role": "advisory_evidence_only",
             "fail_blocks_packaging": True,
+            "governance": governance_block,
         },
     }
 
