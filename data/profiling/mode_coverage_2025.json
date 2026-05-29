@@ -1,0 +1,109 @@
+{
+  "total_rows": 489163,
+  "csv_span_start": "2025-01-21T22:58:59",
+  "csv_span_end": "2025-12-31T23:59:54",
+  "mode_columns": {
+    "auto": "auto",
+    "manual": "manual"
+  },
+  "counts": {
+    "auto": 277447,
+    "manual": 57249,
+    "other": 154467,
+    "total": 489163
+  },
+  "percentages": {
+    "auto": 56.7187,
+    "manual": 11.7035,
+    "other": 31.5778,
+    "total": 100.0
+  },
+  "by_month": {
+    "1": {
+      "auto": 0,
+      "manual": 14519,
+      "other": 0,
+      "total": 14519,
+      "auto_pct": 0.0
+    },
+    "2": {
+      "auto": 0,
+      "manual": 14277,
+      "other": 25359,
+      "total": 39636,
+      "auto_pct": 0.0
+    },
+    "3": {
+      "auto": 34834,
+      "manual": 9192,
+      "other": 0,
+      "total": 44026,
+      "auto_pct": 79.12
+    },
+    "4": {
+      "auto": 42370,
+      "manual": 7,
+      "other": 0,
+      "total": 42377,
+      "auto_pct": 99.98
+    },
+    "5": {
+      "auto": 42209,
+      "manual": 1938,
+      "other": 0,
+      "total": 44147,
+      "auto_pct": 95.61
+    },
+    "6": {
+      "auto": 42953,
+      "manual": 236,
+      "other": 0,
+      "total": 43189,
+      "auto_pct": 99.45
+    },
+    "7": {
+      "auto": 31906,
+      "manual": 12286,
+      "other": 0,
+      "total": 44192,
+      "auto_pct": 72.2
+    },
+    "8": {
+      "auto": 0,
+      "manual": 0,
+      "other": 44085,
+      "total": 44085,
+      "auto_pct": 0.0
+    },
+    "9": {
+      "auto": 0,
+      "manual": 0,
+      "other": 42579,
+      "total": 42579,
+      "auto_pct": 0.0
+    },
+    "10": {
+      "auto": 40760,
+      "manual": 3251,
+      "other": 0,
+      "total": 44011,
+      "auto_pct": 92.61
+    },
+    "11": {
+      "auto": 124,
+      "manual": 0,
+      "other": 42444,
+      "total": 42568,
+      "auto_pct": 0.29
+    },
+    "12": {
+      "auto": 42291,
+      "manual": 1543,
+      "other": 0,
+      "total": 43834,
+      "auto_pct": 96.48
+    }
+  },
+  "note": "auto/manual are real CSV boolean columns and are NOT strict complements; rows that are neither are labelled 'other' (idle/unlabelled).",
+  "gap_count": 19
+}
