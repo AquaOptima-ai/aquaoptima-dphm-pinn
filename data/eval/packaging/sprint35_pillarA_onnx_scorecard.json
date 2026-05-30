@@ -1,0 +1,313 @@
+{
+  "acceptance_gate": {
+    "criteria": [
+      {
+        "detail": {
+          "onnx_path": "/home/hunter_lin/projects/aopso-sprint35-impl/data/eval/packaging/pillarA_health_detector.onnx",
+          "opset_version": 17,
+          "size_bytes": 3747
+        },
+        "name": "onnx_export_loads_under_onnxruntime",
+        "passed": true
+      },
+      {
+        "detail": {
+          "flags_identical": true,
+          "max_abs_recon_diff": 5.125999450683594e-06,
+          "max_abs_score_diff": 6.595288062405391e-06,
+          "n_rows": 8000,
+          "recon_tolerance": 0.0001,
+          "score_tolerance": 1e-05
+        },
+        "name": "parity_held_in_2025",
+        "passed": true
+      },
+      {
+        "detail": {
+          "flags_identical": true,
+          "max_abs_recon_diff": 4.57763671875e-05,
+          "max_abs_score_diff": 4.5852955100622594e-06,
+          "n_rows": 42674,
+          "recon_tolerance": 0.0001,
+          "score_tolerance": 1e-05
+        },
+        "name": "parity_march_2026",
+        "passed": true
+      },
+      {
+        "detail": {
+          "checksum_algorithm": "sha256",
+          "checksum_hex": "787c2f1f54997a0359335e72c90f32805327f89bfe82d497af6698294746d4ec",
+          "checksum_present": true,
+          "contract_validation": "PASS",
+          "framework": "onnx",
+          "model_id": "aopso-pillarA-health-detector",
+          "model_version": "sprint35-onnx-r0",
+          "safety_flags_all_true": true
+        },
+        "name": "manifest_validates_under_contracts_sdk",
+        "passed": true
+      },
+      {
+        "detail": {
+          "holdout_prefix": "2026-03",
+          "leaked_keys": [],
+          "n_train_val_checked": 150000
+        },
+        "name": "march_not_used_for_fitting",
+        "passed": true
+      },
+      {
+        "detail": {
+          "files_scanned": 18,
+          "violations": []
+        },
+        "name": "governance_scan_clean",
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "rule": "ALL of: ONNX export loads under onnxruntime CPU; ONNX parity vs torch is recon-error max-abs-diff <= 0.0001 AND clipped-score max-abs-diff <= 1e-05 AND flags bit-identical on BOTH a held-in 2025 sample AND real March-2026 frames; ModelArtifactRecord validates under the contracts SDK with framework='onnx', a real sha256 checksum, and the canonical all-True SafetyFlagSet; March 2026 was not used for fitting (leakage assert passed); governance scan of the advisory tree finds no forbidden edge / write-capable tokens.",
+    "verdict": "PASS"
+  },
+  "advisory_only": true,
+  "artifact_record": {
+    "checksum_algorithm": "sha256",
+    "checksum_hex": "787c2f1f54997a0359335e72c90f32805327f89bfe82d497af6698294746d4ec",
+    "checksum_present": true,
+    "contract_validation": "PASS",
+    "framework": "onnx",
+    "model_id": "aopso-pillarA-health-detector",
+    "model_version": "sprint35-onnx-r0",
+    "path": "/home/hunter_lin/projects/aopso-sprint35-impl/data/eval/packaging/pillarA_onnx_artifact_record.json",
+    "safety_flags_all_true": true
+  },
+  "axes_used": [
+    "edge_flow",
+    "edge_power",
+    "edge_pump_speed",
+    "edge_status",
+    "node_demand",
+    "node_level",
+    "node_pressure",
+    "node_status"
+  ],
+  "detector_summary": {
+    "architecture": {
+      "activation": "tanh",
+      "hidden_dim": 16,
+      "latent_dim": 8,
+      "layout": "n_axes -> hidden -> latent -> hidden -> n_axes",
+      "n_axes": 8
+    },
+    "axes": [
+      "edge_flow",
+      "edge_power",
+      "edge_pump_speed",
+      "edge_status",
+      "node_demand",
+      "node_level",
+      "node_pressure",
+      "node_status"
+    ],
+    "calibration": {
+      "flag_quantile": 0.99,
+      "flag_threshold_error": 0.1310570389032364,
+      "train_error_p995": 0.009128015488386154,
+      "val_error_p995": 0.23723329603672028
+    },
+    "training": {
+      "batch_size": 256,
+      "epochs": 60,
+      "learning_rate": 0.001,
+      "n_train_rows": 120000,
+      "n_val_rows": 30000,
+      "norm_source": "/home/hunter_lin/projects/aopso-sprint35-impl/data/normalization/yilan_2025_train_stats.json",
+      "seed": 0,
+      "train_final_loss": 0.0026671445576909947,
+      "val_final_loss": 0.006051066797226667,
+      "weight_decay": 1e-05
+    }
+  },
+  "framework": "onnx",
+  "governance_scan": {
+    "clean": true,
+    "files_scanned": 18,
+    "roots": [
+      "/home/hunter_lin/projects/aopso-sprint35-impl/src/aquaoptima/advisory"
+    ],
+    "safety_status": "PASS",
+    "violations": []
+  },
+  "held_in_2025_sample": {
+    "n_rows": 8000,
+    "selection": "stratified-2025 sample (no replace)"
+  },
+  "holdout_window": {
+    "all_in_2026_03": true,
+    "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2026.csv",
+    "first_timestamp": "2026-03-01 00:00:53",
+    "last_timestamp": "2026-03-31 23:59:19",
+    "month_filter": "2026-03 (calendar month March)",
+    "n_march_rows_total_before_cap": 42674,
+    "n_rows": 42674,
+    "row_cap": 50000,
+    "row_cap_applied": false
+  },
+  "latency_cpu": {
+    "input_shape": [
+      1,
+      8
+    ],
+    "iterations": 256,
+    "max_ms": 0.18380500114290044,
+    "mean_ms": 0.017265960877921316,
+    "median_ms": 0.014866498531773686,
+    "min_ms": 0.013764998584520072,
+    "p50_ms": 0.014866498531773686,
+    "p95_ms": 0.025850997189991176,
+    "p99_ms": 0.03655500040622428,
+    "status": "measured",
+    "threads": 1,
+    "warmup_iterations": 16
+  },
+  "leakage_check": {
+    "holdout_prefix": "2026-03",
+    "isolation_assert_passed": true,
+    "march_used_for_fitting": false,
+    "n_train_val_checked": 150000
+  },
+  "onnx_export": {
+    "architecture": {
+      "activation": "tanh",
+      "hidden_dim": 16,
+      "latent_dim": 8,
+      "layout": "n_axes -> hidden -> latent -> hidden -> n_axes",
+      "n_axes": 8
+    },
+    "dynamic_batch": true,
+    "input_name": "x",
+    "input_shape": [
+      "batch",
+      8
+    ],
+    "n_parameters": 560,
+    "onnx_path": "/home/hunter_lin/projects/aopso-sprint35-impl/data/eval/packaging/pillarA_health_detector.onnx",
+    "opset_version": 17,
+    "opset_version_requested": 17,
+    "output_name": "recon",
+    "sha256": "787c2f1f54997a0359335e72c90f32805327f89bfe82d497af6698294746d4ec",
+    "sidecar_path": "/home/hunter_lin/projects/aopso-sprint35-impl/data/eval/packaging/pillarA_health_detector.sidecar.json",
+    "size_bytes": 3747
+  },
+  "parity": {
+    "held_in_2025": {
+      "flag_disagreements": 0,
+      "flags_identical": true,
+      "label": "held_in_2025",
+      "max_abs_recon_diff": 5.125999450683594e-06,
+      "max_abs_score_diff": 6.595288062405391e-06,
+      "mean_abs_recon_diff": 2.984619226253926e-08,
+      "n_rows": 8000,
+      "onnx_flag_rate": 0.002,
+      "torch_flag_rate": 0.002
+    },
+    "march_2026": {
+      "flag_disagreements": 0,
+      "flags_identical": true,
+      "label": "march_2026",
+      "max_abs_recon_diff": 4.57763671875e-05,
+      "max_abs_score_diff": 4.5852955100622594e-06,
+      "mean_abs_recon_diff": 1.4937540773054908e-07,
+      "n_rows": 42674,
+      "onnx_flag_rate": 0.012302572995266438,
+      "torch_flag_rate": 0.012302572995266438
+    },
+    "recon_error_tolerance": 0.0001,
+    "score_tolerance": 1e-05
+  },
+  "pillar": "A",
+  "pillar_label": "A_health",
+  "produced_at": "2026-05-30T00:34:27Z",
+  "safety": {
+    "advisory_only": true,
+    "edge_profile": "amax_cpu_only",
+    "evaluation_mode": "offline_only",
+    "framework": "onnx",
+    "governance_status": "PASS",
+    "influences_control": false,
+    "scorecard_role": "advisory_evidence_only",
+    "site_integration_allowed": false,
+    "write_path": "none"
+  },
+  "source_model": {
+    "benchmark": "LOCKED March 2026 holdout (out-of-sample), broad full-year 2025 fit",
+    "detector_config": {
+      "architecture": {
+        "activation": "tanh",
+        "hidden_dim": 16,
+        "latent_dim": 8,
+        "layout": "n_axes -> hidden -> latent -> hidden -> n_axes",
+        "n_axes": 8
+      },
+      "axes": [
+        "edge_flow",
+        "edge_power",
+        "edge_pump_speed",
+        "edge_status",
+        "node_demand",
+        "node_level",
+        "node_pressure",
+        "node_status"
+      ],
+      "calibration": {
+        "flag_quantile": 0.99,
+        "flag_threshold_error": 0.1310570389032364,
+        "train_error_p995": 0.009128015488386154,
+        "val_error_p995": 0.23723329603672028
+      },
+      "training": {
+        "batch_size": 256,
+        "epochs": 60,
+        "learning_rate": 0.001,
+        "n_train_rows": 120000,
+        "n_val_rows": 30000,
+        "norm_source": "/home/hunter_lin/projects/aopso-sprint30b-impl/data/normalization/yilan_2025_train_stats.json",
+        "seed": 0,
+        "train_final_loss": 0.0026671445576909947,
+        "val_final_loss": 0.006051066797226667,
+        "weight_decay": 1e-05
+      }
+    },
+    "scorecard_exists": true,
+    "scorecard_path": "/home/hunter_lin/projects/aopso-sprint35-impl/data/eval/pillarA/sprint30b_fullyear_holdout_scorecard.json",
+    "sprint": "30b",
+    "verdict": "PASS"
+  },
+  "sprint": "35",
+  "train_meta": {
+    "csv_path": "/home/hunter_lin/projects/yilan-site-model-testing/yearlong_drive/source1_2025.csv",
+    "distinct_months": 8,
+    "fit_strategy": "full_year_stratified_auto_mode_2025",
+    "full_mode": false,
+    "min_distinct_months_required": 5,
+    "n_auto_rows_total_in_csv": 271486,
+    "n_rows_after_auto_filter": 150000,
+    "per_month_floor": 2000,
+    "per_month_rows": {
+      "2025-03": 21411,
+      "2025-04": 21411,
+      "2025-05": 21411,
+      "2025-06": 21411,
+      "2025-07": 21411,
+      "2025-10": 21411,
+      "2025-11": 123,
+      "2025-12": 21411
+    },
+    "seed": 0,
+    "target_rows": 150000,
+    "timestamp_max": "2025-12-31 23:54:54",
+    "timestamp_min": "2025-03-06 09:59:37"
+  },
+  "verdict": "PASS"
+}

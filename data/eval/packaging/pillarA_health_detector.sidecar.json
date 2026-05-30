@@ -1,0 +1,51 @@
+{
+  "architecture": {
+    "activation": "tanh",
+    "hidden_dim": 16,
+    "latent_dim": 8,
+    "layout": "n_axes -> hidden -> latent -> hidden -> n_axes",
+    "n_axes": 8
+  },
+  "axes": [
+    "edge_flow",
+    "edge_power",
+    "edge_pump_speed",
+    "edge_status",
+    "node_demand",
+    "node_level",
+    "node_pressure",
+    "node_status"
+  ],
+  "dynamic_batch": true,
+  "flag_threshold_error": 0.1310570389032364,
+  "framework": "onnx",
+  "input_name": "x",
+  "mu": [
+    1479.7038882199108,
+    146.87225118783806,
+    42.23751598698723,
+    0.9998795082214122,
+    1519.643939282277,
+    4.570445886521794,
+    1.5635890642807326,
+    18.28868619378708
+  ],
+  "onnx_filename": "pillarA_health_detector.onnx",
+  "onnx_sha256": "787c2f1f54997a0359335e72c90f32805327f89bfe82d497af6698294746d4ec",
+  "onnx_size_bytes": 3747,
+  "opset_version": 17,
+  "output_name": "recon",
+  "parameter_count": 560,
+  "sigma": [
+    471.6005355243434,
+    56.815460680501445,
+    3.1877691068825564,
+    0.010976213387094981,
+    442.80316960383584,
+    0.4517466887449275,
+    0.2287361502405617,
+    2.2909898456458606
+  ],
+  "train_error_p995": 0.009128015488386154,
+  "val_error_p995": 0.23723329603672028
+}

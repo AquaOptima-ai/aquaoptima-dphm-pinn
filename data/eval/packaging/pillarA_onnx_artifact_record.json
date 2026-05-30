@@ -1,0 +1,93 @@
+{
+  "artifact_reference": {
+    "checksum": {
+      "algorithm": "sha256",
+      "hex_digest": "787c2f1f54997a0359335e72c90f32805327f89bfe82d497af6698294746d4ec",
+      "size_bytes": 3747
+    },
+    "id": "aopso-pillarA-health-detector",
+    "kind": "model_weights",
+    "version": "sprint35-onnx-r0"
+  },
+  "capability_requirement": {
+    "package_id": "model-aopso-pillarA-health-detector",
+    "required": [
+      "validate_checksums",
+      "validate_manifest",
+      "validate_safety_flags"
+    ],
+    "sdk_version": "0.1.0"
+  },
+  "description": "offline health/anomaly detector (Pillar A, advisory reference)",
+  "framework": "onnx",
+  "model_id": "aopso-pillarA-health-detector",
+  "model_version": "sprint35-onnx-r0",
+  "provenance": {
+    "build_id": "aopso-sprint35-pillarA-onnx",
+    "component": "ai_server",
+    "version": "0.1.0"
+  },
+  "safety_flag_set": {
+    "no_control": true,
+    "no_live_ot_binding": true,
+    "no_setpoint_output": true,
+    "no_write": true,
+    "offline": true,
+    "packaging_audit_only": true,
+    "read_only": true
+  },
+  "summary": {
+    "actuates": false,
+    "advisory_only": true,
+    "architecture": "x86_64",
+    "architecture_json": "{\"activation\":\"tanh\",\"hidden_dim\":16,\"latent_dim\":8,\"layout\":\"n_axes -> hidden -> latent -> hidden -> n_axes\",\"n_axes\":8}",
+    "artifact_schema_version": "1.0.0",
+    "axis_order": [
+      "edge_flow",
+      "edge_power",
+      "edge_pump_speed",
+      "edge_status",
+      "node_demand",
+      "node_level",
+      "node_pressure",
+      "node_status"
+    ],
+    "baselines_to_beat": [
+      "persistence_last_value",
+      "spc_ewma_3sigma"
+    ],
+    "calibration_flag_threshold_error": 0.1310570389032364,
+    "calibration_train_error_p995": 0.009128015488386154,
+    "calibration_val_error_p995": 0.23723329603672028,
+    "evaluation_metrics": [
+      "injected_fault_auroc",
+      "detection_lead_time_steps",
+      "false_alarm_rate_per_day",
+      "reconstruction_error_p99"
+    ],
+    "evaluation_mode": "offline_only",
+    "framework": "onnx",
+    "influences_control": false,
+    "onnx_dynamic_batch": true,
+    "onnx_filename": "pillarA_health_detector.onnx",
+    "onnx_input_name": "x",
+    "onnx_input_shape_json": "[\"batch\",8]",
+    "onnx_opset_version": 17,
+    "onnx_output_name": "recon",
+    "onnx_size_bytes": 3747,
+    "output_schema_json": "{\"advisory_only\":true,\"baselines_to_beat\":[\"persistence_last_value\",\"spc_ewma_3sigma\"],\"evaluation_metrics\":[\"injected_fault_auroc\",\"detection_lead_time_steps\",\"false_alarm_rate_per_day\",\"reconstruction_error_p99\"],\"label_regime\":\"no_true_labels_inject_synthetic_faults_on_holdout\",\"outputs\":[{\"higher_is\":\"healthier\",\"kind\":\"continuous\",\"name\":\"health_score\",\"range\":\"0_1\"},{\"decode\":\"threshold_on_health_score\",\"kind\":\"binary\",\"name\":\"anomaly_flag\"},{\"axis_order\":[\"edge_flow\",\"edge_power\",\"edge_pump_speed\",\"edge_status\",\"node_demand\",\"node_level\",\"node_pressure\",\"node_status\"],\"kind\":\"vector\",\"meaning\":\"per_axis_reconstruction_or_residual_contribution_to_anomaly\",\"name\":\"axis_contribution\"}],\"pillar\":\"A_health\"}",
+    "packaging_pipeline_sprint": "35",
+    "parameter_count": 560,
+    "pillar": "A_health",
+    "scorecard_role": "advisory_evidence_only",
+    "site_integration": false,
+    "site_integration_allowed": false,
+    "source_model_scorecard": "/home/hunter_lin/projects/aopso-sprint35-impl/data/eval/pillarA/sprint30b_fullyear_holdout_scorecard.json",
+    "source_model_sprint": "30b",
+    "sprint": "35",
+    "standardisation_mu_json": "[1479.7038882199108,146.87225118783806,42.23751598698723,0.9998795082214122,1519.643939282277,4.570445886521794,1.5635890642807326,18.28868619378708]",
+    "standardisation_sigma_json": "[471.6005355243434,56.815460680501445,3.1877691068825564,0.010976213387094981,442.80316960383584,0.4517466887449275,0.2287361502405617,2.2909898456458606]",
+    "telemetry_axis_schema_json": "{\"axes\":[{\"index\":0,\"kind\":\"continuous\",\"name\":\"edge_flow\",\"unit\":\"m3_per_h\"},{\"index\":1,\"kind\":\"continuous\",\"name\":\"edge_power\",\"unit\":\"kW\"},{\"index\":2,\"kind\":\"continuous\",\"name\":\"edge_pump_speed\",\"unit\":\"hz\"},{\"index\":3,\"kind\":\"continuous\",\"name\":\"edge_status\",\"unit\":\"fraction_0_1\"},{\"index\":4,\"kind\":\"continuous\",\"name\":\"node_demand\",\"unit\":\"m3_per_h\"},{\"index\":5,\"kind\":\"continuous\",\"name\":\"node_level\",\"unit\":\"m\"},{\"index\":6,\"kind\":\"continuous\",\"name\":\"node_pressure\",\"unit\":\"m_head\"},{\"index\":7,\"kind\":\"continuous\",\"name\":\"node_status\",\"unit\":\"m_head\"}],\"axis_order\":[\"edge_flow\",\"edge_power\",\"edge_pump_speed\",\"edge_status\",\"node_demand\",\"node_level\",\"node_pressure\",\"node_status\"],\"masked\":[{\"name\":\"edge_valve_position\",\"reason\":\"zero_telemetry_coverage\",\"scored\":false}],\"normalization\":\"zscore_per_axis_from_yilan_2025_train_stats\"}",
+    "write_path": "none"
+  }
+}
