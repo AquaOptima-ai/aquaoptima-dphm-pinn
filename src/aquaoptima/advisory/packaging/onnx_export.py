@@ -38,13 +38,17 @@ import json
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
-import torch
 
-from ..health_detector import FittedHealthDetector
+# torch + FittedHealthDetector are only needed by the exporter side and the
+# Sprint-35 sidecar builder. The runtime container scores with onnxruntime
+# alone; we keep these imports lazy so the scoring path stays torch-free
+# (Sprint-36 Linux image is CPU + onnxruntime only).
+if TYPE_CHECKING:  # pragma: no cover - type-checking hint only
+    from ..health_detector import FittedHealthDetector
 
 # Opset 17 is widely supported by onnxruntime CPU 1.17+. The torch dynamo
 # exporter may auto-upgrade to a newer opset; we record the actual opset in
@@ -143,7 +147,7 @@ class OnnxScoringResult:
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
-def _parameter_count(detector: FittedHealthDetector) -> int:
+def _parameter_count(detector: "FittedHealthDetector") -> int:
     """Compute the autoencoder's total parameter count from the state_dict."""
     total = 0
     for tensor in detector.state_dict.values():
@@ -169,7 +173,7 @@ def _standardise(
 # export
 # --------------------------------------------------------------------------- #
 def export_health_detector_to_onnx(
-    detector: FittedHealthDetector,
+    detector: "FittedHealthDetector",
     onnx_path: Path | str,
     *,
     sidecar_path: Path | str | None = None,
@@ -199,6 +203,9 @@ def export_health_detector_to_onnx(
     OnnxHealthDetectorSidecar
         The sidecar payload that was just written to disk.
     """
+
+    # Lazy-import torch so the scoring-only runtime image does not need it.
+    import torch  # noqa: F401
 
     onnx_path = Path(onnx_path)
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
@@ -280,7 +287,7 @@ def _infer_opset_from_bytes(onnx_bytes: bytes, *, fallback: int) -> int:
 
 
 def build_health_detector_sidecar(
-    detector: FittedHealthDetector,
+    detector: "FittedHealthDetector",
     *,
     onnx_sha256: str,
     onnx_size_bytes: int,

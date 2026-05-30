@@ -1,0 +1,5 @@
+# AOPSO Sprint 36 -- Pillar A advisory container runtime pin set
+# CPU-only; no GPU / CUDA / TensorRT.
+numpy==1.26.4
+onnxruntime==1.20.1
+pandas==2.2.2
