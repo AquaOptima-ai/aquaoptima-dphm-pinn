@@ -1,0 +1,20 @@
+# Keep the AOPSO Sprint-36 Pillar-A advisory image lean and offline.
+# Exclude everything by default and explicitly include only the paths the
+# Dockerfile actually COPYs.
+*
+!deploy/pillarA_advisory/Dockerfile
+!deploy/pillarA_advisory/requirements.txt
+!deploy/pillarA_advisory/.dockerignore
+!scripts/serve_pillarA_advisory.py
+!src/aquaoptima/__init__.py
+!src/aquaoptima/advisory/__init__.py
+!src/aquaoptima/advisory/packaging/**
+!data/eval/packaging/pillarA_health_detector.onnx
+!data/eval/packaging/pillarA_health_detector.sidecar.json
+
+# Strip caches even from included trees
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache

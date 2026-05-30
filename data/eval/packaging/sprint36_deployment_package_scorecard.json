@@ -1,0 +1,154 @@
+{
+  "acceptance_gate": {
+    "criteria": [
+      {
+        "detail": {
+          "build_script_present": true,
+          "dockerfile_present": true,
+          "dockerignore_present": true,
+          "non_root_user_declared": true,
+          "platform": "linux/amd64"
+        },
+        "name": "dockerfile_dockerignore_buildscript_well_formed",
+        "passed": true
+      },
+      {
+        "detail": {
+          "flags_identical": true,
+          "max_abs_score_diff_vs_sprint35": 0.0,
+          "n_rows": 256
+        },
+        "name": "entrypoint_reproduces_sprint35_scores",
+        "passed": true
+      },
+      {
+        "detail": {
+          "errors": [],
+          "rejected_accelerator_tokens": [],
+          "rejected_frameworks": [],
+          "safety_flags_all_true": true,
+          "validate_edge": "PASS"
+        },
+        "name": "deployment_manifest_validates_for_amax_edge",
+        "passed": true
+      },
+      {
+        "detail": {
+          "forbidden_token_hits": {},
+          "forbidden_token_scan": "clean",
+          "governance_scan_clean": true,
+          "governance_scan_violations": []
+        },
+        "name": "boundary_holds_no_control_no_write_clean_scan",
+        "passed": true
+      },
+      {
+        "detail": {
+          "exists": true,
+          "mentions_offline": true,
+          "mentions_shadow": true,
+          "path": "docs/product/aopso-health-efficiency-ab/08-pillarA-linux-deployment-runbook.md",
+          "states_not_control_authorized": true
+        },
+        "name": "shadow_mode_runbook_present_and_explicit",
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "rule": "ALL of: Dockerfile + .dockerignore + build script well-formed, targeting linux/amd64, non-root USER, read-only-friendly; serving entrypoint reproduces Sprint-35 ONNX scores in-process (flags identical, score diff <= 1e-12); DeploymentPackageManifest builds and validate_deployment_package_for_edge returns zero errors against the canonical AMAX-5580 declaration with all safety flags True; boundary holds (no control-plane network, no write path, container runs read-only, forbidden-token + governance scans clean); shadow-mode runbook present and explicitly offline / not-control-authorized.",
+    "verdict": "PASS"
+  },
+  "advisory_only": true,
+  "boundary": {
+    "container_runtime_flags": [
+      "--read-only",
+      "--network=none",
+      "--user 1001:1001",
+      "--cap-drop=ALL",
+      "--security-opt=no-new-privileges"
+    ],
+    "control_plane_network": false,
+    "forbidden_token_hits": {},
+    "forbidden_token_scan": "clean",
+    "governance_scan_clean": true,
+    "governance_scan_files_scanned": 4,
+    "governance_scan_violations": [],
+    "runs_read_only": true,
+    "write_path": false
+  },
+  "cpu_latency": {
+    "batch_256_row_ms": 3.1646799980080687,
+    "n_single_row_iters": 50,
+    "profile": "AMAX-5580 linux/amd64 CPU surrogate",
+    "provider": "onnxruntime CPUExecutionProvider, intra=1 inter=1",
+    "single_row_mean_ms": 3.2532627003092784,
+    "single_row_p50_ms": 3.1859860027907416,
+    "single_row_p99_ms": 4.422523998073302
+  },
+  "deployment_manifest": {
+    "edge_profile_id": "advantech_amax_5580",
+    "edge_validator_errors": [],
+    "edge_validator_warnings": [],
+    "model_record": {
+      "checksum_hex": "787c2f1f54997a0359335e72c90f32805327f89bfe82d497af6698294746d4ec",
+      "checksum_size_bytes": 3747,
+      "framework": "onnx",
+      "model_id": "aopso-pillarA-health-detector",
+      "model_version": "sprint35-onnx-r0"
+    },
+    "model_records": 1,
+    "package_id": "aopso-pillarA-linux-advisory-package",
+    "package_version": "sprint36-r0",
+    "path": "data/eval/packaging/pillarA_deployment_package_manifest.json",
+    "rejected_accelerator_tokens": [],
+    "rejected_frameworks": [],
+    "safety_flags": {
+      "no_control": true,
+      "no_live_ot_binding": true,
+      "no_setpoint_output": true,
+      "no_write": true,
+      "offline": true,
+      "packaging_audit_only": true,
+      "read_only": true
+    },
+    "safety_flags_all_true": true,
+    "schema_family": "manifest",
+    "validate_edge": "PASS"
+  },
+  "edge_profile_id": "advantech_amax_5580",
+  "evaluation_mode": "offline_only",
+  "image": {
+    "base": "python:3.12-slim",
+    "build_script_path": "scripts/build_pillarA_image.sh",
+    "docker_build": "sha256:32cc3f7bf74ed4e52f38dda0837a103dbf4b3ffcd8ab330d76efd5a859aedc79",
+    "dockerfile_path": "deploy/pillarA_advisory/Dockerfile",
+    "dockerignore_present": true,
+    "network": "none",
+    "non_root": true,
+    "platform": "linux/amd64",
+    "read_only_designed": true,
+    "requirements_path": "deploy/pillarA_advisory/requirements.txt"
+  },
+  "package_id": "aopso-pillarA-linux-advisory-package",
+  "package_version": "sprint36-r0",
+  "pillar": "A",
+  "produced_at": "2026-05-30T02:24:37Z",
+  "runbook_path": "docs/product/aopso-health-efficiency-ab/08-pillarA-linux-deployment-runbook.md",
+  "serving": {
+    "entrypoint_path": "src/aquaoptima/advisory/packaging/serve_advisory.py",
+    "evidence_columns": [
+      "detector_recon_error",
+      "detector_anomaly_score",
+      "detector_flag"
+    ],
+    "evidence_csv_path": "/home/hunter_lin/projects/aopso-sprint36-impl/build/sprint36-tmp/evidence/pillarA_advisory_evidence.csv",
+    "evidence_summary_path": "/home/hunter_lin/projects/aopso-sprint36-impl/build/sprint36-tmp/evidence/pillarA_advisory_evidence_summary.json",
+    "flags_identical": true,
+    "max_abs_score_diff_vs_sprint35": 0.0,
+    "n_rows": 256,
+    "reproduces_sprint35_scores": true
+  },
+  "sprint": "36",
+  "target": "AMAX-8580 linux/amd64 CPU",
+  "verdict": "PASS"
+}
