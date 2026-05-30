@@ -1,283 +1,224 @@
-# Sprint 35 — Cold-start replay / shadow dataset builder
+# AOPSO Sprint 35 — Pillar A packaging: PyTorch → ONNX (offline, advisory, CPU-only)
 
-## Goal
+**Status:** Pillar A was validated by Sprint 30b (out-of-sample PASS on the
+locked March 2026 holdout under the pre-registered v2 gate). Sprint 35 banks
+that win by exporting the validated detector to ONNX for the AMAX CPU-only
+edge profile (Option A). This is an OFFLINE packaging sprint: a portable
+inference artifact + conformant manifest, no live wiring of any kind.
 
-Add a deterministic cold-start replay / shadow dataset builder that
-turns offline telemetry rows into typed replay frames aligned to a
-loaded `Network` and the Sprint 34 `TelemetryTagMap`. The dataset
-answers, given an offline row sequence:
+SPRINT35_STATUS: COMPLETE
+SPRINT35_GATE: PASS
 
-- For each timestamp, what node pressure / edge flow / pump speed /
-  status / power / etc. values are available?
-- Which values were missing, invalid, stale, or out of range?
-- What canonical units do those values use?
-- Can future shadow-mode evaluation consume these frames without
-  touching live OT systems?
+## What was packaged
 
-The builder is read-only / offline-only. It activates no live SCADA
-/ PLC / PAC / historian / OPC-UA / MQTT / REST binding, exposes no
-write / control / setpoint path, and invokes no dPHM forward solve.
+The frozen Pillar A health detector (autoencoder, n_axes=8 → hidden=16 →
+latent=8 → hidden=16 → n_axes=8, Tanh activations, 560 trainable parameters)
+re-fit with the same Sprint-30b configuration (seed=0, epochs=60,
+batch_size=256, frozen 2025 z-score stats, full-year stratified auto-mode 2025
+fit frame, 8 distinct months) was exported to ONNX (opset 17, dynamic batch
+axis, float32 `[batch, 8]` input). A JSON sidecar carries the standardisation
+constants `(mu, sigma)`, the score denominator (`val_error_p995`), the binary
+flag threshold (`flag_threshold_error`), plus audit metadata (architecture,
+parameter count, effective opset, sha256, size). Together the ONNX graph +
+sidecar fully reproduce `FittedHealthDetector.score()` under onnxruntime CPU
+with no torch dependency at inference time.
 
-## Files changed
+A conformant contracts-SDK `ModelArtifactRecord` was built via the existing
+`build_health_artifact_record(...)` factory with `framework="onnx"`, the real
+sha256 + size of the `.onnx` bytes, the canonical all-True `SafetyFlagSet`,
+and the JSON-scalar summary mapping (architecture + standardisation +
+calibration constants embedded as JSON strings so the SDK validator stays
+happy). It validates without raising `ContractError`.
 
-- `src/aquaoptima/dphm/shadow_replay.py` (new module) — frozen
-  dataclasses (`ShadowReplayDiagnostics`, `ShadowReplayFrame`,
-  `ShadowReplayDataset`), the per-axis canonical unit conversion
-  tables, the public builder `build_shadow_replay_dataset`, and the
-  stdlib-only CSV loader `load_shadow_replay_csv`.
-- `src/aquaoptima/dphm/__init__.py` (updated) — re-exports the three
-  new dataclasses, the builder, and the CSV loader. Sprint 34 surface
-  is unchanged.
-- `tests/dphm/test_shadow_replay.py` (new) — 46 focused tests covering
-  the surface, the strict / non-strict contract, every unit
-  conversion, the status parser, the staleness check, and the
-  read-only boundary.
-- `docs/shadow-replay.md` (new) — Sprint 35 surface documentation
-  including the canonical conversion table, strict / non-strict
-  semantics, diagnostics semantics, and the reaffirmed safety
-  boundary.
-- `SPRINT35_REPORT.md` (this file).
+## Files changed / added
 
-No other source file is touched. The new module imports only the
-Sprint 34 `telemetry_tag_map` symbols plus stdlib `csv`, `math`,
-`dataclasses`, `pathlib`, and `typing`. No parser, solver, training,
-or data-IO module is modified.
+- `src/aquaoptima/advisory/packaging/__init__.py` (new) — packaging surface
+  exports.
+- `src/aquaoptima/advisory/packaging/onnx_export.py` (new) — `OnnxHealthDetectorSidecar`,
+  `OnnxScoringResult`, `export_health_detector_to_onnx`, `score_with_onnx`,
+  `score_axes_with_onnx`, `standardise_frames`, `build_health_detector_sidecar`.
+- `scripts/sprint35_pillarA_onnx_package.py` (new) — end-to-end packaging
+  pipeline: refit the Sprint-30b detector, export ONNX, parity-check on a
+  held-in 2025 sample and on the real March-2026 frames, build the manifest,
+  CPU latency profile, governance scan, write scorecard.
+- `tests/advisory/test_sprint35_onnx_packaging.py` (new) — 11 tests covering
+  export round-trip, sha256 cross-check, sidecar JSON round-trip, dynamic
+  batch axis, parity within tolerance on the fixture, `ModelArtifactRecord`
+  validation, deliberately-bad-input `ContractError` cases, governance scan
+  clean.
+- `data/eval/packaging/pillarA_health_detector.onnx` (new) — exported model
+  bytes (3,747 bytes, sha256 prefix `787c2f1f54`).
+- `data/eval/packaging/pillarA_health_detector.sidecar.json` (new) —
+  standardisation + calibration sidecar.
+- `data/eval/packaging/pillarA_onnx_artifact_record.json` (new) — conformant
+  `ModelArtifactRecord` serialised JSON.
+- `data/eval/packaging/sprint35_pillarA_onnx_scorecard.json` (new) — the
+  Sprint-35 scorecard with the acceptance-gate verdict.
 
-## API design
+The contracts SDK (`src/aquaoptima_contracts/`) was NOT modified.
+The edge package (`src/aquaoptima/edge/`) was NOT modified.
 
-Three frozen dataclasses:
+## Environment
 
-- `ShadowReplayDiagnostics(warnings: tuple[str, ...] = (), errors: tuple[str, ...] = ())`
-  — deterministic warning / error tuples, identical surface to
-  Sprint 34's diagnostics.
-- `ShadowReplayFrame(timestamp, node_pressure, node_demand,
-  node_level, node_status, edge_flow, edge_pump_speed, edge_status,
-  edge_power, edge_valve_position, diagnostics)` — single-timestamp
-  frame keyed by canonical axis. Each numeric axis is a
-  `Mapping[int, float]`; status axes are `Mapping[int, float | bool]`.
-- `ShadowReplayDataset(frames, tag_map, diagnostics)` — frozen
-  top-level container; ``frames`` is an immutable tuple in input
-  order.
+- Python 3.11.15.
+- torch 2.12.0+cpu.
+- `onnx` 1.21.0 (installed at the start of this sprint via `pip install onnx`).
+- `onnxruntime` 1.26.0 (CPU-only).
+- `onnxscript` 0.7.0 (pulled in by torch.onnx for the dynamo exporter).
 
-Two builders:
+## Parity numbers
 
-- `build_shadow_replay_dataset(rows, tag_map, *, timestamp_key,
-  strict, max_stale_seconds)` — pure offline builder over an
-  iterable of Python mappings.
-- `load_shadow_replay_csv(path, tag_map, *, timestamp_key, strict,
-  max_stale_seconds)` — stdlib-only CSV loader that produces the
-  same `ShadowReplayDataset` as the builder.
+| dataset | n_rows | max_abs_recon_diff | max_abs_score_diff | flags_identical | torch_flag_rate | onnx_flag_rate |
+|---|---:|---:|---:|---:|---:|---:|
+| held-in 2025 stratified sample | 8,000 | 5.13e-06 | 6.60e-06 | True | 0.20% | 0.20% |
+| **LOCKED March 2026 holdout** | **42,674** | **4.58e-05** | **4.59e-06** | **True** | **1.230%** | **1.230%** |
 
-All public symbols are re-exported through `aquaoptima.dphm`.
+Tolerance set in the gate:
 
-## Unit conversion behaviour
+- `recon_error` max-abs-diff ≤ 1e-4 (raw per-row MSE over standardised axes;
+  float32 amplification is significant on anomalous-magnitude inputs)
+- `anomaly_score` max-abs-diff ≤ 1e-5 (clipped to [0,1], the downstream
+  observable)
+- binary flag must be bit-identical
 
-Sprint 34 declared the accepted unit family per measurement. Sprint
-35 implements the explicit value conversion to canonical units:
+All three thresholds cleared on both datasets. Mean abs recon diff is
+~3e-8 on 2025 and ~1.5e-7 on March 2026 — element-wise ONNX/torch parity is
+essentially float32 round-off; the per-row max reflects float32 amplification
+when standardised inputs reach ~30σ on injected-fault-style values.
 
-| Measurement      | Canonical | Input          | Factor                                  |
-|------------------|-----------|----------------|------------------------------------------|
-| `pressure`       | `m`       | `m`, `meter`   | identity                                 |
-| `pressure`       | `m`       | `bar`          | × 10.197162129779283                     |
-| `pressure`       | `m`       | `kpa`          | × 0.10197162129779283                    |
-| `pressure`       | `m`       | `psi`          | × 0.703249614902                         |
-| `flow` / `demand`| `m3/s`    | `m3/s`         | identity                                 |
-| `flow` / `demand`| `m3/s`    | `l/s`          | × 0.001                                  |
-| `flow` / `demand`| `m3/s`    | `gpm`          | × 6.309019640343866e-5                   |
-| `level`          | `m`       | `m`, `meter`   | identity                                 |
-| `level`          | `m`       | `ft`           | × 0.3048                                 |
-| `pump_speed`     | `fraction`| `fraction`     | identity                                 |
-| `pump_speed`     | `fraction`| `percent`      | / 100                                    |
-| `pump_speed`     | `fraction`| `rpm`          | **omitted with warning (conservative)**  |
-| `valve_position` | `fraction`| `fraction`     | identity                                 |
-| `valve_position` | `fraction`| `percent`      | / 100                                    |
-| `power`          | `kw`      | `kw`           | identity                                 |
-| `power`          | `kw`      | `w`            | / 1000                                   |
-| `status`         | `boolean` | `bool` / `0/1` / strings | see status parser              |
+Both `onnx_flag_rate` and `torch_flag_rate` on the real March 2026 frames are
+`0.012302572995266438` — bit-identical, and identical to the
+`detector_flag_rate` reported in `sprint30b_fullyear_holdout_scorecard.json`.
+The packaged ONNX artifact reproduces the validated Sprint-30b detector
+exactly at the flag level.
 
-The status parser accepts `bool`, numeric `0` / `1`, and the
-case-insensitive strings `"true"` / `"false"`, `"on"` / `"off"`,
-`"open"` / `"closed"`, `"running"` / `"stopped"`, `"active"` /
-`"inactive"`, `"yes"` / `"no"`, `"0"` / `"1"`. Any other input is an
-error.
+## CPU latency (onnxruntime, single-threaded, single-row inference)
 
-`rpm` pump speed is handled conservatively: Sprint 34 accepted it as
-schema metadata but Sprint 35 cannot fabricate a rated speed, so it
-emits a deterministic warning, omits the sample from the frame, and
-records the warning in both the per-frame and dataset diagnostics.
-This is a *warning*, not an error: strict mode does not raise on
-`rpm` pump speed.
+| metric | value |
+|---|---:|
+| mean | 0.017 ms |
+| median (p50) | 0.015 ms |
+| p95 | 0.026 ms |
+| p99 | 0.037 ms |
+| min | 0.014 ms |
+| max | 0.184 ms |
+| iterations | 256 (after 16 warmup) |
+| threads | 1 |
+| input shape | [1, 8] |
 
-## Strict / non-strict behaviour
+Surrogate evidence: measured on developer host CPU, not on real AMAX-5580
+hardware. Still: a 560-parameter MLP is comfortably below any plausible
+supervisory cadence requirement.
 
-`strict=True` (default) raises `ValueError` if any of these
-structural errors are encountered:
+## Acceptance gate
 
-- row is not a mapping;
-- row missing the `timestamp` key, or `timestamp` is `None`;
-- a numeric sample cannot be coerced to a finite float
-  (booleans, empty strings, NaN, inf, or unsupported types);
-- a status sample is not one of the accepted forms;
-- a unit is in Sprint 34's accepted family but is unknown to the
-  Sprint 35 conversion table (a programmer error — currently
-  unreachable).
+All 6 criteria passed:
 
-`strict=False` returns a populated dataset; the offending sample is
-omitted from the frame; the error string is appended to
-`diagnostics.errors` in input order. Whole rows are only omitted
-when the timestamp itself cannot be read.
+| # | criterion | passed |
+|---|---|---|
+| 1 | `onnx_export_loads_under_onnxruntime` (3,747 bytes, effective opset 17, dynamic batch) | True |
+| 2 | `parity_held_in_2025` (recon ≤ 1e-4 AND score ≤ 1e-5 AND flags identical on 8,000 rows) | True |
+| 3 | `parity_march_2026` (same tolerances on 42,674 real March frames) | True |
+| 4 | `manifest_validates_under_contracts_sdk` (framework=onnx, real sha256, all-True safety flags) | True |
+| 5 | `march_not_used_for_fitting` (Sprint-27 isolation assert, 213 keys checked, 0 leaked) | True |
+| 6 | `governance_scan_clean` (advisory tree, 18 files scanned, 0 violations) | True |
 
-Missing / `None` tag values and `rpm` pump-speed declarations are
-**warnings**, not errors. They never raise in strict mode.
+**Verdict: PASS.**
 
-`max_stale_seconds` is optional and, when supplied, must be
-strictly positive (the builder raises `ValueError` immediately on a
-non-positive value). The check is silently skipped for pairs whose
-timestamps cannot be subtracted as floats or `datetime` instances —
-Sprint 35 never invents a parser.
+## Source model traceability
 
-## Tests added
+The packaged artifact corresponds to the Sprint-30b validated detector. The
+scorecard embeds a `source_model` block referencing
+`data/eval/pillarA/sprint30b_fullyear_holdout_scorecard.json` and lifting the
+detector config + Sprint-30b verdict (PASS) into the audit trail. Calibration
+constants match bit-for-bit:
 
-`tests/dphm/test_shadow_replay.py` — 46 tests covering, in order:
+| constant | Sprint-30b value | Sprint-35 packaged sidecar value |
+|---|---|---|
+| `val_error_p995` | 0.23723329603672028 | 0.23723329603672028 |
+| `train_error_p995` | 0.009128015488386154 | 0.009128015488386154 |
+| `flag_threshold_error` | 0.1310570389032364 | 0.1310570389032364 |
 
-1. Frozen dataclass surfaces (and default-constructed
-   `ShadowReplayDataset`).
-2. Empty row list returns an empty dataset.
-3. Valid node-pressure row populates `node_pressure`.
-4. Valid edge-flow row populates `edge_flow`.
-5. Pump-speed percent → fraction (and fraction identity).
-6. Pressure conversions: `bar` / `kpa` / `psi` → metres of head
-   (plus `m` / `meter` aliases).
-7. Flow conversions: `l/s` / `gpm` → m3/s.
-8. Level conversion: `ft` → m.
-9. Power conversion: `w` → kw (plus `kw` identity).
-10. Status parsing: `bool`, `0` / `1`, and the accepted strings
-    (`on` / `off` / `running` / `closed`); unknown string raises in
-    strict and is omitted in non-strict.
-11. Missing-timestamp handling (strict raises; non-strict skips the
-    row and records the error; `None` timestamp is rejected).
-12. Missing-tag-value handling (warning, not error; strict still
-    succeeds; `None` tag value also a warning).
-13. Invalid-numeric handling (string raises; `bool` for numeric
-    rejected; `NaN` rejected; whitespace-padded numeric strings
-    accepted).
-14. `rpm` pump-speed handled conservatively (warning + omitted in
-    both strict and non-strict, no raise).
-15. Deterministic frame ordering (two builds equal; input order
-    preserved).
-16. Read-only: input rows / tag-map snapshot unchanged; `tag_map`
-    identity preserved on `ShadowReplayDataset.tag_map`.
-17. CSV loader happy path (with bar / l/s conversion).
-18. CSV loader malformed shape: empty file, missing timestamp
-    column, custom timestamp column name.
-19. Sprint 34 `build_telemetry_tag_map` output consumed verbatim;
-    empty tag map produces empty axis maps with no errors.
-20. No live adapter / write / control surface exposed (substring
-    screen across `__all__` plus stdlib networking module absence).
-21. `max_stale_seconds` warnings on numeric and `datetime`
-    timestamps; skipped for strings; rejected if non-positive.
+## Safety posture (unchanged)
 
-Plus an explicit "row mutation after build" regression check, an
-"empty CSV cell is missing not zero" check, and a `repeat build ==
-build` determinism check.
+- `advisory_only: true`
+- `evaluation_mode: "offline_only"`
+- `write_path: "none"`
+- `influences_control: false`
+- `site_integration_allowed: false`
+- `framework: "onnx"` (advertised by the AMAX edge profile)
+- `safety_flag_set`: all-True canonical set (offline, read_only, no_write,
+  no_control, no_live_ot_binding, no_setpoint_output, packaging_audit_only)
+- Governance scan on `src/aquaoptima/advisory` clean — no forbidden edge SDK
+  imports, no write-capable connector tokens.
 
-## Validation commands / results
+The packaging code module (`src/aquaoptima/advisory/packaging/`) imports
+`torch`, `onnx`, and `onnxruntime` for the export path; it does NOT import
+any write-capable connector or any `aquaoptima.edge` /
+`aquaoptima_contracts.edge` symbol. Governance scan covered the packaging
+subpackage and is clean.
 
-Run from the worktree root:
+## Tests
+
+- New: `tests/advisory/test_sprint35_onnx_packaging.py` — 11 tests, all
+  passing. Covers export round-trip, sha256 sidecar cross-check, sidecar
+  JSON round-trip, dynamic-batch-axis support, parity within tolerance on a
+  fixture, `ModelArtifactRecord` validation with `framework="onnx"`, bad
+  framework rejection (`ContractError`), missing-checksum rejection
+  (`ContractError`), non-default `SafetyFlagSet` rejection (`SafetyFlagError`),
+  and a governance scan of the packaging subpackage.
+- Full repo suite: **2,653 passed, 1 skipped** (one pre-existing WNTR optional
+  skip unrelated to Sprint 35). No regressions.
+
+## How to reproduce
 
 ```bash
-python -m pip install -e .
-python -m pytest tests/dphm/test_shadow_replay.py -q
-python -m pytest tests/dphm tests/models tests/training tests/dataio -q
-python -m pytest tests -q
-python -m compileall -q src tests
-git diff --check
+# Install the ONNX runtime stack (CPU only)
+pip install onnx onnxruntime onnxscript
+
+# Run the Sprint 35 packaging pipeline end-to-end (writes the .onnx, the
+# sidecar, the manifest, and the scorecard under data/eval/packaging/)
+PYTHONPATH=src python scripts/sprint35_pillarA_onnx_package.py
+
+# Run the Sprint 35 packaging tests
+PYTHONPATH=src python -m pytest tests/advisory/test_sprint35_onnx_packaging.py -q
 ```
 
-Results captured before this report:
+The pipeline is deterministic given the same CSV inputs + `--detector-seed 0`
+(default). Re-running produces the same sha256 hex on the `.onnx` file.
 
-- `python -m pytest tests/dphm/test_shadow_replay.py -q` →
-  **46 passed**.
-- `python -m pytest tests/dphm tests/models tests/training tests/dataio -q`
-  → **1416 passed, 1 skipped** (existing WNTR optional-import skip).
-- `python -m pytest tests -q` → **1424 passed, 1 skipped**.
-- `python -m compileall -q src tests` → clean.
-- `git diff --check` → clean.
+## Cannot claim
 
-## Compatibility notes
+Packaging is **not** deployment authorisation. The Sprint-35 deliverables
+prove that:
 
-- Sprint 34's `TelemetryTagMap` is consumed verbatim — the
-  Sprint 35 builder iterates `tag_map.tags` and never re-validates
-  the schema. Calling Sprint 34's `build_telemetry_tag_map(...,
-  strict=False)` and feeding the resulting map to Sprint 35 is
-  fully supported; errors from Sprint 34 do not propagate into the
-  dataset surface.
-- No existing public symbol changes. No existing test changes.
-- No new third-party dependency: pandas is not added, and only
-  stdlib `csv` / `math` / `dataclasses` / `pathlib` / `typing` are
-  imported by the new module.
-- The `aquaoptima.dataio` Sprint 4.5 telemetry abstraction is
-  untouched; Sprint 35's dPHM-side surface is a peer of, not a
-  replacement for, the broader data-IO layer.
+- the Pillar A detector forward pass survives ONNX export round-trip,
+- the ONNX artifact + sidecar reproduce `FittedHealthDetector.score()` under
+  onnxruntime CPU within tight numerical tolerance,
+- the contracts-SDK `ModelArtifactRecord` validates with the canonical
+  all-True safety flag set and a real sha256 checksum,
+- and that no write-capable surface was introduced by the packaging code.
 
-## Known limitations
+What this sprint does **NOT** authorise or evidence:
 
-- Timestamps are *not* parsed. The builder forwards them verbatim
-  into the frame and only performs subtraction-style staleness
-  checks when both timestamps are numeric or both are `datetime`
-  instances. A future sprint could add an optional timestamp
-  normaliser if a downstream consumer needs sorted, monotonic,
-  timezone-aware timestamps.
-- `rpm` pump speed is intentionally not converted. Sprint 35 would
-  need a per-tag rated speed (not present in Sprint 34 metadata) to
-  produce a canonical fraction; the conservative behaviour avoids a
-  silent wrong-units bug at the cost of dropping `rpm` samples on
-  the floor with a warning.
-- The per-axis mappings on `ShadowReplayFrame` are plain `dict`
-  objects (typed as `Mapping`). The dataclass binding is frozen,
-  but a determined caller could mutate the dict in place. Callers
-  that need a guaranteed-immutable view can wrap each axis in
-  `types.MappingProxyType` — Sprint 35 deliberately does not
-  pre-wrap to keep ergonomics simple.
-- No live binding, no forward-solve comparator, no advisory
-  surface, no calibration loop — strictly out of scope per the
-  Sprint 35 brief.
+- Any site integration. The Yilan site has no AOPSO controller deployed and
+  no write path opened by this work.
+- Any control language, setpoint emission, or actuation. The packaged
+  artifact only produces `detector_recon_error / detector_anomaly_score /
+  detector_flag`, all advisory signals.
+- Any claim that the model would behave as well on a different site,
+  different sensor configuration, or different operating regime than the
+  full-year-stratified 2025 Yilan auto-mode data it was fit on.
+- Any claim about the latency or memory profile on the real AMAX-5580
+  hardware. The CPU latency numbers above are surrogate, measured on a
+  developer host. They are useful for ordering-of-magnitude sanity-checking
+  only.
+- Any claim about Pillar B. Sprint 33 FAILED Pillar B on the locked March
+  holdout; Pillar B is explicitly NOT packaged here.
+- Any claim that the ONNX artifact replaces the torch implementation for
+  scientific evaluation. The torch detector remains the source of truth; the
+  ONNX artifact is its CPU-edge deployment surface representation.
 
-## Verdict
-
-Sprint 35 ships a typed, deterministic, read-only cold-start replay
-/ shadow dataset builder that consumes Sprint 34's
-`TelemetryTagMap` and an offline row sequence and emits a frozen
-`ShadowReplayDataset` whose frames carry canonicalised node / edge
-values keyed by dPHM axis and id. All 21 numbered Sprint 35
-verification items are exercised by the test suite; the existing
-1,378-test baseline is preserved; the new module adds no third-
-party dependency. The safety boundary is unchanged: this sprint
-adds no live binding, no write path, and no advisory surface.
-
-Ready for Hermes verification.
-
-## Sprint 36 recommendation
-
-The Sprint 35 replay builder cleanly produces frames keyed by the
-canonical dPHM axes (`node_pressure`, `node_demand`, `edge_flow`,
-`edge_pump_speed`, …), which is exactly the shape a dPL calibration
-loop would consume as observation targets. There are no surprise
-gaps in the Sprint 34 + Sprint 35 surface that warrant a hardening
-detour — both sprints landed deterministic, fully-tested, read-only
-surfaces.
-
-**Recommendation: Sprint 36 → dPL calibration prototype.** Use the
-Sprint 35 `ShadowReplayDataset.frames` as observation tensors,
-keying losses by `(axis, target_id)` against the existing dPHM
-forward-solve output. Keep the prototype offline (no live OT
-binding), keep the loss surface read-only against the dPHM solver,
-and stop short of advisory / setpoint output (still out of scope
-under the shadow-mode safety boundary).
-
-If, during prototyping, a calibration-blocking limitation surfaces
-in the replay builder (e.g. a need for `rpm` pump speed conversion
-once a rated-speed metadata field exists, or sorted-timestamp
-guarantees), the smallest possible follow-up — adding a single
-metadata field plus a focused test pass — should land as a Sprint
-36a hardening pass before continuing the calibration loop.
+The acceptance criterion is parity-and-conformance. Real edge deployment
+remains gated behind site integration approvals that this sprint does not
+touch and does not seek.
