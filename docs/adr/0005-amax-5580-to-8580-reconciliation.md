@@ -1,8 +1,9 @@
 # ADR-0005: Reconcile AMAX-5580 → AMAX-8580 naming across docs
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-05-31
 - **Owner:** Tech lead
+- **Resolved by:** PR #18 (`docs/amax-5580-to-8580-migration`), merged into `main`
 
 ## Context
 

@@ -27,4 +27,4 @@ Use [`template.md`](template.md): **Context → Decision → Consequences → St
 | [0002](0002-amax8580-cpu-only-edge.md) | AMAX-8580 CPU-only edge profile (`amax8580_cpu`) | Accepted |
 | [0003](0003-pillar-a-ship-pillar-b-park.md) | Ship Pillar A (health); park Pillar B (efficiency) | Accepted |
 | [0004](0004-onnx-tflite-advisory-packaging.md) | PyTorch→ONNX packaging for edge advisory inference | Accepted |
-| [0005](0005-amax-5580-to-8580-reconciliation.md) | Reconcile AMAX-5580 → AMAX-8580 naming across docs | Proposed |
+| [0005](0005-amax-5580-to-8580-reconciliation.md) | Reconcile AMAX-5580 → AMAX-8580 naming across docs | Accepted |

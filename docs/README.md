@@ -63,10 +63,9 @@ deleting the copy and replacing it with a link to the canonical home.
 
 - [`hardware/`](hardware/) — AMAX edge feasibility, benchmarking, read-only
   integration, vendor PAC software inventory, HIL plan.
-  **Note:** the canonical edge target is **AMAX-8580** (CPU-only profile
-  `amax8580_cpu`). Some hardware docs still carry the older **AMAX-5580**
-  naming — see [ADR-0005](adr/0005-amax-5580-to-8580-reconciliation.md) for the
-  tracked reconciliation.
+  The canonical edge target is **AMAX-8580** (CPU-only profile
+  `amax8580_cpu`); the AMAX-5580→8580 reconciliation is complete (see
+  [ADR-0005](adr/0005-amax-5580-to-8580-reconciliation.md)).
 - [`deployment/`](deployment/) — Optimizer-Lite readiness, pilot handoff/signoff.
 - [`product/aopso-health-efficiency-ab/08-pillarA-linux-deployment-runbook.md`](product/aopso-health-efficiency-ab/08-pillarA-linux-deployment-runbook.md) — Pillar A deployment runbook.
 
