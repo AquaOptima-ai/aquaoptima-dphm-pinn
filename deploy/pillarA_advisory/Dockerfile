@@ -1,7 +1,7 @@
 # AOPSO Sprint 36 -- Pillar A Linux deployment image
 #
 # Builds a read-only, offline, advisory-only inference sidecar that runs the
-# Sprint-35 ONNX health detector on an AMAX-5580 (linux/amd64 CPU) target.
+# Sprint-35 ONNX health detector on an AMAX-8580 (linux/amd64 CPU) target.
 #
 # Boundary -- non-negotiable
 #   * The image carries the .onnx + sidecar + a stdlib + onnxruntime CPU runtime.

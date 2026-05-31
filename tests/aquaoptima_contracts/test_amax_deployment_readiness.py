@@ -79,7 +79,7 @@ DEPLOYMENT_READINESS_DOC_PATH = (
     REPO_ROOT
     / "docs"
     / "hardware"
-    / "amax-5580-site-deployment-readiness.md"
+    / "amax-8580-site-deployment-readiness.md"
 )
 
 

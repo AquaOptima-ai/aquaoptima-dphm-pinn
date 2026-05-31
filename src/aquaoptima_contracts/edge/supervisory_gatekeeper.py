@@ -146,7 +146,7 @@ GATEKEEPER_VERDICT_TOKENS: frozenset[str] = frozenset(
 # Canonical Sprint 50 contract identifier. Adding additional canonical
 # ids is an SDK MINOR bump; repurposing or removing is MAJOR.
 AMAX_SUPERVISORY_DRY_RUN_CONTRACT_ID: str = (
-    "amax_5580_supervisory_dry_run_contract_v1"
+    "amax_8580_supervisory_dry_run_contract_v1"
 )
 
 
@@ -959,7 +959,7 @@ def evaluate_plc_gatekeeper_dry_run(
     proposal: SupervisoryProposalDryRun,
     conditions: Sequence[PLCGatekeeperCondition],
     *,
-    evaluation_id: str = "amax_5580_supervisory_dry_run_evaluation_v1",
+    evaluation_id: str = "amax_8580_supervisory_dry_run_evaluation_v1",
     notes: Sequence[str] = (),
 ) -> PLCGatekeeperEvaluation:
     """Return a deterministic, simulation-only gatekeeper evaluation.
@@ -1434,7 +1434,7 @@ def default_amax_supervisory_dry_run_contract() -> (
     """
 
     proposal = SupervisoryProposalDryRun(
-        proposal_id="amax_5580_supervisory_dry_run_proposal_v1",
+        proposal_id="amax_8580_supervisory_dry_run_proposal_v1",
         values=_default_proposal_values(),
         source_evidence_references=(
             "sprint_49_amax_site_deployment_evidence_package",
@@ -1583,7 +1583,7 @@ def default_amax_supervisory_dry_run_contract() -> (
     )
 
     evaluation = PLCGatekeeperEvaluation(
-        evaluation_id="amax_5580_supervisory_dry_run_evaluation_v1",
+        evaluation_id="amax_8580_supervisory_dry_run_evaluation_v1",
         proposal=proposal,
         conditions=conditions,
         verdict=VERDICT_NOT_EVALUATED,
@@ -1604,9 +1604,9 @@ def default_amax_supervisory_dry_run_contract() -> (
             "sprint_48_amax_read_only_integration_contract",
             "sprint_47_amax_benchmark_report",
             "sprint_46_amax_feasibility_decision",
-            "docs/hardware/amax-5580-site-deployment-readiness.md",
-            "docs/hardware/amax-5580-read-only-integration.md",
-            "docs/hardware/amax-5580-supervisory-dry-run-gatekeeper.md",
+            "docs/hardware/amax-8580-site-deployment-readiness.md",
+            "docs/hardware/amax-8580-read-only-integration.md",
+            "docs/hardware/amax-8580-supervisory-dry-run-gatekeeper.md",
         ),
         next_gate=(
             "Sprint 51 — AMAX Pilot Readiness Review / "

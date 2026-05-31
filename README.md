@@ -80,10 +80,10 @@ Full details: [`docs/units-and-sign-conventions.md`](docs/units-and-sign-convent
 
 Sprint 52 adds a manual-grounded AMAX vendor PAC software inventory and
 integration-boundary contract. It is not replan-only: it ships SDK
-records, tests, and `docs/hardware/amax-5580-vendor-pac-software-inventory.md`.
+records, tests, and `docs/hardware/amax-8580-vendor-pac-software-inventory.md`.
 
 The important architecture correction is that AMAX/CODESYS is the
-PAC/control substrate. The AMAX-5580 CODESYS Ready PAC manual entry
+PAC/control substrate. The AMAX-8580 CODESYS Ready PAC manual entry
 lists Windows 10 LTSC, 128 GB M.2, 2 MB NVRAM, and CODESYS V3 Pure
 Control with Visu(HMI). AquaOptima remains a sidecar advisory/evidence
 layer for model inference, validation, dry-run proposals, and read-only
@@ -104,14 +104,14 @@ EtherCAT master/control implementation.
 
 ### AMAX-8580 supplier update
 
-Supplier guidance after Sprint 52 indicates that **AMAX-5580 will stop
+Supplier guidance after Sprint 52 indicates that **AMAX-8580 will stop
 production** and that **AMAX-8580** is the replacement platform, with
 product release expected in approximately three months. Detailed
 AMAX-8580 user-manual / ordering / licensing evidence is not yet fully
 available, so AMAX-8580 is now the intended forward Edge hardware target
 but remains behind vendor-confirmation gates.
 
-The AMAX-5580 inventory remains useful as historical / fallback evidence
+The AMAX-8580 inventory remains useful as historical / fallback evidence
 for the PAC boundary: AMAX/CODESYS owns PAC/control/HMI/EtherCAT field
 I/O, while AquaOptima remains the sidecar advisory/evidence layer.
 
@@ -222,13 +222,13 @@ projections from the Phase 1 runtime artifacts; Sprint 43 closed the
 first-batch list with calibration, advisory, and EPANET
 import-quality projections; Sprint 44 adds the deployment package
 manifest contracts plus the model / artifact registry projection;
-Sprint 45 promotes the Advantech AMAX-5580 to the primary Edge target
+Sprint 45 promotes the Advantech AMAX-8580 to the primary Edge target
 and ships the deny-by-default Edge package validator (CPU-first x86_64
 PAC profile) consuming a Sprint 44 `DeploymentPackageManifest`. Sprint
-46 is an evidence and decision-gate sprint that turns AMAX-5580
+46 is an evidence and decision-gate sprint that turns AMAX-8580
 datasheet facts into deterministic SDK evidence (`AMAXSkuProfile`,
 `AMAXRuntimeOption`, `AMAXFeasibilityDecision`) and the
-`docs/hardware/amax-5580-feasibility.md` feasibility note that pins
+`docs/hardware/amax-8580-feasibility.md` feasibility note that pins
 the recommended SKU / OS / runtime path before deeper Edge
 implementation begins; Sprint 47 is the CPU inference benchmark /
 packaging smoke harness *only after the Sprint 46 evidence gate is
@@ -324,7 +324,7 @@ Sprint 44 additions:
 
 Sprint 45 additions (under `src/aquaoptima_contracts/edge/`):
 
-- **Primary Edge target is now the Advantech AMAX-5580** (or
+- **Primary Edge target is now the Advantech AMAX-8580** (or
   equivalent x86_64 PAC-class industrial controller). The
   Jetson / Orin / TensorRT path remains an optional accelerator
   profile only — it is *not* the default Edge deployment path.
@@ -332,7 +332,7 @@ Sprint 45 additions (under `src/aquaoptima_contracts/edge/`):
   metadata (profile_id, vendor, model, architecture, OS family,
   runtime class, accelerators, supported model frameworks, Python
   versions, audit-only notes). Ships with the canonical
-  `amax_5580_cpu_profile()` helper (x86_64, CPU-first, PAC class,
+  `amax_8580_cpu_profile()` helper (x86_64, CPU-first, PAC class,
   no CUDA / TensorRT / Jetson / Orin / ARM64 default).
 - `EdgeCapabilityDeclaration` — pairs a Sprint 41
   `CapabilityDeclaration` with an `EdgeHardwareProfile`. Ships
@@ -356,7 +356,7 @@ Sprint 45 additions (under `src/aquaoptima_contracts/edge/`):
 
 Boundary for all Sprint 45 AMAX work (reaffirmed):
 
-- AMAX-5580 is the primary Edge target; Orin / TensorRT is an
+- AMAX-8580 is the primary Edge target; Orin / TensorRT is an
   optional accelerator profile only;
 - the site PLC / pump-station PLC remains the direct VFD / pump /
   actuator authority;
@@ -371,10 +371,10 @@ Sprint 46 additions (under `src/aquaoptima_contracts/edge/feasibility.py`):
 
 - **Sprint 46 ships the AMAX feasibility evidence / SKU & OS decision
   gate.** The deliverables are SDK evidence shapes plus the
-  `docs/hardware/amax-5580-feasibility.md` feasibility note. No live
+  `docs/hardware/amax-8580-feasibility.md` feasibility note. No live
   OT integration, no Edge Runtime daemon, no model loading, and no
   HTTP / database / message-broker code is introduced.
-- `AMAXSkuProfile` — frozen Advantech AMAX-5580 CPU / RAM SKU
+- `AMAXSkuProfile` — frozen Advantech AMAX-8580 CPU / RAM SKU
   evidence record (Celeron 3955U / 4 GB constrained fallback, Core
   i5-6300U / 8 GB serious candidate, Core i7-6600U / 8 GB recommended
   candidate). Deterministic `to_dict` / `from_dict`. Canonical helper:
@@ -392,10 +392,10 @@ Sprint 46 additions (under `src/aquaoptima_contracts/edge/feasibility.py`):
   testing, and the next gate. Canonical helper:
   `default_amax_feasibility_decision()`.
 - `recommended_amax_hardware_profile()` — bridge to the Sprint 45
-  `amax_5580_cpu_profile()` helper that enriches `notes` with Sprint
+  `amax_8580_cpu_profile()` helper that enriches `notes` with Sprint
   46 evidence-gap language. The Sprint 45 default helper is
   unchanged.
-- `docs/hardware/amax-5580-feasibility.md` — feasibility evidence
+- `docs/hardware/amax-8580-feasibility.md` — feasibility evidence
   document with executive decision summary, SKU comparison, OS /
   CODESYS decision matrix, runtime / package strategy matrix, CODESYS
   / PLC integration option matrix (read-only / audit-only), OT
@@ -407,7 +407,7 @@ Sprint 47 additions (under `src/aquaoptima_contracts/edge/benchmark.py`,
 
 - **Sprint 47 ships an offline AMAX CPU dPHM-PINN benchmark / packaging
   smoke harness.** Host-derived benchmarks are **surrogate** until run
-  on real AMAX-5580 hardware. The harness proves package / runtime
+  on real AMAX-8580 hardware. The harness proves package / runtime
   feasibility evidence only; it does **not** prove real-time control
   safety.
 - `AMAXBenchmarkScenario` — frozen scenario record (graph size,
@@ -674,9 +674,9 @@ Planning references:
 - [`docs/testing-strategy.md`](docs/testing-strategy.md) — how we test
 - [`docs/sprint-roadmap.md`](docs/sprint-roadmap.md) — what shipped, what is next
 - [`docs/safety-boundary.md`](docs/safety-boundary.md) — read vs. write policy
-- [`docs/hardware/amax-5580-feasibility.md`](docs/hardware/amax-5580-feasibility.md) — Sprint 46 AMAX-5580 feasibility evidence / SKU & OS decision gate
-- [`docs/hardware/amax-5580-cpu-benchmarking.md`](docs/hardware/amax-5580-cpu-benchmarking.md) — Sprint 47 AMAX-5580 CPU benchmark / packaging smoke harness
-- [`docs/hardware/amax-5580-read-only-integration.md`](docs/hardware/amax-5580-read-only-integration.md) — Sprint 48 AMAX-5580 read-only PLC/SCADA integration contract
-- [`docs/hardware/amax-5580-site-deployment-readiness.md`](docs/hardware/amax-5580-site-deployment-readiness.md) — Sprint 49 AMAX-5580 site deployment readiness / OT certification evidence package
-- [`docs/hardware/amax-5580-supervisory-dry-run-gatekeeper.md`](docs/hardware/amax-5580-supervisory-dry-run-gatekeeper.md) — Sprint 50 AMAX-5580 simulated supervisory proposal / PLC gatekeeper contract
-- [`docs/hardware/amax-5580-pilot-readiness-hil-plan.md`](docs/hardware/amax-5580-pilot-readiness-hil-plan.md) — Sprint 51 AMAX-5580 pilot readiness review / hardware-in-the-loop plan
+- [`docs/hardware/amax-8580-feasibility.md`](docs/hardware/amax-8580-feasibility.md) — Sprint 46 AMAX-8580 feasibility evidence / SKU & OS decision gate
+- [`docs/hardware/amax-8580-cpu-benchmarking.md`](docs/hardware/amax-8580-cpu-benchmarking.md) — Sprint 47 AMAX-8580 CPU benchmark / packaging smoke harness
+- [`docs/hardware/amax-8580-read-only-integration.md`](docs/hardware/amax-8580-read-only-integration.md) — Sprint 48 AMAX-8580 read-only PLC/SCADA integration contract
+- [`docs/hardware/amax-8580-site-deployment-readiness.md`](docs/hardware/amax-8580-site-deployment-readiness.md) — Sprint 49 AMAX-8580 site deployment readiness / OT certification evidence package
+- [`docs/hardware/amax-8580-supervisory-dry-run-gatekeeper.md`](docs/hardware/amax-8580-supervisory-dry-run-gatekeeper.md) — Sprint 50 AMAX-8580 simulated supervisory proposal / PLC gatekeeper contract
+- [`docs/hardware/amax-8580-pilot-readiness-hil-plan.md`](docs/hardware/amax-8580-pilot-readiness-hil-plan.md) — Sprint 51 AMAX-8580 pilot readiness review / hardware-in-the-loop plan

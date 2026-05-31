@@ -34,7 +34,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Run the Sprint 47 AMAX CPU dPHM-PINN benchmark / packaging "
             "smoke harness. Host-derived runs are surrogate until "
-            "executed on real AMAX-5580 hardware."
+            "executed on real AMAX-8580 hardware."
         )
     )
     parser.add_argument(
@@ -86,7 +86,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--mark-real-hardware",
         action="store_true",
         help=(
-            "Mark the run as real AMAX-5580 hardware evidence instead "
+            "Mark the run as real AMAX-8580 hardware evidence instead "
             "of surrogate. Off by default — surrogate evidence is the "
             "Sprint 47 expectation."
         ),

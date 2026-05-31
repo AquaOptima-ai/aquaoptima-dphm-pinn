@@ -55,7 +55,7 @@
       }
     ],
     "passed": true,
-    "rule": "ALL of: Dockerfile + .dockerignore + build script well-formed, targeting linux/amd64, non-root USER, read-only-friendly; serving entrypoint reproduces Sprint-35 ONNX scores in-process (flags identical, score diff <= 1e-12); DeploymentPackageManifest builds and validate_deployment_package_for_edge returns zero errors against the canonical AMAX-5580 declaration with all safety flags True; boundary holds (no control-plane network, no write path, container runs read-only, forbidden-token + governance scans clean); shadow-mode runbook present and explicitly offline / not-control-authorized.",
+    "rule": "ALL of: Dockerfile + .dockerignore + build script well-formed, targeting linux/amd64, non-root USER, read-only-friendly; serving entrypoint reproduces Sprint-35 ONNX scores in-process (flags identical, score diff <= 1e-12); DeploymentPackageManifest builds and validate_deployment_package_for_edge returns zero errors against the canonical AMAX-8580 declaration with all safety flags True; boundary holds (no control-plane network, no write path, container runs read-only, forbidden-token + governance scans clean); shadow-mode runbook present and explicitly offline / not-control-authorized.",
     "verdict": "PASS"
   },
   "advisory_only": true,
@@ -79,14 +79,14 @@
   "cpu_latency": {
     "batch_256_row_ms": 3.1646799980080687,
     "n_single_row_iters": 50,
-    "profile": "AMAX-5580 linux/amd64 CPU surrogate",
+    "profile": "AMAX-8580 linux/amd64 CPU surrogate",
     "provider": "onnxruntime CPUExecutionProvider, intra=1 inter=1",
     "single_row_mean_ms": 3.2532627003092784,
     "single_row_p50_ms": 3.1859860027907416,
     "single_row_p99_ms": 4.422523998073302
   },
   "deployment_manifest": {
-    "edge_profile_id": "advantech_amax_5580",
+    "edge_profile_id": "advantech_amax_8580",
     "edge_validator_errors": [],
     "edge_validator_warnings": [],
     "model_record": {
@@ -115,7 +115,7 @@
     "schema_family": "manifest",
     "validate_edge": "PASS"
   },
-  "edge_profile_id": "advantech_amax_5580",
+  "edge_profile_id": "advantech_amax_8580",
   "evaluation_mode": "offline_only",
   "image": {
     "base": "python:3.12-slim",

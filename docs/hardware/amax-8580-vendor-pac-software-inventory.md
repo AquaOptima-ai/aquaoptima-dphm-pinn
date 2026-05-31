@@ -1,7 +1,7 @@
-# AMAX-5580 Vendor PAC Software Inventory / Integration Boundary
+# AMAX-8580 Vendor PAC Software Inventory / Integration Boundary
 
-Sprint 52 converts the AMAX-5580 user manual, AMAX-5000 I/O manual,
-and AMAX5580 Linux driver package findings into an implementation-facing
+Sprint 52 converts the AMAX-8580 user manual, AMAX-5000 I/O manual,
+and AMAX8580 Linux driver package findings into an implementation-facing
 AquaOptima boundary. This is not a replan-only sprint: it ships SDK
 contracts, tests, and this manual-grounded inventory.
 
@@ -18,27 +18,27 @@ The non-negotiable safety boundary remains unchanged:
 
 The Sprint 52 inventory references three vendor evidence sources:
 
-1. `AMAX-5580_User_Manual_Ed.2-FINAL.pdf`
-   - local extracted reference: `AMAX-5580_User_Manual_Ed.2-FINAL.txt`
+1. `AMAX-8580_User_Manual_Ed.2-FINAL.pdf`
+   - local extracted reference: `AMAX-8580_User_Manual_Ed.2-FINAL.txt`
    - SHA256: `88c1c1bf5bea54283190c284dcc7b32c68cb3d3a52bc19d1afe5e2c3d9f981de`
 2. `AMAX-5000_User_Manual_Ed.5_FINAL.pdf`
    - local extracted reference: `AMAX-5000_User_Manual_Ed.5_FINAL.txt`
    - SHA256: `115fd1e2d3763b93b9c534a4452dceec034b41d36cc1ad36658fa70c3327b509`
-3. `AMAX5580 Linux driver.zip`
+3. `AMAX8580 Linux driver.zip`
    - package version observed: `v2.24-1`
    - SHA256: `a8d89973d97c3004f384be864cfc94582547fc588bf8c48fc6707db69341d220`
 
-## AMAX-5580 product offering distinction
+## AMAX-8580 product offering distinction
 
-The AMAX-5580 manual distinguishes two product personalities.
+The AMAX-8580 manual distinguishes two product personalities.
 
 ### Control IPC Barebone
 
 The Control IPC Barebone offering includes part numbers such as:
 
-- `AMAX-5580-C3000A`
-- `AMAX-5580-54000A`
-- `AMAX-5580-74000A`
+- `AMAX-8580-C3000A`
+- `AMAX-8580-54000A`
+- `AMAX-8580-74000A`
 
 This path is closer to a configurable industrial control IPC. The
 manual records CPU/RAM options including Celeron 3955U / 4 GB, Core
@@ -65,7 +65,7 @@ the PAC/control/HMI substrate, not just a generic edge PC.
 
 ## AMAX/CODESYS as the PAC/control substrate
 
-The AMAX-5580 manual says AMAX-5000 integrates with 3S CODESYS as an
+The AMAX-8580 manual says AMAX-5000 integrates with 3S CODESYS as an
 IEC-61131-3 controller. With EtherCAT support in CODESYS, AMAX-5000 can
 implement very fast control processes in the microsecond range, and can
 support motion-control tasks potentially up to 256 axes depending on
@@ -120,7 +120,7 @@ EtherCAT master or control loop.
 
 ## Linux driver package scope
 
-The AMAX5580 Linux driver package is important but narrower than the
+The AMAX8580 Linux driver package is important but narrower than the
 PAC software stack. It covers Advantech EC/platform capabilities such as:
 
 - watchdog
@@ -141,7 +141,7 @@ Important caveat:
 The Linux driver package confirms Linux EC/platform support. It does
 not prove that the same CODESYS runtime, Visu/HMI, EtherCAT packages,
 protocol packages, or licenses are available on Linux for the selected
-AMAX-5580 SKU. Those remain vendor-confirmation questions.
+AMAX-8580 SKU. Those remain vendor-confirmation questions.
 
 ## AquaOptima reuse-vs-build boundary
 
@@ -181,11 +181,11 @@ Do not implement by default:
 
 Before purchasing or piloting, confirm with Advantech:
 
-1. Which exact AMAX-5580 SKU includes CODESYS runtime and Visu/HMI?
+1. Which exact AMAX-8580 SKU includes CODESYS runtime and Visu/HMI?
 2. Which licenses are bundled and which are separate?
 3. Are OPC UA, Modbus TCP/RTU, MQTT/Sparkplug, and fieldbus packages
    included or separately licensed?
-4. Is CODESYS Linux Control officially supported on AMAX-5580?
+4. Is CODESYS Linux Control officially supported on AMAX-8580?
 5. If Linux is supported, is there a CODESYS Ready PAC Linux SKU, or is
    it an integrator-installed path?
 6. Can Python 3.10+, ONNX Runtime, PyTorch CPU, or OpenVINO run safely
@@ -199,15 +199,15 @@ Sprint 52 therefore grounds the next phase: AquaOptima should be a
 sidecar advisory/evidence layer beside AMAX/CODESYS, not a competing
 PAC runtime.
 
-## Supplier update: AMAX-8580 replaces AMAX-5580
+## Supplier update: AMAX-8580 replaces AMAX-8580
 
-After Sprint 52 was prepared, the supplier advised that AMAX-5580 will
+After Sprint 52 was prepared, the supplier advised that AMAX-8580 will
 stop production and that the replacement platform is **AMAX-8580**. The
 AMAX-8580 product is expected to release in approximately three months,
 and detailed user-manual / ordering / licensing evidence is not yet
 available beyond the current datasheet-level information.
 
-This document therefore remains the final AMAX-5580 vendor inventory,
+This document therefore remains the final AMAX-8580 vendor inventory,
 but it should now be read as **legacy fallback / historical evidence**.
 The forward AquaOptima Edge target should move to AMAX-8580 once vendor
 availability, exact SKU, OS image, CODESYS license/package, RAM/storage,

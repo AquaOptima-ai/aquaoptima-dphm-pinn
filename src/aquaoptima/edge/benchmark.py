@@ -117,7 +117,7 @@ def _max_rss_kb() -> int | None:
         return None
     usage = resource.getrusage(resource.RUSAGE_SELF)
     # ru_maxrss is kilobytes on Linux, bytes on macOS. The benchmark
-    # harness only targets Linux AMAX-5580 surrogates; if a future
+    # harness only targets Linux AMAX-8580 surrogates; if a future
     # caller wants macOS support they can divide by 1024 explicitly.
     if sys.platform == "darwin":
         return int(usage.ru_maxrss // 1024)
@@ -172,7 +172,7 @@ def run_amax_cpu_benchmark_scenario(
     enforces CPU-only inference (:func:`torch.set_num_threads` is set
     from ``scenario.thread_count``; no CUDA path is taken). Host
     output is labelled surrogate unless the caller explicitly identifies
-    real AMAX-5580 hardware.
+    real AMAX-8580 hardware.
     """
 
     if scenario.scenario_id not in _SCENARIO_FACTORIES:
@@ -244,7 +244,7 @@ def run_amax_cpu_benchmark_scenario(
 
     report_notes: tuple[str, ...] = (
         "Sprint 47 AMAX CPU benchmark / packaging smoke evidence",
-        "evidence is surrogate until run on real AMAX-5580 hardware",
+        "evidence is surrogate until run on real AMAX-8580 hardware",
         "no live OT binding",
         "no PLC/PAC/SCADA write",
         "no command emission",

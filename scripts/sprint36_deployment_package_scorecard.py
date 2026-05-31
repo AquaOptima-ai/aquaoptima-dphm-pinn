@@ -10,7 +10,7 @@ Composes the Sprint-36 deployment-package scorecard JSON. The scorecard:
   ONNX scoring wrapper (proven in-process so it does NOT depend on
   Docker);
 * records the deployment-manifest validation result against the canonical
-  AMAX-5580 Edge profile;
+  AMAX-8580 Edge profile;
 * records the boundary scan (no control-plane network, no write path,
   read-only-by-design, forbidden-token scan over the package + manifest);
 * runs the canonical acceptance gate and emits a single ``PASS`` /
@@ -153,7 +153,7 @@ def _latency(n_iters: int = 50) -> dict[str, Any]:
         "n_single_row_iters": n_iters,
         "batch_256_row_ms": float(batch_ms),
         "provider": "onnxruntime CPUExecutionProvider, intra=1 inter=1",
-        "profile": "AMAX-5580 linux/amd64 CPU surrogate",
+        "profile": "AMAX-8580 linux/amd64 CPU surrogate",
     }
 
 
@@ -412,7 +412,7 @@ def _acceptance_gate(
             "serving entrypoint reproduces Sprint-35 ONNX scores in-process "
             "(flags identical, score diff <= 1e-12); DeploymentPackageManifest "
             "builds and validate_deployment_package_for_edge returns zero "
-            "errors against the canonical AMAX-5580 declaration with all "
+            "errors against the canonical AMAX-8580 declaration with all "
             "safety flags True; boundary holds (no control-plane network, no "
             "write path, container runs read-only, forbidden-token + "
             "governance scans clean); shadow-mode runbook present and "

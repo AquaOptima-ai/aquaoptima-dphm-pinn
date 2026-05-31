@@ -1,4 +1,4 @@
-# AMAX-5580 Pilot Readiness Review / Hardware-in-the-loop Plan (Sprint 51)
+# AMAX-8580 Pilot Readiness Review / Hardware-in-the-loop Plan (Sprint 51)
 
 Sprint 51 is the final AMAX evidence-ladder sprint. It defines an
 **AMAX pilot readiness review / hardware-in-the-loop (HIL) plan**:
@@ -30,7 +30,7 @@ current surrogate evidence.
 | Sprint | Shipped artefact | Audit role |
 |--------|------------------|------------|
 | 46 | `AMAXSkuProfile`, `AMAXRuntimeOption`, `AMAXFeasibilityDecision` | SKU / OS / runtime feasibility evidence. Surrogate until real AMAX hardware. |
-| 47 | `AMAXBenchmarkScenario`, `AMAXBenchmarkMetrics`, `AMAXBenchmarkReport`, `classify_supervisory_cadence()` | CPU dPHM-PINN benchmark / packaging smoke harness. Offline / CPU-only, sized for a real AMAX-5580 run. |
+| 47 | `AMAXBenchmarkScenario`, `AMAXBenchmarkMetrics`, `AMAXBenchmarkReport`, `classify_supervisory_cadence()` | CPU dPHM-PINN benchmark / packaging smoke harness. Offline / CPU-only, sized for a real AMAX-8580 run. |
 | 48 | `ReadOnlyIntegrationProtocol`, `ReadOnlyTagBinding`, `TelemetryFreshnessPolicy`, `ReadOnlyTelemetrySource`, `ReadOnlyIntegrationContract`, `ReplayToLiveEquivalenceEvidence` | Read-only PLC/SCADA integration contracts. No write path. |
 | 49 | `DeploymentReadinessItem`, `AMAXDeploymentReadinessChecklist`, `AMAXOTCertificationEvidence`, `AMAXFailureMode`, `AMAXSiteDeploymentEvidencePackage` | Site deployment readiness / OT certification evidence package. No site install approval by default. |
 | 50 | `SupervisoryProposalValue`, `SupervisoryProposalDryRun`, `PLCGatekeeperCondition`, `PLCGatekeeperEvaluation`, `AMAXSupervisoryDryRunContract`, `evaluate_plc_gatekeeper_dry_run()` | Simulated supervisory proposal / PLC gatekeeper dry-run contract. Verdict vocabulary is strictly `not_evaluated` / `blocked` / `simulation_accepted`. |
@@ -86,7 +86,7 @@ The non-negotiable safety boundary is reaffirmed at every step:
 The Sprint 51 HIL plan assumes the following lab arrangement; no
 piece of it requires touching a real site:
 
-- One real **AMAX-5580** lab unit, panel-mounted per the Sprint 49
+- One real **AMAX-8580** lab unit, panel-mounted per the Sprint 49
   install drawing label, powered from the lab UPS, and pinned to one
   of the Sprint 46 serious-candidate SKUs.
 - One **bench or simulated PLC** (e.g. a desktop CODESYS soft-PLC,
@@ -142,7 +142,7 @@ that map directly onto the Sprint 46–50 ladder plus the HIL lab unit:
 | `evidence_sprint_48_read_only_integration_contract` | `sprint_48_amax_read_only_integration_contract` | `pending` | `aquaoptima_amax_integration_owner` |
 | `evidence_sprint_49_site_deployment_evidence_package` | `sprint_49_amax_site_deployment_evidence_package` | `pending` | `aquaoptima_amax_deployment_owner` |
 | `evidence_sprint_50_supervisory_dry_run_contract` | `sprint_50_amax_supervisory_dry_run_contract` | `pending` | `aquaoptima_amax_supervisory_owner` |
-| `evidence_hil_lab_unit_inventoried` | `docs/hardware/amax-5580-pilot-readiness-hil-plan.md` | `pending` | `aquaoptima_amax_hil_lab_owner` |
+| `evidence_hil_lab_unit_inventoried` | `docs/hardware/amax-8580-pilot-readiness-hil-plan.md` | `pending` | `aquaoptima_amax_hil_lab_owner` |
 
 Status semantics:
 

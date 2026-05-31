@@ -3,15 +3,15 @@ Sprint 47 benchmark + Sprint 48 read-only integration + Sprint 49 site
 deployment readiness + Sprint 50 simulated supervisory proposal / PLC
 gatekeeper).
 
-Sprint 45 promotes the **Advantech AMAX-5580** (or equivalent x86_64
+Sprint 45 promotes the **Advantech AMAX-8580** (or equivalent x86_64
 PAC-class industrial controller) to the primary Edge target. This
 module owns the SDK *shapes* that describe what an Edge instance
 declares it can do and the deny-by-default validator that consumes a
 Sprint 44 :class:`DeploymentPackageManifest`:
 
 * :class:`EdgeHardwareProfile` — frozen hardware / runtime capability
-  metadata. Ships with a canonical AMAX-5580 helper
-  (:func:`amax_5580_cpu_profile`).
+  metadata. Ships with a canonical AMAX-8580 helper
+  (:func:`amax_8580_cpu_profile`).
 * :class:`EdgeCapabilityDeclaration` — pairs a
   :class:`CapabilityDeclaration` with an
   :class:`EdgeHardwareProfile`. Ships with a canonical AMAX
@@ -27,7 +27,7 @@ Sprint 44 :class:`DeploymentPackageManifest`:
 Sprint 46 adds the AMAX feasibility evidence projection used by the
 SKU / OS / runtime decision gate:
 
-* :class:`AMAXSkuProfile` — frozen Advantech AMAX-5580 CPU / RAM SKU
+* :class:`AMAXSkuProfile` — frozen Advantech AMAX-8580 CPU / RAM SKU
   evidence record.
 * :class:`AMAXRuntimeOption` — frozen OS / CODESYS / ML packaging
   evidence record.
@@ -129,11 +129,11 @@ from .feasibility import (
     recommended_amax_hardware_profile,
 )
 from .hardware_profile import (
-    AMAX_5580_PROFILE_ID,
+    AMAX_8580_PROFILE_ID,
     EDGE_REJECTED_ACCELERATOR_TOKENS,
     EDGE_RUNTIME_CLASSES,
     EdgeHardwareProfile,
-    amax_5580_cpu_profile,
+    amax_8580_cpu_profile,
 )
 from .package_validator import (
     EdgePackageValidationResult,
@@ -251,7 +251,7 @@ from .read_only_integration import (
 __all__ = [
     "ACCESS_MODE_AUDIT_ONLY",
     "ACCESS_MODE_READ_ONLY",
-    "AMAX_5580_PROFILE_ID",
+    "AMAX_8580_PROFILE_ID",
     "AMAX_BENCHMARK_CADENCE_BUCKETS",
     "AMAX_BENCHMARK_FRAMEWORKS",
     "AMAX_BENCHMARK_SCENARIO_BRANCH",
@@ -402,7 +402,7 @@ __all__ = [
     "VERDICT_BLOCKED",
     "VERDICT_NOT_EVALUATED",
     "VERDICT_SIMULATION_ACCEPTED",
-    "amax_5580_cpu_profile",
+    "amax_8580_cpu_profile",
     "canonical_amax_benchmark_scenarios",
     "canonical_amax_failure_modes",
     "canonical_amax_runtime_options",

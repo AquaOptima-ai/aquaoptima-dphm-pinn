@@ -1,6 +1,6 @@
-# AMAX-5580 Feasibility Evidence / SKU & OS Decision Gate
+# AMAX-8580 Feasibility Evidence / SKU & OS Decision Gate
 
-Sprint 46 deliverable. Turns Advantech AMAX-5580 datasheet facts and
+Sprint 46 deliverable. Turns Advantech AMAX-8580 datasheet facts and
 the Sprint 45 SDK assumptions into a concrete feasibility note so the
 product owner can pin a SKU / OS / runtime path before deeper Edge
 implementation begins. This is an evidence and decision-gate document,
@@ -19,16 +19,16 @@ The non-negotiable safety boundary is reaffirmed throughout:
 ## 1. Executive decision summary
 
 **Recommended primary target profile:**
-`advantech-amax-5580-i5-or-i7-8gb-linux-codesys-cpu-first` — an AMAX-5580
+`advantech-amax-8580-i5-or-i7-8gb-linux-codesys-cpu-first` — an AMAX-8580
 fitted with either a Core i5-6300U (2.4 GHz dual core, 8 GB RAM) or a
 Core i7-6600U (2.6 GHz dual core, 8 GB RAM), running AdvLinuxTU v2.0.5.4
 (Ubuntu 18 based) with CODESYS Linux Control V3 SP20 and a direct
 PyTorch CPU install for the AquaOptima Edge inference path.
 
-**Go / no-go language.** Proceed with caution. The AMAX-5580 is a
+**Go / no-go language.** Proceed with caution. The AMAX-8580 is a
 credible PAC-class x86_64 industrial controller and the i5/i7 8 GB SKUs
 plausibly accommodate dPHM-PINN CPU inference, but every claim in this
-document is **surrogate evidence** until real AMAX-5580 hardware is in
+document is **surrogate evidence** until real AMAX-8580 hardware is in
 hand and benchmarked. Recommendation: approve this profile as the
 Sprint 47 benchmarking target subject to the evidence gaps listed in
 §7, and treat any unexpected packaging or runtime constraint surfaced
@@ -50,17 +50,17 @@ Sprint 47:
   CODESYS PLC Handler / shared memory) is open and depends on the
   customer engagement.
 
-## 2. AMAX-5580 SKU comparison
+## 2. AMAX-8580 SKU comparison
 
-The AMAX-5580 is an Intel Core / Celeron based embedded controller /
+The AMAX-8580 is an Intel Core / Celeron based embedded controller /
 IoT control platform from Advantech, marketed as a PAC-class industrial
 controller. The datasheet enumerates three CPU + RAM SKUs in scope.
 
 | SKU id (SDK)                                  | CPU                              | Cores  | Clock   | RAM    | Tier                       | Notes                                                                 |
 |-----------------------------------------------|----------------------------------|--------|---------|--------|----------------------------|-----------------------------------------------------------------------|
-| `advantech_amax_5580_celeron_3955u_4gb`       | Intel Celeron 3955U              | 2      | 2.0 GHz | 4 GB   | `constrained_fallback`     | Constrained fallback only. 4 GB RAM leaves marginal headroom for PyTorch CPU; not the primary target. |
-| `advantech_amax_5580_core_i5_6300u_8gb`       | Intel Core i5-6300U              | 2      | 2.4 GHz | 8 GB   | `serious_candidate`        | Serious candidate. 8 GB RAM gives the dPHM-PINN process meaningful headroom. |
-| `advantech_amax_5580_core_i7_6600u_8gb`       | Intel Core i7-6600U              | 2      | 2.6 GHz | 8 GB   | `recommended_candidate`    | Recommended candidate for Sprint 47 CPU inference benchmarking; highest clock among the in-scope SKUs. |
+| `advantech_amax_8580_celeron_3955u_4gb`       | Intel Celeron 3955U              | 2      | 2.0 GHz | 4 GB   | `constrained_fallback`     | Constrained fallback only. 4 GB RAM leaves marginal headroom for PyTorch CPU; not the primary target. |
+| `advantech_amax_8580_core_i5_6300u_8gb`       | Intel Core i5-6300U              | 2      | 2.4 GHz | 8 GB   | `serious_candidate`        | Serious candidate. 8 GB RAM gives the dPHM-PINN process meaningful headroom. |
+| `advantech_amax_8580_core_i7_6600u_8gb`       | Intel Core i7-6600U              | 2      | 2.6 GHz | 8 GB   | `recommended_candidate`    | Recommended candidate for Sprint 47 CPU inference benchmarking; highest clock among the in-scope SKUs. |
 
 **Recommendation.** Use either the i5-6300U / 8 GB or i7-6600U / 8 GB
 SKU as the Sprint 47 benchmarking target. Treat Celeron 3955U / 4 GB as
@@ -114,7 +114,7 @@ CODESYS runtime on the AMAX node. Five candidates considered.
 | Containerised sidecar (Docker / Podman)        | Decouples Python / glibc / PyTorch from host OS image; reproducible packaging         | Adds container infrastructure to OT site; image distribution overhead             | **Recommended low-risk fallback** when direct install is blocked         |
 | Service / sidecar outside CODESYS runtime      | Removes any co-tenancy concern with CODESYS; clearer process boundary                | Still requires a Python runtime on the host                                       | Useful framing once Sprint 47 measures co-tenancy behavior               |
 | ONNX Runtime CPU                               | Smaller dependency footprint than PyTorch; mature Windows + Linux support             | Requires ONNX export of the dPHM-PINN model and parity testing                    | Queue for Sprint 47 follow-up benchmarking, not the baseline             |
-| OpenVINO                                       | Intel-specific CPU optimisations on the AMAX-5580 Intel parts                         | Adds OpenVINO toolchain and model conversion path                                 | Queue for Sprint 47 follow-up benchmarking, not the baseline             |
+| OpenVINO                                       | Intel-specific CPU optimisations on the AMAX-8580 Intel parts                         | Adds OpenVINO toolchain and model conversion path                                 | Queue for Sprint 47 follow-up benchmarking, not the baseline             |
 
 **Sprint 47 benchmarking path recommendation.** Start with direct
 PyTorch CPU install on the recommended SKU. Once latency / memory /
@@ -126,7 +126,7 @@ AdvLinuxTU / glibc / Python wheel obstacle.
 
 ## 5. CODESYS / PLC integration option matrix
 
-The AMAX-5580 datasheet enumerates OT and IT protocol packages
+The AMAX-8580 datasheet enumerates OT and IT protocol packages
 available through CODESYS bundles. AquaOptima Edge uses **only the
 read-only / audit-only** subset of these. The control authority stays
 with the site PLC / pump-station PLC.
@@ -157,7 +157,7 @@ control authority for AquaOptima:
 
 ## 6. OT hardware facts to carry forward
 
-These AMAX-5580 datasheet facts apply across every SKU and OS choice
+These AMAX-8580 datasheet facts apply across every SKU and OS choice
 above. Document them once here; downstream Sprint 47+ planning should
 treat them as the canonical OT-hardware envelope.
 
@@ -176,12 +176,12 @@ treat them as the canonical OT-hardware envelope.
 These facts shape installation, environmental, and panel-design
 decisions; they do **not** change the AquaOptima Edge boundary. The
 AquaOptima inference path remains audit-only regardless of how the
-AMAX-5580 is wired into the OT panel.
+AMAX-8580 is wired into the OT panel.
 
 ## 7. Recommendation / acceptance gate
 
 **Recommended target profile.**
-`advantech-amax-5580-i5-or-i7-8gb-linux-codesys-cpu-first`, unless the
+`advantech-amax-8580-i5-or-i7-8gb-linux-codesys-cpu-first`, unless the
 customer site explicitly requires Windows CODESYS — in which case
 fall back to the Windows 10 LTSC 2019 + CODESYS Control RTE V3.5 SP20
 variant.
@@ -205,7 +205,7 @@ variant.
 **Sprint 47 scope (after this gate is accepted).** Sprint 47 should
 be a CPU inference benchmark / packaging smoke harness only —
 specifically: measure dPHM-PINN CPU inference latency, memory
-envelope, and thread policy on a real AMAX-5580 (or representative
+envelope, and thread policy on a real AMAX-8580 (or representative
 i5-6300U / i7-6600U / 8 GB surrogate); verify Python `>= 3.10` and
 PyTorch CPU wheel installation on the chosen OS path; produce
 packaging evidence the SDK can consume. Sprint 47 must **not**

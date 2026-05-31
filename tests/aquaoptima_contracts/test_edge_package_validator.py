@@ -1,6 +1,6 @@
-"""TDD — Sprint 45 AMAX-5580 Edge package validator.
+"""TDD — Sprint 45 AMAX-8580 Edge package validator.
 
-Sprint 45 promotes the Advantech AMAX-5580 (x86_64 PAC-class
+Sprint 45 promotes the Advantech AMAX-8580 (x86_64 PAC-class
 industrial controller) to the primary Edge target. The Edge package
 validator is a deny-by-default pure value function that consumes a
 Sprint 44 :class:`DeploymentPackageManifest` and an
@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from aquaoptima_contracts import (
-    AMAX_5580_PROFILE_ID,
+    AMAX_8580_PROFILE_ID,
     EDGE_REJECTED_ACCELERATOR_TOKENS,
     FORBIDDEN_VOCABULARY,
     SDK_VERSION,
@@ -42,7 +42,7 @@ from aquaoptima_contracts import (
     Provenance,
     SafetyFlagSet,
     SchemaVersion,
-    amax_5580_cpu_profile,
+    amax_8580_cpu_profile,
     default_amax_edge_capability_declaration,
     default_amax_edge_validation_capabilities,
     dump_canonical_json,
@@ -195,15 +195,15 @@ def _baseline_manifest(
 # ---------------------------------------------------------------------------
 
 
-def test_amax_5580_cpu_profile_round_trip() -> None:
-    profile = amax_5580_cpu_profile()
+def test_amax_8580_cpu_profile_round_trip() -> None:
+    profile = amax_8580_cpu_profile()
     raw = dump_canonical_json(profile)
     decoded = load_canonical_json(raw)
     restored = EdgeHardwareProfile.from_dict(decoded)
     assert restored == profile
-    assert profile.profile_id == AMAX_5580_PROFILE_ID
+    assert profile.profile_id == AMAX_8580_PROFILE_ID
     assert profile.vendor == "advantech"
-    assert profile.model == "amax_5580"
+    assert profile.model == "amax_8580"
     assert profile.architecture == "x86_64"
     assert profile.os_family == "linux"
     assert profile.runtime_class == "industrial_pac"
@@ -217,8 +217,8 @@ def test_amax_5580_cpu_profile_round_trip() -> None:
     assert "tensorrt" not in profile.supported_model_frameworks
 
 
-def test_amax_5580_cpu_profile_notes_record_safety_boundary() -> None:
-    profile = amax_5580_cpu_profile()
+def test_amax_8580_cpu_profile_notes_record_safety_boundary() -> None:
+    profile = amax_8580_cpu_profile()
     joined = "\n".join(profile.notes)
     # The audit-only notes record the non-negotiable safety boundary.
     assert "no live OT binding" in joined
@@ -228,7 +228,7 @@ def test_amax_5580_cpu_profile_notes_record_safety_boundary() -> None:
 
 
 def test_amax_profile_id_is_canonical() -> None:
-    assert AMAX_5580_PROFILE_ID == "advantech_amax_5580"
+    assert AMAX_8580_PROFILE_ID == "advantech_amax_8580"
 
 
 def test_edge_rejected_accelerator_tokens_cover_orin_jetson_cuda_tensorrt_arm() -> None:
@@ -278,7 +278,7 @@ def test_edge_capability_declaration_round_trip() -> None:
     decoded = load_canonical_json(dump_canonical_json(edge))
     restored = EdgeCapabilityDeclaration.from_dict(decoded)
     assert restored == edge
-    assert restored.profile_id == AMAX_5580_PROFILE_ID
+    assert restored.profile_id == AMAX_8580_PROFILE_ID
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +295,7 @@ def test_cpu_pytorch_package_accepted_for_amax_default() -> None:
         f"expected accepted=True, got errors={result.errors!r}"
     )
     assert result.errors == ()
-    assert result.profile_id == AMAX_5580_PROFILE_ID
+    assert result.profile_id == AMAX_8580_PROFILE_ID
     assert result.package_id == manifest.package_id
     assert result.missing_capabilities == ()
     assert result.rejected_accelerator_tokens == ()
@@ -560,7 +560,7 @@ def test_edge_package_validation_result_full_round_trip() -> None:
         accepted=False,
         errors=("model framework tensorrt not supported",),
         warnings=("artifact summary missing 'window'",),
-        profile_id=AMAX_5580_PROFILE_ID,
+        profile_id=AMAX_8580_PROFILE_ID,
         package_id="pkg-amax-cpu-pytorch",
         missing_capabilities=("run_shadow_replay",),
         rejected_accelerator_tokens=("tensorrt",),

@@ -36,7 +36,7 @@ from aquaoptima_contracts.edge.vendor_pac_inventory import (
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "src/aquaoptima_contracts/edge/vendor_pac_inventory.py"
-DOC_PATH = ROOT / "docs/hardware/amax-5580-vendor-pac-software-inventory.md"
+DOC_PATH = ROOT / "docs/hardware/amax-8580-vendor-pac-software-inventory.md"
 ROADMAP_PATH = ROOT / "docs/sprint-roadmap.md"
 README_PATH = ROOT / "README.md"
 
@@ -56,9 +56,9 @@ def test_default_inventory_sources_include_manuals_and_linux_driver() -> None:
     inventory = default_amax_vendor_pac_inventory()
     assert inventory.inventory_id == AMAX_VENDOR_PAC_INVENTORY_ID
     source_ids = {source.document_id for source in inventory.sources}
-    assert "amax_5580_user_manual_ed2" in source_ids
+    assert "amax_8580_user_manual_ed2" in source_ids
     assert "amax_5000_io_manual_ed5" in source_ids
-    assert "amax_5580_linux_driver_v2_24_1" in source_ids
+    assert "amax_8580_linux_driver_v2_24_1" in source_ids
 
 
 def test_default_inventory_includes_barebone_and_codesys_ready_pac() -> None:

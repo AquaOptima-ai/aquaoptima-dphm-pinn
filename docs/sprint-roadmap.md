@@ -284,9 +284,9 @@ Boundary (reaffirmed):
 - no inline model weights, no filesystem writes outside tests, no
   runtime loading of model artifacts.
 
-## Sprint 45 — AMAX-5580 Edge Package Validator / Capability Profile
+## Sprint 45 — AMAX-8580 Edge Package Validator / Capability Profile
 
-Promotes the **Advantech AMAX-5580** (or equivalent x86_64 PAC-class
+Promotes the **Advantech AMAX-8580** (or equivalent x86_64 PAC-class
 industrial controller) to the primary Edge target and ships the
 deny-by-default SDK Edge package validator that consumes a Sprint 44
 `DeploymentPackageManifest`. The Jetson / Orin / TensorRT path stays
@@ -302,7 +302,7 @@ Shipped in Sprint 45 (under `src/aquaoptima_contracts/edge/`):
   metadata (`profile_id`, `vendor`, `model`, `architecture`,
   `os_family`, `runtime_class`, `accelerators`,
   `supported_model_frameworks`, `python_versions`, audit-only
-  `notes`). The canonical `amax_5580_cpu_profile()` helper returns
+  `notes`). The canonical `amax_8580_cpu_profile()` helper returns
   the x86_64 / Linux / `industrial_pac` profile with CPU-first
   framework support (`audit_only`, `onnx`, `pytorch`, `tflite`) and
   no CUDA / TensorRT / Jetson / Orin acceleration.
@@ -335,7 +335,7 @@ Shipped in Sprint 45 (under `src/aquaoptima_contracts/edge/`):
 
 The non-negotiable boundary stays explicit:
 
-- AMAX-5580 is the primary Edge target; Orin / TensorRT is an
+- AMAX-8580 is the primary Edge target; Orin / TensorRT is an
   optional accelerator profile only;
 - the site PLC / pump-station PLC remains the direct VFD / pump /
   actuator authority;
@@ -357,10 +357,10 @@ The non-negotiable boundary stays explicit:
   `run_shadow_runtime`, EPANET `.inp` import, or `Network` into the
   SDK.
 
-## Sprint 45+ — AMAX-5580 primary Edge target plan
+## Sprint 45+ — AMAX-8580 primary Edge target plan
 
 The primary Edge hardware target for Sprint 45+ is now the
-**Advantech AMAX-5580** class of PAC / industrial controller, not an
+**Advantech AMAX-8580** class of PAC / industrial controller, not an
 NVIDIA Jetson / Orin-first EPC-R profile. The Edge package should be
 planned as an OT-side, CPU-first, x86_64 industrial runtime that can
 coexist with site PLCs and pump-station PLCs. The site PLC remains the
@@ -375,7 +375,7 @@ optional accelerator variant only, not the default deployment path.
 
 Hardware / runtime assumptions for Sprint 45+:
 
-- primary target: AMAX-5580 or equivalent PAC-class industrial
+- primary target: AMAX-8580 or equivalent PAC-class industrial
   controller;
 - architecture: x86_64;
 - acceleration: CPU-first PyTorch inference, with optional ONNX
@@ -390,12 +390,12 @@ Hardware / runtime assumptions for Sprint 45+:
 
 Sprint 45 should therefore be reframed as:
 
-**Sprint 45 — AMAX-5580 Edge Package Validator / Capability Profile**
+**Sprint 45 — AMAX-8580 Edge Package Validator / Capability Profile**
 
 Expected scope:
 
 - `EdgeHardwareProfile` / `EdgeCapabilityDeclaration` for
-  `advantech-amax-5580` or a generic `x86_64-pac-cpu` profile;
+  `advantech-amax-8580` or a generic `x86_64-pac-cpu` profile;
 - `EdgePackageValidationResult` consuming Sprint 44
   `DeploymentPackageManifest`;
 - checks that reject default-edge packages requiring CUDA, TensorRT,
@@ -414,7 +414,7 @@ the Sprint 46 evidence gate — see the Sprint 46 section below):
 
 1. **Sprint 46 — AMAX feasibility evidence / SKU & OS decision gate.**
    Evidence and decision-gate sprint, **not** a benchmark sprint. Turns
-   AMAX-5580 datasheet facts and the Sprint 45 SDK assumptions into a
+   AMAX-8580 datasheet facts and the Sprint 45 SDK assumptions into a
    feasibility note and SDK evidence projection
    (`AMAXSkuProfile`, `AMAXRuntimeOption`, `AMAXFeasibilityDecision`)
    so the product owner can pin a SKU / OS / runtime path before
@@ -423,7 +423,7 @@ the Sprint 46 evidence gate — see the Sprint 46 section below):
 2. **Sprint 47 — AMAX CPU inference benchmark / packaging smoke
    harness** (*after Sprint 46 evidence is accepted*). Measure
    dPHM-PINN CPU inference latency, memory envelope, thread policy,
-   and packaging manifest compatibility on a real AMAX-5580 (or
+   and packaging manifest compatibility on a real AMAX-8580 (or
    representative i5-6300U / i7-6600U / 8 GB surrogate). Still
    offline / mock OT execution, not live OT integration.
 3. **Sprint 48 — AMAX read-only PLC/SCADA adapter contract.** Define
@@ -452,15 +452,15 @@ Boundary for all Sprint 45+ AMAX work:
 Sprint 46 is an evidence and decision-gate sprint, **not** an
 implementation-heavy Edge Runtime sprint and **not** the CPU
 inference smoke profile that the older Sprint 45+ sequence text once
-described. It turns Advantech AMAX-5580 datasheet facts and the
+described. It turns Advantech AMAX-8580 datasheet facts and the
 Sprint 45 SDK assumptions into a feasibility note and SDK evidence
 projection so the product owner can pin a SKU / OS / runtime path
 before deeper Edge implementation begins.
 
 Shipped in Sprint 46:
 
-- `docs/hardware/amax-5580-feasibility.md` — feasibility evidence
-  document with executive decision summary, AMAX-5580 SKU comparison
+- `docs/hardware/amax-8580-feasibility.md` — feasibility evidence
+  document with executive decision summary, AMAX-8580 SKU comparison
   (Celeron 3955U / 4 GB constrained fallback vs Core i5-6300U / 8 GB
   serious candidate vs Core i7-6600U / 8 GB recommended candidate),
   OS / CODESYS decision matrix (AdvLinuxTU + CODESYS Linux Control
@@ -476,7 +476,7 @@ Shipped in Sprint 46:
   60 °C, CE / FCC / CB / UL62368 plus shock / vibration), and the
   recommendation / acceptance gate for Sprint 47.
 - SDK projection under `src/aquaoptima_contracts/edge/feasibility.py`:
-  - `AMAXSkuProfile` — frozen Advantech AMAX-5580 SKU evidence
+  - `AMAXSkuProfile` — frozen Advantech AMAX-8580 SKU evidence
     record with deterministic `to_dict` / `from_dict`. Canonical
     helper `canonical_amax_sku_profiles()` enumerates the three
     in-scope SKU records and their recommendation tiers.
@@ -491,16 +491,16 @@ Shipped in Sprint 46:
     recommendation, packaging strategy, ML runtime recommendation,
     surrogate-evidence-gap tuple, and the next gate. Canonical
     helper `default_amax_feasibility_decision()` recommends the
-    `advantech-amax-5580-i5-or-i7-8gb-linux-codesys-cpu-first`
+    `advantech-amax-8580-i5-or-i7-8gb-linux-codesys-cpu-first`
     profile.
   - `recommended_amax_hardware_profile()` — bridge that returns an
     `EdgeHardwareProfile` matching the Sprint 45
-    `amax_5580_cpu_profile()` identifier and enriches `notes` with
+    `amax_8580_cpu_profile()` identifier and enriches `notes` with
     Sprint 46 evidence-gap language. The Sprint 45 default helper
     is unchanged.
 
 Recommended target profile:
-`advantech-amax-5580-i5-or-i7-8gb-linux-codesys-cpu-first` — i5-6300U
+`advantech-amax-8580-i5-or-i7-8gb-linux-codesys-cpu-first` — i5-6300U
 or i7-6600U at 8 GB, AdvLinuxTU v2.0.5.4 + CODESYS Linux Control V3
 SP20, direct PyTorch CPU install — unless a customer site explicitly
 requires the Windows 10 LTSC 2019 + CODESYS Control RTE V3.5 SP20
@@ -516,7 +516,7 @@ What the Sprint 46 gate must approve before Sprint 47 starts:
 - ML runtime sequence (PyTorch CPU first, ONNX Runtime CPU and
   OpenVINO as follow-up benchmarks);
 - surrogate evidence acceptance — every claim is surrogate until
-  real AMAX-5580 hardware is in hand.
+  real AMAX-8580 hardware is in hand.
 
 **Sprint 47 (next gate, after Sprint 46 evidence is accepted)** is a
 CPU inference benchmark / packaging smoke harness only. Sprint 47
@@ -551,7 +551,7 @@ Sprint 47 ships an **offline, CPU-only** AMAX CPU dPHM-PINN benchmark
 and packaging smoke harness. The deliverables prove package / runtime
 feasibility evidence only; they do **not** prove real-time control
 safety. Host-derived benchmarks are **surrogate** until executed on
-real AMAX-5580 hardware.
+real AMAX-8580 hardware.
 
 Shipped in Sprint 47:
 
@@ -592,7 +592,7 @@ Shipped in Sprint 47:
   canonical JSON writer; prints a concise per-scenario summary;
   defaults to surrogate host mode and CPU-only.
 - New audit-only doc:
-  `docs/hardware/amax-5580-cpu-benchmarking.md`.
+  `docs/hardware/amax-8580-cpu-benchmarking.md`.
 
 What Sprint 47 does **not** ship:
 
@@ -663,7 +663,7 @@ Shipped in Sprint 48 (under
   status is `not_evaluated`: replay datasets are surrogate evidence
   until a real source verification is signed off.
 - New audit-only doc:
-  `docs/hardware/amax-5580-read-only-integration.md`.
+  `docs/hardware/amax-8580-read-only-integration.md`.
 
 What Sprint 48 **does not** ship:
 
@@ -757,7 +757,7 @@ Shipped in Sprint 49 (under
   failure-mode coverage, missing referenced evidence handles,
   missing next-gate language, and unsafe vocabulary in labels.
 - New audit-only doc:
-  `docs/hardware/amax-5580-site-deployment-readiness.md` covering
+  `docs/hardware/amax-8580-site-deployment-readiness.md` covering
   the readiness checklist, cybersecurity posture, certification /
   evidence map, FAT / SAT outline, failure-mode matrix, and the
   explicit Sprint 49 boundary statement.
@@ -849,7 +849,7 @@ Shipped in Sprint 50 (under
   evidence, missing next-gate language, attempts to declare live
   write authorisation, or carries unsafe vocabulary in labels.
 - New audit-only doc:
-  `docs/hardware/amax-5580-supervisory-dry-run-gatekeeper.md`
+  `docs/hardware/amax-8580-supervisory-dry-run-gatekeeper.md`
   covering proposal semantics, the PLC gatekeeper expectations,
   the simulation-only verdict vocabulary, the relationship to
   Sprint 49, and the Sprint 50 boundary statement.
@@ -939,7 +939,7 @@ Shipped in Sprint 51 (under
   authorisation, or carries unsafe vocabulary in identifier / label
   fields.
 - New audit-only doc:
-  `docs/hardware/amax-5580-pilot-readiness-hil-plan.md` covering
+  `docs/hardware/amax-8580-pilot-readiness-hil-plan.md` covering
   the Sprint 46–50 evidence ladder, the HIL lab setup, the test
   matrix, the evidence ledger, the go / no-go verdict vocabulary,
   the evidence required before any real pilot, and the Sprint 51
@@ -989,12 +989,12 @@ engagement context that must exist before a real pilot is scheduled.
 
 Sprint 52 is a concrete artifact sprint, not a replan-only sprint. It
 ships the stdlib-only `vendor_pac_inventory` SDK projection, contract
-tests, and `docs/hardware/amax-5580-vendor-pac-software-inventory.md`.
+tests, and `docs/hardware/amax-8580-vendor-pac-software-inventory.md`.
 
-The sprint encodes manual-grounded findings from the AMAX-5580 user
-manual, AMAX-5000 I/O manual, and AMAX5580 Linux driver package:
+The sprint encodes manual-grounded findings from the AMAX-8580 user
+manual, AMAX-5000 I/O manual, and AMAX8580 Linux driver package:
 
-- Control IPC Barebone and CODESYS Ready PAC are distinct AMAX-5580
+- Control IPC Barebone and CODESYS Ready PAC are distinct AMAX-8580
   product personalities.
 - The CODESYS Ready PAC table lists Windows 10 LTSC, 128 GB M.2, 2 MB
   NVRAM, and CODESYS V3 Pure Control with Visu(HMI).
@@ -1023,15 +1023,15 @@ What Sprint 52 does not ship:
 
 ### AMAX-8580 supplier update after Sprint 52
 
-Supplier guidance now says AMAX-5580 will stop production and the
+Supplier guidance now says AMAX-8580 will stop production and the
 replacement model is AMAX-8580. AMAX-8580 is expected to release in
 approximately three months, and detailed vendor materials are not yet
 complete. Therefore:
 
 - AMAX-8580 becomes the intended forward AquaOptima Edge hardware target.
-- AMAX-5580 becomes legacy fallback / historical evidence.
+- AMAX-8580 becomes legacy fallback / historical evidence.
 - Sprint 52 remains valid as a PAC-boundary correction, but future
-  sprints should generalize the inventory from AMAX-5580 to AMAX-8580
+  sprints should generalize the inventory from AMAX-8580 to AMAX-8580
   once vendor-confirmed details arrive.
 - No deployment qualification is implied until the exact AMAX-8580 SKU,
   OS image, CODESYS package/license, real-time BIOS, MRAM/NVRAM,

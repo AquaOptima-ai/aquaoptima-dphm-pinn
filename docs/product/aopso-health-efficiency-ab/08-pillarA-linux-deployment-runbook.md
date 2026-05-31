@@ -1,7 +1,7 @@
 # AOPSO Sprint 36 — Pillar A Linux deployment runbook (shadow / offline)
 
 This runbook describes how to **package**, **distribute**, and **run** the
-Pillar-A health detector on an AMAX-5580 (linux/amd64, CPU-only) target as
+Pillar-A health detector on an AMAX-8580 (linux/amd64, CPU-only) target as
 a read-only, offline, advisory-only sidecar.
 
 > **This document does not authorize site control or actuation.** The
@@ -120,7 +120,7 @@ order; the sidecar's `axes` tuple defines the canonical order.
 The serving entrypoint is exercised in-process by
 `tests/advisory/test_sprint36_deployment_package.py` — running the
 Sprint-36 test suite proves bit-faithful parity with the Sprint-35 ONNX
-scoring wrapper, the manifest passes the AMAX-5580 edge validator, and
+scoring wrapper, the manifest passes the AMAX-8580 edge validator, and
 the on-disk sha256 of the `.onnx` matches the model record. Run:
 
 ```bash
@@ -152,7 +152,7 @@ PY
 
 The expected output is `accepted: True`, no errors, no warnings.
 
-## 8. CPU latency note (AMAX-5580 profile)
+## 8. CPU latency note (AMAX-8580 profile)
 
 The Sprint-35 ONNX scoring wrapper was profiled CPU-only on a single
 thread on the same architecture. Sprint 36 reuses that wrapper verbatim

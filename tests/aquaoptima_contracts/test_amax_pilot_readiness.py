@@ -70,7 +70,7 @@ PILOT_READINESS_DOC_PATH = (
     REPO_ROOT
     / "docs"
     / "hardware"
-    / "amax-5580-pilot-readiness-hil-plan.md"
+    / "amax-8580-pilot-readiness-hil-plan.md"
 )
 
 
@@ -188,7 +188,7 @@ def _make_matrix(**overrides) -> HILTestMatrix:
     defaults = dict(
         matrix_id="test_matrix",
         test_cases=cases,
-        target_hardware_profile_label="lab_amax_5580_label",
+        target_hardware_profile_label="lab_amax_8580_label",
         target_os_runtime_label="lab_runtime_label",
         bench_plc_label="bench_plc_label",
         referenced_evidence=(

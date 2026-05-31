@@ -1,4 +1,4 @@
-# AMAX-5580 Site Deployment Readiness / OT Certification Evidence (Sprint 49)
+# AMAX-8580 Site Deployment Readiness / OT Certification Evidence (Sprint 49)
 
 Sprint 49 defines the **site deployment readiness / OT certification
 evidence package** required before installing AquaOptima AMAX Edge in
@@ -52,7 +52,7 @@ evidence is required to flip each to `approved`.
 
 | Category | What is being approved | Owner label |
 |----------|------------------------|-------------|
-| `sku` | AMAX-5580 SKU pinned to a Sprint 46 serious-candidate (Core i5-6300U 8 GB / Core i7-6600U 8 GB) per site BOM | `site_hardware_lead` |
+| `sku` | AMAX-8580 SKU pinned to a Sprint 46 serious-candidate (Core i5-6300U 8 GB / Core i7-6600U 8 GB) per site BOM | `site_hardware_lead` |
 | `os_image` | Site OS image (AdvLinuxTU Ubuntu 18 or Windows 10 LTSC 2019) built, signed, stored with provenance in the site image registry | `site_ot_engineering_lead` |
 | `codesys_package` | CODESYS Linux Control / Control RTE runtime co-tenant approved, version pinned, signed per site policy | `site_plc_lead` |
 | `network_ports` | Network ports allow Sprint 48 read-only inbound flows only; no outbound write / dispatch flows are opened | `site_network_security_lead` |
@@ -99,7 +99,7 @@ references / labels the site must capture before any pilot.
 
 ## Certification / evidence map
 
-AMAX-5580 hardware ships with industry certifications (CE marking,
+AMAX-8580 hardware ships with industry certifications (CE marking,
 FCC Part 15, UL industrial-control, EN 61131-2, IEC 61010-1, Class 1
 Div 2 where applicable, etc.). Those certifications are necessary
 for OT installation but **necessary but not sufficient** for
