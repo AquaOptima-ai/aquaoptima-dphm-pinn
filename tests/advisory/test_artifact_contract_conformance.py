@@ -31,7 +31,7 @@ from aquaoptima_contracts import (
     Provenance,
     SDK_VERSION,
     SchemaVersion,
-    amax_5580_cpu_profile,
+    amax_8580_cpu_profile,
     default_amax_edge_capability_declaration,
     validate_deployment_package_for_edge,
 )
@@ -144,7 +144,7 @@ def test_record_requires_checksum_and_edge_framework(record_factory):
     assert len(rec.artifact_reference.checksum.hex_digest) == 64
     assert rec.framework == "onnx"
     # onnx must be advertised by the AMAX CPU profile.
-    assert "onnx" in amax_5580_cpu_profile().supported_model_frameworks
+    assert "onnx" in amax_8580_cpu_profile().supported_model_frameworks
 
 
 def test_framework_outside_allowed_set_is_rejected_by_sdk():

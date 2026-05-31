@@ -20,7 +20,7 @@ from ..safety.capability_gates import (
     CapabilityTokenError,
 )
 from ..version import SDK_VERSION, SchemaVersion
-from .hardware_profile import EdgeHardwareProfile, amax_5580_cpu_profile
+from .hardware_profile import EdgeHardwareProfile, amax_8580_cpu_profile
 
 
 _DECLARATION_FIELDS: tuple[str, ...] = (
@@ -178,7 +178,7 @@ def default_amax_edge_capability_declaration(
 ) -> EdgeCapabilityDeclaration:
     """Return the canonical AMAX package-validation-only declaration.
 
-    The declaration pairs the canonical AMAX-5580 CPU profile with
+    The declaration pairs the canonical AMAX-8580 CPU profile with
     exactly the package-validation capability bundle returned by
     :func:`default_amax_edge_validation_capabilities`. No write /
     control / setpoint / actuation capability is included; the
@@ -192,9 +192,9 @@ def default_amax_edge_capability_declaration(
     )
     return EdgeCapabilityDeclaration(
         capability_declaration=capability_declaration,
-        hardware_profile=amax_5580_cpu_profile(),
+        hardware_profile=amax_8580_cpu_profile(),
         notes=(
-            "default AMAX-5580 package-validation-only declaration",
+            "default AMAX-8580 package-validation-only declaration",
             "no live OT binding",
             "no PLC/PAC/SCADA write",
             "no command emission",

@@ -152,10 +152,10 @@ PILOT_READINESS_VERDICT_TOKENS: frozenset[str] = frozenset(
 # Canonical Sprint 51 review identifier. Adding additional canonical
 # ids is an SDK MINOR bump; repurposing or removing is MAJOR.
 AMAX_PILOT_READINESS_REVIEW_ID: str = (
-    "amax_5580_pilot_readiness_review_v1"
+    "amax_8580_pilot_readiness_review_v1"
 )
 AMAX_HIL_TEST_MATRIX_ID: str = (
-    "amax_5580_hardware_in_the_loop_test_matrix_v1"
+    "amax_8580_hardware_in_the_loop_test_matrix_v1"
 )
 
 
@@ -439,7 +439,7 @@ class HILTestMatrix:
     Audit-only / planning-only. Bundles a tuple of
     :class:`HILTestCase` records under a matrix id with a target
     hardware profile label (e.g.
-    ``amax_5580_core_i5_6300u_8gb``), a target OS / runtime label
+    ``amax_8580_core_i5_6300u_8gb``), a target OS / runtime label
     (e.g. ``ubuntu_18_codesys_linux_control_runtime``), a bench (or
     simulated) PLC label, references to Sprint 46–50 evidence, and
     audit notes. Nothing in this record represents a write, dispatch,
@@ -592,7 +592,7 @@ class PilotReadinessEvidenceItem:
     Audit-only / planning-only. Captures the evidence id, source
     sprint / doc reference (e.g.
     ``sprint_47_amax_benchmark_report`` or
-    ``docs/hardware/amax-5580-cpu-benchmarking.md``), evidence status,
+    ``docs/hardware/amax-8580-cpu-benchmarking.md``), evidence status,
     owner / reviewer label, blocking flag, and audit notes. Nothing in
     this record represents a write, dispatch, actuation, or control
     surface.
@@ -1439,7 +1439,7 @@ def default_amax_hil_test_matrix() -> HILTestMatrix:
         matrix_id=AMAX_HIL_TEST_MATRIX_ID,
         test_cases=_default_hil_test_cases(),
         target_hardware_profile_label=(
-            "amax_5580_core_i5_6300u_8gb_serious_candidate"
+            "amax_8580_core_i5_6300u_8gb_serious_candidate"
         ),
         target_os_runtime_label=(
             "ubuntu_18_codesys_linux_control_runtime_lab_profile"
@@ -1545,7 +1545,7 @@ def _default_evidence_items() -> tuple[
         PilotReadinessEvidenceItem(
             evidence_id="evidence_hil_lab_unit_inventoried",
             source_sprint_or_doc=(
-                "docs/hardware/amax-5580-pilot-readiness-hil-plan.md"
+                "docs/hardware/amax-8580-pilot-readiness-hil-plan.md"
             ),
             status=PILOT_EVIDENCE_STATUS_PENDING,
             owner_label="aquaoptima_amax_hil_lab_owner",
@@ -1595,12 +1595,12 @@ def default_amax_pilot_readiness_review() -> PilotReadinessReview:
             "sprint_48_amax_read_only_integration_contract",
             "sprint_49_amax_site_deployment_evidence_package",
             "sprint_50_amax_supervisory_dry_run_contract",
-            "docs/hardware/amax-5580-feasibility.md",
-            "docs/hardware/amax-5580-cpu-benchmarking.md",
-            "docs/hardware/amax-5580-read-only-integration.md",
-            "docs/hardware/amax-5580-site-deployment-readiness.md",
-            "docs/hardware/amax-5580-supervisory-dry-run-gatekeeper.md",
-            "docs/hardware/amax-5580-pilot-readiness-hil-plan.md",
+            "docs/hardware/amax-8580-feasibility.md",
+            "docs/hardware/amax-8580-cpu-benchmarking.md",
+            "docs/hardware/amax-8580-read-only-integration.md",
+            "docs/hardware/amax-8580-site-deployment-readiness.md",
+            "docs/hardware/amax-8580-supervisory-dry-run-gatekeeper.md",
+            "docs/hardware/amax-8580-pilot-readiness-hil-plan.md",
         ),
         next_gate=(
             "Sprint 52+ — phase checkpoint / replanning gate, not "

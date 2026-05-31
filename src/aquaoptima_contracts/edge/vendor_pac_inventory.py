@@ -1,7 +1,7 @@
 """Sprint 52 — AMAX vendor PAC software inventory / integration boundary.
 
 Sprint 52 is a concrete artifact sprint, not a replan-only sprint. It
-turns the AMAX-5580 user manual, AMAX-5000 I/O manual, and AMAX5580
+turns the AMAX-8580 user manual, AMAX-5000 I/O manual, and AMAX8580
 Linux driver package into deterministic SDK records that define what
 AMAX / CODESYS already provides and where AquaOptima must stay as a
 sidecar advisory / evidence layer.
@@ -37,7 +37,7 @@ from ..base.envelope import ContractError
 from ..safety.vocabulary import FORBIDDEN_VOCABULARY, contains_forbidden_token
 
 
-AMAX_VENDOR_PAC_INVENTORY_ID: str = "amax_5580_vendor_pac_inventory_v1"
+AMAX_VENDOR_PAC_INVENTORY_ID: str = "amax_8580_vendor_pac_inventory_v1"
 
 SOURCE_KIND_MANUAL: str = "manual"
 SOURCE_KIND_DRIVER_PACKAGE: str = "driver_package"
@@ -910,11 +910,11 @@ def _ensure_typed_tuple(value: Any, typ: type, label: str) -> None:
 def _default_sources() -> tuple[AMAXVendorEvidenceSource, ...]:
     return (
         AMAXVendorEvidenceSource(
-            document_id="amax_5580_user_manual_ed2",
-            title="AMAX-5580 User Manual",
+            document_id="amax_8580_user_manual_ed2",
+            title="AMAX-8580 User Manual",
             edition_or_version="Ed.2 FINAL",
             source_kind=SOURCE_KIND_MANUAL,
-            reference="AMAX-5580_User_Manual_Ed.2-FINAL.pdf",
+            reference="AMAX-8580_User_Manual_Ed.2-FINAL.pdf",
             checksum="88c1c1bf5bea54283190c284dcc7b32c68cb3d3a52bc19d1afe5e2c3d9f981de",
             notes=(
                 "Manual evidence for Control IPC Barebone and CODESYS Ready PAC product offerings.",
@@ -932,11 +932,11 @@ def _default_sources() -> tuple[AMAXVendorEvidenceSource, ...]:
             ),
         ),
         AMAXVendorEvidenceSource(
-            document_id="amax_5580_linux_driver_v2_24_1",
-            title="AMAX5580 Linux driver package",
+            document_id="amax_8580_linux_driver_v2_24_1",
+            title="AMAX8580 Linux driver package",
             edition_or_version="v2.24-1",
             source_kind=SOURCE_KIND_DRIVER_PACKAGE,
-            reference="AMAX5580 Linux driver.zip",
+            reference="AMAX8580 Linux driver.zip",
             checksum="a8d89973d97c3004f384be864cfc94582547fc588bf8c48fc6707db69341d220",
             notes=(
                 "EC/platform driver package for brightness, GPIO, LED, common, hwmon, WDT, and EEPROM.",
@@ -949,25 +949,25 @@ def _default_sources() -> tuple[AMAXVendorEvidenceSource, ...]:
 def _default_product_offerings() -> tuple[AMAXProductOffering, ...]:
     return (
         AMAXProductOffering(
-            offering_id="amax_5580_control_ipc_barebone",
+            offering_id="amax_8580_control_ipc_barebone",
             category=PRODUCT_CATEGORY_CONTROL_IPC_BAREBONE,
-            part_numbers=("AMAX-5580-C3000A", "AMAX-5580-54000A", "AMAX-5580-74000A"),
+            part_numbers=("AMAX-8580-C3000A", "AMAX-8580-54000A", "AMAX-8580-74000A"),
             cpu_ram_storage="Celeron 3955U 4 GB, Core i5-6300U 8 GB, or Core i7-6600U 8 GB; user-configured M.2 storage",
             os="Windows 7/10 support noted by manual; embedded OS can be ordered from Advantech",
             nvram_mram="Optional 2 MB MRAM/NVRAM in internal PCIe-mini slot",
             software_bundle="Control IPC barebone; CODESYS bundle not implied by this offering",
-            source_evidence_ids=("amax_5580_user_manual_ed2",),
+            source_evidence_ids=("amax_8580_user_manual_ed2",),
             vendor_confirmation_status=VENDOR_CONFIRMATION_CONFIRMED_BY_MANUAL,
         ),
         AMAXProductOffering(
-            offering_id="amax_5580_codesys_ready_pac",
+            offering_id="amax_8580_codesys_ready_pac",
             category=PRODUCT_CATEGORY_CODESYS_READY_PAC,
             part_numbers=("AMAX-658-6CCW00A", "AMAX-658-65CW00A", "AMAX-658-67CW00A"),
             cpu_ram_storage="Celeron 3955U 4 GB or Core i5/i7 8 GB; 128 GB M.2",
             os="Windows 10 LTSC 64-bit",
             nvram_mram="2 MB NVRAM",
             software_bundle="CODESYS V3 Pure Control with Visu(HMI)",
-            source_evidence_ids=("amax_5580_user_manual_ed2",),
+            source_evidence_ids=("amax_8580_user_manual_ed2",),
             vendor_confirmation_status=VENDOR_CONFIRMATION_CONFIRMED_BY_MANUAL,
             notes=(
                 "Manual-confirmed ready PAC path; package licensing details still need vendor confirmation.",
@@ -977,8 +977,8 @@ def _default_product_offerings() -> tuple[AMAXProductOffering, ...]:
 
 
 def _default_platform_capabilities() -> tuple[AMAXPlatformCapability, ...]:
-    manual = "amax_5580_user_manual_ed2"
-    driver = "amax_5580_linux_driver_v2_24_1"
+    manual = "amax_8580_user_manual_ed2"
+    driver = "amax_8580_linux_driver_v2_24_1"
     return (
         AMAXPlatformCapability("watchdog", "watchdog", "AMAX hardware / Advantech EC driver", "platform health observe", "read-only evidence or vendor-managed watchdog", (manual, driver), VENDOR_CONFIRMATION_CONFIRMED_BY_MANUAL),
         AMAXPlatformCapability("hwmon", "hwmon", "Advantech EC driver", "platform health observe", "read-only hardware monitor evidence", (driver,), VENDOR_CONFIRMATION_CONFIRMED_BY_MANUAL),
@@ -1007,7 +1007,7 @@ def _default_io_capabilities() -> tuple[AMAX5000IOCapability, ...]:
 
 
 def _default_boundaries() -> tuple[AquaOptimaIntegrationBoundary, ...]:
-    evidence = ("amax_5580_user_manual_ed2", "amax_5000_io_manual_ed5")
+    evidence = ("amax_8580_user_manual_ed2", "amax_5000_io_manual_ed5")
     forbidden = (
         "no live OT binding",
         "no PLC/PAC/SCADA write",
@@ -1025,7 +1025,7 @@ def _default_boundaries() -> tuple[AquaOptimaIntegrationBoundary, ...]:
         AquaOptimaIntegrationBoundary("validation", "validation", OWNER_AQUAOPTIMA_SIDECAR, AQUAOPTIMA_MODE_ADVISORY, ("validate hydraulic consistency and package evidence",), forbidden, evidence),
         AquaOptimaIntegrationBoundary("dry_run_proposals", "dry_run_proposals", OWNER_AQUAOPTIMA_SIDECAR, AQUAOPTIMA_MODE_DRY_RUN_EVIDENCE, ("produce dry-run proposal records for review",), forbidden, evidence),
         AquaOptimaIntegrationBoundary("advisory_evidence_records", "advisory_evidence_records", OWNER_AQUAOPTIMA_SIDECAR, AQUAOPTIMA_MODE_ADVISORY, ("store advisory and audit evidence records",), forbidden, evidence),
-        AquaOptimaIntegrationBoundary("read_only_health_status", "read_only_health_status", OWNER_AQUAOPTIMA_SIDECAR, AQUAOPTIMA_MODE_READ_ONLY_OBSERVE, ("observe platform health/status evidence when exposed by approved site interfaces",), forbidden, ("amax_5580_linux_driver_v2_24_1",)),
+        AquaOptimaIntegrationBoundary("read_only_health_status", "read_only_health_status", OWNER_AQUAOPTIMA_SIDECAR, AQUAOPTIMA_MODE_READ_ONLY_OBSERVE, ("observe platform health/status evidence when exposed by approved site interfaces",), forbidden, ("amax_8580_linux_driver_v2_24_1",)),
     )
 
 
@@ -1062,9 +1062,9 @@ def diagnose_amax_vendor_pac_inventory(
 
     source_ids = {entry.document_id for entry in inventory.sources}
     for required in {
-        "amax_5580_user_manual_ed2",
+        "amax_8580_user_manual_ed2",
         "amax_5000_io_manual_ed5",
-        "amax_5580_linux_driver_v2_24_1",
+        "amax_8580_linux_driver_v2_24_1",
     }:
         if required not in source_ids:
             errors.append(f"missing required evidence source {required}")

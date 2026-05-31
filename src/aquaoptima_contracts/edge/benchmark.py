@@ -1,6 +1,6 @@
 """Sprint 47 — AMAX CPU benchmark / packaging smoke evidence SDK projection.
 
-Sprint 47 promotes the Advantech AMAX-5580 CPU inference feasibility
+Sprint 47 promotes the Advantech AMAX-8580 CPU inference feasibility
 case from datasheet evidence (Sprint 46) to host-derived **surrogate**
 benchmark evidence. This module owns the SDK *shapes* the offline
 benchmark runner and CLI emit:
@@ -23,7 +23,7 @@ performs no hardware probing, no network IO, no PLC/PAC client code,
 no live OT binding, no PLC/PAC/SCADA write, no command emission, no
 setpoint output, no control-loop closure, no model loading, no inline
 model weights. Benchmarks captured here remain evidence-only until run
-on real AMAX-5580 hardware.
+on real AMAX-8580 hardware.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from typing import Any, Mapping, Sequence
 
 from ..base.envelope import ContractError
 from ..safety.vocabulary import FORBIDDEN_VOCABULARY, contains_forbidden_token
-from .hardware_profile import AMAX_5580_PROFILE_ID
+from .hardware_profile import AMAX_8580_PROFILE_ID
 
 
 # ---------------------------------------------------------------------------
@@ -549,7 +549,7 @@ class AMAXBenchmarkReport:
     scenario: AMAXBenchmarkScenario
     metrics: AMAXBenchmarkMetrics
     cadence_classification: str
-    feasibility_profile_id: str = AMAX_5580_PROFILE_ID
+    feasibility_profile_id: str = AMAX_8580_PROFILE_ID
     package_manifest_reference: str = ""
     surrogate_hardware: bool = True
     warnings: tuple[str, ...] = ()
@@ -651,7 +651,7 @@ class AMAXBenchmarkReport:
             metrics=AMAXBenchmarkMetrics.from_dict(data["metrics"]),
             cadence_classification=str(data["cadence_classification"]),
             feasibility_profile_id=str(
-                data.get("feasibility_profile_id", AMAX_5580_PROFILE_ID)
+                data.get("feasibility_profile_id", AMAX_8580_PROFILE_ID)
             ),
             package_manifest_reference=str(
                 data.get("package_manifest_reference", "")
@@ -721,7 +721,7 @@ def canonical_amax_benchmark_scenarios() -> tuple[
     Tuple order is stable: branch first, single-loop second, pump
     third. Sequence length matches the Sprint 3 SCADA window of 32
     steps. Hidden dim, batch size, and thread count are kept small so
-    the harness fits a Celeron / i5 / i7 8 GB AMAX-5580 envelope and
+    the harness fits a Celeron / i5 / i7 8 GB AMAX-8580 envelope and
     is cheap enough for CI on a developer host.
 
     Every record carries audit-only notes that reaffirm the
@@ -748,7 +748,7 @@ def canonical_amax_benchmark_scenarios() -> tuple[
             hidden_dim=16,
             framework="pytorch_cpu",
             thread_count=1,
-            target_hardware_profile_id=AMAX_5580_PROFILE_ID,
+            target_hardware_profile_id=AMAX_8580_PROFILE_ID,
             notes=safety_notes,
         ),
         AMAXBenchmarkScenario(
@@ -764,7 +764,7 @@ def canonical_amax_benchmark_scenarios() -> tuple[
             hidden_dim=16,
             framework="pytorch_cpu",
             thread_count=1,
-            target_hardware_profile_id=AMAX_5580_PROFILE_ID,
+            target_hardware_profile_id=AMAX_8580_PROFILE_ID,
             notes=safety_notes,
         ),
         AMAXBenchmarkScenario(
@@ -780,7 +780,7 @@ def canonical_amax_benchmark_scenarios() -> tuple[
             hidden_dim=16,
             framework="pytorch_cpu",
             thread_count=1,
-            target_hardware_profile_id=AMAX_5580_PROFILE_ID,
+            target_hardware_profile_id=AMAX_8580_PROFILE_ID,
             notes=safety_notes,
         ),
     )

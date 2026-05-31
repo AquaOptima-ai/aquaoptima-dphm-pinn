@@ -1,4 +1,4 @@
-# AMAX-5580 Read-only PLC/SCADA Integration Contract (Sprint 48)
+# AMAX-8580 Read-only PLC/SCADA Integration Contract (Sprint 48)
 
 Sprint 48 defines how an AMAX Edge instance can **read** telemetry from
 site PLC / SCADA / CODESYS-facing systems without controlling anything.

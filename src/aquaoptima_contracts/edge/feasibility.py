@@ -1,7 +1,7 @@
-"""Sprint 46 — AMAX-5580 feasibility evidence SDK projection.
+"""Sprint 46 — AMAX-8580 feasibility evidence SDK projection.
 
 Sprint 46 is an evidence and decision-gate sprint, not an Edge Runtime
-implementation sprint. This module turns the AMAX-5580 datasheet facts
+implementation sprint. This module turns the AMAX-8580 datasheet facts
 and the Sprint 45 SDK assumptions into deterministic, audit-only
 *shapes* the product owner can pin a SKU / OS / runtime path to before
 deeper Edge implementation begins.
@@ -22,7 +22,7 @@ canonical record:
 
 Public surface:
 
-* :class:`AMAXSkuProfile` — frozen Advantech AMAX-5580 CPU / RAM SKU
+* :class:`AMAXSkuProfile` — frozen Advantech AMAX-8580 CPU / RAM SKU
   evidence record. Canonical helper :func:`canonical_amax_sku_profiles`
   enumerates the Celeron 3955U 4 GB constrained-fallback profile and
   the Core i5-6300U 8 GB / Core i7-6600U 8 GB serious-candidate
@@ -40,7 +40,7 @@ Public surface:
   :func:`default_amax_feasibility_decision` returns the Sprint 46
   recommended decision.
 * :func:`recommended_amax_hardware_profile` — bridge to the Sprint 45
-  :func:`amax_5580_cpu_profile` helper that enriches the audit-only
+  :func:`amax_8580_cpu_profile` helper that enriches the audit-only
   notes with Sprint 46 evidence-gap language without breaking the
   Sprint 45 default profile contract.
 
@@ -56,9 +56,9 @@ from typing import Any, Mapping, Sequence
 from ..base.envelope import ContractError
 from ..safety.vocabulary import FORBIDDEN_VOCABULARY, contains_forbidden_token
 from .hardware_profile import (
-    AMAX_5580_PROFILE_ID,
+    AMAX_8580_PROFILE_ID,
     EdgeHardwareProfile,
-    amax_5580_cpu_profile,
+    amax_8580_cpu_profile,
 )
 
 
@@ -235,7 +235,7 @@ def _reject_forbidden_keys(data: Mapping[str, Any], *, label: str) -> None:
 
 @dataclass(frozen=True)
 class AMAXSkuProfile:
-    """Frozen AMAX-5580 CPU / RAM SKU evidence record.
+    """Frozen AMAX-8580 CPU / RAM SKU evidence record.
 
     Audit-only. Captures the Advantech datasheet SKU evidence that
     informs the Sprint 46 feasibility decision. Nothing in this record
@@ -362,7 +362,7 @@ class AMAXSkuProfile:
 class AMAXRuntimeOption:
     """Frozen OS / CODESYS / ML packaging evidence record.
 
-    Audit-only. Captures how a given AMAX-5580 OS + CODESYS runtime
+    Audit-only. Captures how a given AMAX-8580 OS + CODESYS runtime
     combination scores against the Sprint 46 packaging risk model and
     which ML runtime option the feasibility note recommends pairing
     with it. Nothing in this record represents a write, dispatch,
@@ -488,7 +488,7 @@ class AMAXRuntimeOption:
 class AMAXFeasibilityDecision:
     """Frozen Sprint 46 feasibility decision record.
 
-    Audit-only. Carries the recommended AMAX-5580 SKU profile id, the
+    Audit-only. Carries the recommended AMAX-8580 SKU profile id, the
     OS / CODESYS runtime recommendation, the packaging strategy, the
     ML runtime recommendation, the evidence gaps that remain
     surrogate until real AMAX hardware is tested, and the next gate.
@@ -600,9 +600,9 @@ class AMAXFeasibilityDecision:
 
 # Canonical AMAX SKU profile identifiers. Adding additional canonical
 # SKU ids is an SDK MINOR bump; repurposing or removing is MAJOR.
-AMAX_SKU_CELERON_3955U_4GB: str = "advantech_amax_5580_celeron_3955u_4gb"
-AMAX_SKU_CORE_I5_6300U_8GB: str = "advantech_amax_5580_core_i5_6300u_8gb"
-AMAX_SKU_CORE_I7_6600U_8GB: str = "advantech_amax_5580_core_i7_6600u_8gb"
+AMAX_SKU_CELERON_3955U_4GB: str = "advantech_amax_8580_celeron_3955u_4gb"
+AMAX_SKU_CORE_I5_6300U_8GB: str = "advantech_amax_8580_core_i5_6300u_8gb"
+AMAX_SKU_CORE_I7_6600U_8GB: str = "advantech_amax_8580_core_i7_6600u_8gb"
 
 
 # Canonical AMAX runtime option identifiers.
@@ -618,7 +618,7 @@ AMAX_RUNTIME_LINUX_CONTAINER_SIDECAR: str = (
 
 
 def canonical_amax_sku_profiles() -> tuple[AMAXSkuProfile, ...]:
-    """Return the canonical Sprint 46 AMAX-5580 SKU evidence tuple.
+    """Return the canonical Sprint 46 AMAX-8580 SKU evidence tuple.
 
     Tuple order is stable: Celeron 3955U / 4 GB constrained fallback
     first, Core i5-6300U / 8 GB serious candidate second, Core
@@ -630,7 +630,7 @@ def canonical_amax_sku_profiles() -> tuple[AMAXSkuProfile, ...]:
     return (
         AMAXSkuProfile(
             sku_id=AMAX_SKU_CELERON_3955U_4GB,
-            sku_name="AMAX-5580 Celeron 3955U 4 GB",
+            sku_name="AMAX-8580 Celeron 3955U 4 GB",
             cpu_family="intel_celeron",
             cpu_model="celeron_3955u",
             cpu_clock_ghz=2.0,
@@ -649,7 +649,7 @@ def canonical_amax_sku_profiles() -> tuple[AMAXSkuProfile, ...]:
         ),
         AMAXSkuProfile(
             sku_id=AMAX_SKU_CORE_I5_6300U_8GB,
-            sku_name="AMAX-5580 Core i5-6300U 8 GB",
+            sku_name="AMAX-8580 Core i5-6300U 8 GB",
             cpu_family="intel_core",
             cpu_model="core_i5_6300u",
             cpu_clock_ghz=2.4,
@@ -668,7 +668,7 @@ def canonical_amax_sku_profiles() -> tuple[AMAXSkuProfile, ...]:
         ),
         AMAXSkuProfile(
             sku_id=AMAX_SKU_CORE_I7_6600U_8GB,
-            sku_name="AMAX-5580 Core i7-6600U 8 GB",
+            sku_name="AMAX-8580 Core i7-6600U 8 GB",
             cpu_family="intel_core",
             cpu_model="core_i7_6600u",
             cpu_clock_ghz=2.6,
@@ -678,7 +678,7 @@ def canonical_amax_sku_profiles() -> tuple[AMAXSkuProfile, ...]:
             notes=(
                 "Core i7-6600U dual core at 2.6 GHz with 8 GB RAM",
                 "recommended candidate for Sprint 47 CPU inference benchmarking",
-                "highest clock among AMAX-5580 SKUs in scope",
+                "highest clock among AMAX-8580 SKUs in scope",
                 "no live OT binding",
                 "no PLC/PAC/SCADA write",
                 "no command emission",
@@ -764,13 +764,13 @@ def default_amax_feasibility_decision() -> AMAXFeasibilityDecision:
     """Return the Sprint 46 recommended AMAX feasibility decision.
 
     The recommendation is the Core i5-6300U or Core i7-6600U 8 GB
-    AMAX-5580 SKU, AdvLinuxTU v2.0.5.4 (Ubuntu 18 based) with
+    AMAX-8580 SKU, AdvLinuxTU v2.0.5.4 (Ubuntu 18 based) with
     CODESYS Linux Control V3 SP20, direct PyTorch CPU packaging as
     the Sprint 47 benchmark baseline (with ONNX Runtime CPU and
     OpenVINO queued as follow-ups), and a Windows + CODESYS Control
     RTE V3.5 SP20 fallback only when site requirements demand it.
 
-    The evidence remains surrogate until real AMAX-5580 hardware is
+    The evidence remains surrogate until real AMAX-8580 hardware is
     tested — the ``evidence_gaps`` tuple records that explicitly. The
     canonical record also reaffirms the non-negotiable safety
     boundary: no live OT binding, no PLC/PAC/SCADA write, no command
@@ -779,7 +779,7 @@ def default_amax_feasibility_decision() -> AMAXFeasibilityDecision:
     return AMAXFeasibilityDecision(
         recommended_sku_profile_id=AMAX_SKU_CORE_I5_6300U_8GB,
         os_runtime_recommendation=(
-            "advantech-amax-5580-i5-or-i7-8gb-linux-codesys-cpu-first"
+            "advantech-amax-8580-i5-or-i7-8gb-linux-codesys-cpu-first"
         ),
         packaging_strategy=(
             "direct pytorch cpu install on AdvLinuxTU; container sidecar as low-risk fallback"
@@ -788,7 +788,7 @@ def default_amax_feasibility_decision() -> AMAXFeasibilityDecision:
             "pytorch_cpu first; onnx_runtime_cpu and openvino queued for Sprint 47 benchmarking"
         ),
         evidence_gaps=(
-            "surrogate evidence only until real AMAX-5580 hardware is in hand",
+            "surrogate evidence only until real AMAX-8580 hardware is in hand",
             "Python >= 3.10 wheel availability on Ubuntu 18 not yet verified on AdvLinuxTU",
             "modern PyTorch CPU wheel glibc requirement not yet verified on AdvLinuxTU",
             "CPU inference latency / memory / thread policy not yet measured on real AMAX hardware",
@@ -814,14 +814,14 @@ def recommended_amax_hardware_profile() -> EdgeHardwareProfile:
     """Bridge the Sprint 46 feasibility decision to a Sprint 45 profile.
 
     Returns an :class:`EdgeHardwareProfile` whose identifier matches the
-    canonical Sprint 45 :func:`amax_5580_cpu_profile` and whose
+    canonical Sprint 45 :func:`amax_8580_cpu_profile` and whose
     ``notes`` are enriched with the Sprint 46 evidence-gap language.
     The bridge does **not** change the Sprint 45 default profile
-    contract; calling :func:`amax_5580_cpu_profile` keeps returning
+    contract; calling :func:`amax_8580_cpu_profile` keeps returning
     the original Sprint 45 value. Downstream code that wants the
     Sprint 46 evidence-aware variant calls this helper explicitly.
     """
-    base = amax_5580_cpu_profile()
+    base = amax_8580_cpu_profile()
     enriched_notes = base.notes + (
         "Sprint 46 feasibility evidence profile (surrogate)",
         "recommended SKU tier: serious_candidate or recommended_candidate (i5/i7 8 GB)",
@@ -863,7 +863,7 @@ __all__ = [
 ]
 
 
-# AMAX_5580_PROFILE_ID is re-exported for convenience: callers that
+# AMAX_8580_PROFILE_ID is re-exported for convenience: callers that
 # only import from this module can reach the canonical Sprint 45
 # profile identifier without a second import path.
-_ = AMAX_5580_PROFILE_ID
+_ = AMAX_8580_PROFILE_ID

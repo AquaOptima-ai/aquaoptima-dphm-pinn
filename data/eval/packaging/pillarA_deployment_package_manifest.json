@@ -144,7 +144,7 @@
       }
     }
   ],
-  "notes": "AOPSO Sprint 36 Pillar-A Linux audit-evidence package for the AMAX-5580 x86_64 CPU profile. Offline / shadow use only; the container image runs read-only with no network and a non-root user. The site PLC retains direct VFD / pump / actuator authority.",
+  "notes": "AOPSO Sprint 36 Pillar-A Linux audit-evidence package for the AMAX-8580 x86_64 CPU profile. Offline / shadow use only; the container image runs read-only with no network and a non-root user. The site PLC retains direct VFD / pump / actuator authority.",
   "package_id": "aopso-pillarA-linux-advisory-package",
   "package_version": "sprint36-r0",
   "provenance": {

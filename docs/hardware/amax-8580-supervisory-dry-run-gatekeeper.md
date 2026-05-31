@@ -1,4 +1,4 @@
-# AMAX-5580 Supervisory Proposal Dry-run / PLC Gatekeeper Contract (Sprint 50)
+# AMAX-8580 Supervisory Proposal Dry-run / PLC Gatekeeper Contract (Sprint 50)
 
 Sprint 50 defines a **simulated supervisory proposal / PLC gatekeeper
 contract** that names the *structure* of future autonomy work without

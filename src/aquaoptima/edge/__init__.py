@@ -6,7 +6,7 @@ helpers are not an Edge Runtime daemon, not an HTTP / network /
 database / message-broker client, not a PLC/PAC/SCADA client, and they
 do not perform live OT binding, write paths, command emission, setpoint
 output, or control-loop closure. Host-derived benchmark output is
-explicitly labelled surrogate until executed on real AMAX-5580 hardware.
+explicitly labelled surrogate until executed on real AMAX-8580 hardware.
 """
 
 from .benchmark import (

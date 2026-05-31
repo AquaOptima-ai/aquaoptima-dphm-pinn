@@ -161,7 +161,7 @@ FAILURE_MODE_CATEGORIES: frozenset[str] = frozenset(
 # Canonical Sprint 49 evidence package identifier. Adding additional
 # canonical ids is an SDK MINOR bump; repurposing or removing is MAJOR.
 AMAX_SITE_DEPLOYMENT_EVIDENCE_PACKAGE_ID: str = (
-    "amax_5580_site_deployment_evidence_package_v1"
+    "amax_8580_site_deployment_evidence_package_v1"
 )
 
 
@@ -1174,10 +1174,10 @@ def default_amax_deployment_readiness_checklist() -> (
 
     items = (
         DeploymentReadinessItem(
-            item_id="readiness_sku_amax_5580_serious_candidate",
+            item_id="readiness_sku_amax_8580_serious_candidate",
             category=READINESS_CATEGORY_SKU,
             description=(
-                "AMAX-5580 SKU pinned to a Sprint 46 serious-candidate "
+                "AMAX-8580 SKU pinned to a Sprint 46 serious-candidate "
                 "(Core i5-6300U 8 GB or Core i7-6600U 8 GB) per site BOM"
             ),
             evidence_reference="sprint_46_amax_feasibility_decision",
@@ -1379,7 +1379,7 @@ def default_amax_deployment_readiness_checklist() -> (
     )
 
     return AMAXDeploymentReadinessChecklist(
-        checklist_id="amax_5580_site_deployment_readiness_checklist_v1",
+        checklist_id="amax_8580_site_deployment_readiness_checklist_v1",
         items=items,
         notes=(
             "Sprint 49 ships a deployment readiness checklist, not a site "
@@ -1398,14 +1398,14 @@ def default_amax_ot_certification_evidence() -> AMAXOTCertificationEvidence:
     """
 
     return AMAXOTCertificationEvidence(
-        evidence_id="amax_5580_ot_certification_evidence_v1",
+        evidence_id="amax_8580_ot_certification_evidence_v1",
         hardware_certifications=(
-            "advantech_amax_5580_ce_marking_label",
-            "advantech_amax_5580_fcc_part_15_label",
-            "advantech_amax_5580_ul_industrial_control_label",
-            "advantech_amax_5580_en_61131_2_label",
-            "advantech_amax_5580_iec_61010_1_label",
-            "advantech_amax_5580_class_1_div_2_where_applicable_label",
+            "advantech_amax_8580_ce_marking_label",
+            "advantech_amax_8580_fcc_part_15_label",
+            "advantech_amax_8580_ul_industrial_control_label",
+            "advantech_amax_8580_en_61131_2_label",
+            "advantech_amax_8580_iec_61010_1_label",
+            "advantech_amax_8580_class_1_div_2_where_applicable_label",
         ),
         system_qualifications_required=(
             "aquaoptima_system_fat_evidence_required",
@@ -1663,10 +1663,10 @@ def default_amax_site_deployment_evidence_package() -> (
             "sprint_46_amax_feasibility_decision",
             "sprint_47_amax_benchmark_report",
             "sprint_48_amax_read_only_integration_contract",
-            "docs/hardware/amax-5580-feasibility.md",
-            "docs/hardware/amax-5580-cpu-benchmarking.md",
-            "docs/hardware/amax-5580-read-only-integration.md",
-            "docs/hardware/amax-5580-site-deployment-readiness.md",
+            "docs/hardware/amax-8580-feasibility.md",
+            "docs/hardware/amax-8580-cpu-benchmarking.md",
+            "docs/hardware/amax-8580-read-only-integration.md",
+            "docs/hardware/amax-8580-site-deployment-readiness.md",
         ),
         next_gate=(
             "Sprint 50 — simulated supervisory proposal / PLC gatekeeper "

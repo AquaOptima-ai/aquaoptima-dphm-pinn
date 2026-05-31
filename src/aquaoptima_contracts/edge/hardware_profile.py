@@ -1,7 +1,7 @@
-"""``EdgeHardwareProfile`` and the canonical AMAX-5580 helper.
+"""``EdgeHardwareProfile`` and the canonical AMAX-8580 helper.
 
 Audit-only contract shape that describes what an Edge instance is
-running on. Sprint 45 ships the canonical AMAX-5580 profile and the
+running on. Sprint 45 ships the canonical AMAX-8580 profile and the
 ``EDGE_REJECTED_ACCELERATOR_TOKENS`` denylist that the package
 validator uses to refuse default-edge packages requiring CUDA,
 TensorRT, Jetson, Orin, or ARM64 acceleration. Nothing in this
@@ -27,11 +27,11 @@ from ..safety.vocabulary import FORBIDDEN_VOCABULARY, contains_forbidden_token
 
 # Canonical AMAX profile identifier. Adding additional canonical
 # profile IDs is an SDK MINOR bump; repurposing or removing is MAJOR.
-AMAX_5580_PROFILE_ID: str = "advantech_amax_5580"
+AMAX_8580_PROFILE_ID: str = "advantech_amax_8580"
 
 
 # Allowed runtime classes for an Edge profile. ``industrial_pac``
-# covers the AMAX-5580 / PAC-class controllers. ``edge_x86_generic``
+# covers the AMAX-8580 / PAC-class controllers. ``edge_x86_generic``
 # covers other x86_64 industrial / supervisory CPUs.
 EDGE_RUNTIME_CLASSES: frozenset[str] = frozenset(
     {
@@ -282,14 +282,14 @@ class EdgeHardwareProfile:
 
 
 # ---------------------------------------------------------------------------
-# Canonical AMAX-5580 helper
+# Canonical AMAX-8580 helper
 # ---------------------------------------------------------------------------
 
 
-def amax_5580_cpu_profile() -> EdgeHardwareProfile:
-    """Return the canonical AMAX-5580 CPU-first profile.
+def amax_8580_cpu_profile() -> EdgeHardwareProfile:
+    """Return the canonical AMAX-8580 CPU-first profile.
 
-    The AMAX-5580 is an Advantech PAC-class x86_64 industrial
+    The AMAX-8580 is an Advantech PAC-class x86_64 industrial
     controller. The default profile declares CPU-first PyTorch /
     ONNX / TFLite / audit-only frameworks and **no** CUDA / TensorRT /
     Jetson / Orin acceleration. The canonical profile must be safe to
@@ -302,9 +302,9 @@ def amax_5580_cpu_profile() -> EdgeHardwareProfile:
     The site PLC remains the direct VFD / pump / actuator authority.
     """
     return EdgeHardwareProfile(
-        profile_id=AMAX_5580_PROFILE_ID,
+        profile_id=AMAX_8580_PROFILE_ID,
         vendor="advantech",
-        model="amax_5580",
+        model="amax_8580",
         architecture="x86_64",
         os_family="linux",
         runtime_class="industrial_pac",
@@ -317,7 +317,7 @@ def amax_5580_cpu_profile() -> EdgeHardwareProfile:
         ),
         python_versions=("3.10", "3.11"),
         notes=(
-            "primary AMAX-5580 CPU-first profile",
+            "primary AMAX-8580 CPU-first profile",
             "no live OT binding",
             "no PLC/PAC/SCADA write",
             "no command emission",

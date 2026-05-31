@@ -45,7 +45,7 @@ That chain should be preserved as compatibility evidence and redistributed into 
 
 The Edge Runtime is the plant-adjacent runtime for offline, mock,
 dry-run, and read-only shadow behavior. For Sprint 45+ planning the
-primary hardware target is the **Advantech AMAX-5580** class of PAC /
+primary hardware target is the **Advantech AMAX-8580** class of PAC /
 industrial controller: x86_64, CPU-first, CODESYS / industrial-protocol
 capable, and deployed as an OT-side supervisory edge asset. It is
 designed to coexist with existing site PLCs and pump-station PLCs;
@@ -54,7 +54,7 @@ those PLCs remain the direct VFD / pump / actuator authority.
 ### Owns
 
 - Edge process lifecycle.
-- AMAX-5580 / x86_64 PAC-class hardware capability validation.
+- AMAX-8580 / x86_64 PAC-class hardware capability validation.
 - Local telemetry ingestion adapters, initially mock/file/replay only.
 - Local tag-map validation using Shared Contracts / SDK types.
 - Local replay or streaming frame construction.
@@ -92,7 +92,7 @@ those PLCs remain the direct VFD / pump / actuator authority.
 
 ### Primary Edge hardware target for Sprint 45+
 
-The default Edge target is **AMAX-5580 / x86_64 / CPU-first**. The Edge
+The default Edge target is **AMAX-8580 / x86_64 / CPU-first**. The Edge
 package validator must not assume CUDA, TensorRT, Jetson, Orin, ARM64,
 or NVIDIA JetPack. CPU PyTorch is the default model runtime; ONNX
 Runtime CPU or OpenVINO may be added later if benchmarks justify it.
@@ -220,7 +220,7 @@ The Shared Contracts / SDK is a non-deployable package used by all three deploya
                                | read-only APIs, manifests
                                |
 +------------------------------|--------------------------------+
-|         Edge / AMAX-5580 Industrial Controller                 |
+|         Edge / AMAX-8580 Industrial Controller                 |
 |                                                               |
 |  +---------------------------------------------------------+  |
 |  | Edge Runtime                                             |  |

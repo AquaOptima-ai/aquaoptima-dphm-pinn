@@ -1,6 +1,6 @@
 """Sprint 47 — AMAX CPU benchmark / packaging smoke SDK contracts.
 
-Acceptance: the SDK projects the AMAX-5580 CPU benchmark scenario /
+Acceptance: the SDK projects the AMAX-8580 CPU benchmark scenario /
 metrics / report shapes and the supervisory cadence classifier;
 canonical scenarios are deterministic and reaffirm the non-negotiable
 safety boundary (no live OT binding, no PLC/PAC/SCADA write, no command
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from aquaoptima_contracts import (
-    AMAX_5580_PROFILE_ID,
+    AMAX_8580_PROFILE_ID,
     AMAX_BENCHMARK_CADENCE_BUCKETS,
     AMAX_BENCHMARK_FRAMEWORKS,
     AMAX_BENCHMARK_SCENARIO_BRANCH,
@@ -53,7 +53,7 @@ def test_canonical_scenarios_carry_size_and_thread_metadata() -> None:
         assert scenario.hidden_dim >= 1
         assert scenario.thread_count >= 1
         assert scenario.framework in AMAX_BENCHMARK_FRAMEWORKS
-        assert scenario.target_hardware_profile_id == AMAX_5580_PROFILE_ID
+        assert scenario.target_hardware_profile_id == AMAX_8580_PROFILE_ID
 
 
 def test_canonical_scenarios_carry_safety_phrases() -> None:
@@ -86,7 +86,7 @@ def test_scenario_rejects_unknown_framework() -> None:
             hidden_dim=16,
             framework="cuda_tensorrt",
             thread_count=1,
-            target_hardware_profile_id=AMAX_5580_PROFILE_ID,
+            target_hardware_profile_id=AMAX_8580_PROFILE_ID,
         )
 
 
@@ -102,7 +102,7 @@ def test_scenario_rejects_non_positive_dimensions() -> None:
             hidden_dim=16,
             framework="pytorch_cpu",
             thread_count=1,
-            target_hardware_profile_id=AMAX_5580_PROFILE_ID,
+            target_hardware_profile_id=AMAX_8580_PROFILE_ID,
         )
 
 
@@ -171,7 +171,7 @@ def _make_valid_report(**overrides) -> AMAXBenchmarkReport:
         scenario=scenario,
         metrics=metrics,
         cadence_classification="sub_1s_supervisory",
-        feasibility_profile_id=AMAX_5580_PROFILE_ID,
+        feasibility_profile_id=AMAX_8580_PROFILE_ID,
         package_manifest_reference="",
         surrogate_hardware=True,
         warnings=(),

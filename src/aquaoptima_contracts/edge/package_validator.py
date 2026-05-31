@@ -359,7 +359,7 @@ def validate_deployment_package_for_edge(
     contract already forbids live OT binding, PLC/PAC/SCADA write,
     command emission, setpoint output, and control-loop closure
     vocabulary anywhere in its fields. This validator only adds
-    target-fit checks for the AMAX-5580 default profile and is pure
+    target-fit checks for the AMAX-8580 default profile and is pure
     value computation; no IO, no model loading, no live OT binding,
     no PLC/PAC/SCADA write, no command emission, no setpoint output,
     and no control-loop closure happens here.

@@ -1,7 +1,7 @@
-# AMAX-5580 CPU Benchmark / Packaging Smoke Harness (Sprint 47)
+# AMAX-8580 CPU Benchmark / Packaging Smoke Harness (Sprint 47)
 
 Sprint 47 ships an **offline, CPU-only** dPHM-PINN benchmark and
-packaging smoke harness for the Advantech AMAX-5580 primary Edge target.
+packaging smoke harness for the Advantech AMAX-8580 primary Edge target.
 This document is the audit-only companion to:
 
 - `src/aquaoptima_contracts/edge/benchmark.py` — SDK dataclasses
@@ -25,13 +25,13 @@ The harness produces **surrogate** evidence that:
 - the SDK contract shapes (`AMAXBenchmarkScenario`,
   `AMAXBenchmarkMetrics`, `AMAXBenchmarkReport`) round-trip through
   canonical JSON byte-for-byte;
-- the harness can be re-run on actual AMAX-5580 hardware later
+- the harness can be re-run on actual AMAX-8580 hardware later
   without any code change (the `--mark-real-hardware` flag flips the
   surrogate evidence flag).
 
 ## What this sprint explicitly does NOT prove
 
-Host-derived runs are **surrogate** until executed on real AMAX-5580
+Host-derived runs are **surrogate** until executed on real AMAX-8580
 hardware. The harness must never be interpreted as:
 
 - a real-time control safety proof;
@@ -86,7 +86,7 @@ python scripts/run_amax_cpu_benchmark.py \
 The CLI prints a per-scenario table and writes a deterministic JSON
 report through the SDK's canonical writer. Host-derived runs default
 to surrogate evidence; pass `--mark-real-hardware` only when the run
-is executed on an actual AMAX-5580 device.
+is executed on an actual AMAX-8580 device.
 
 ## Boundary (reaffirmed)
 

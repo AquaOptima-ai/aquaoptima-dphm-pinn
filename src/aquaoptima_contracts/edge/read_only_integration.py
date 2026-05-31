@@ -1344,7 +1344,7 @@ class ReplayToLiveEquivalenceEvidence:
 # Canonical Sprint 48 contract identifier. Adding additional canonical
 # contract ids is an SDK MINOR bump; repurposing or removing is MAJOR.
 AMAX_READ_ONLY_INTEGRATION_CONTRACT_ID: str = (
-    "amax_5580_read_only_integration_v1"
+    "amax_8580_read_only_integration_v1"
 )
 
 

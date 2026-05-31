@@ -1,6 +1,6 @@
 """Sprint 46 — AMAX feasibility evidence / SKU & OS decision gate.
 
-Acceptance: the SDK projects the AMAX-5580 SKU evidence, OS / CODESYS
+Acceptance: the SDK projects the AMAX-8580 SKU evidence, OS / CODESYS
 runtime evidence, and the recommended feasibility decision; canonical
 records are deterministic and reaffirm the non-negotiable safety
 boundary (no live OT binding, no PLC/PAC/SCADA write, no command
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from aquaoptima_contracts import (
-    AMAX_5580_PROFILE_ID,
+    AMAX_8580_PROFILE_ID,
     AMAX_CODESYS_RUNTIMES,
     AMAX_ML_RUNTIME_OPTIONS,
     AMAX_OS_FAMILIES,
@@ -29,7 +29,7 @@ from aquaoptima_contracts import (
     AMAXSkuProfile,
     ContractError,
     EdgeHardwareProfile,
-    amax_5580_cpu_profile,
+    amax_8580_cpu_profile,
     canonical_amax_runtime_options,
     canonical_amax_sku_profiles,
     default_amax_feasibility_decision,
@@ -96,8 +96,8 @@ def test_sku_profile_safety_phrases_present() -> None:
 def test_sku_profile_rejects_unknown_tier() -> None:
     with pytest.raises(ContractError):
         AMAXSkuProfile(
-            sku_id="advantech_amax_5580_test",
-            sku_name="AMAX-5580 Test",
+            sku_id="advantech_amax_8580_test",
+            sku_name="AMAX-8580 Test",
             cpu_family="intel_core",
             cpu_model="core_test",
             cpu_clock_ghz=2.0,
@@ -111,8 +111,8 @@ def test_sku_profile_rejects_unknown_tier() -> None:
 def test_sku_profile_rejects_non_positive_cores() -> None:
     with pytest.raises(ContractError):
         AMAXSkuProfile(
-            sku_id="advantech_amax_5580_test",
-            sku_name="AMAX-5580 Test",
+            sku_id="advantech_amax_8580_test",
+            sku_name="AMAX-8580 Test",
             cpu_family="intel_core",
             cpu_model="core_test",
             cpu_clock_ghz=2.0,
@@ -125,8 +125,8 @@ def test_sku_profile_rejects_non_positive_cores() -> None:
 def test_sku_profile_rejects_non_positive_clock() -> None:
     with pytest.raises(ContractError):
         AMAXSkuProfile(
-            sku_id="advantech_amax_5580_test",
-            sku_name="AMAX-5580 Test",
+            sku_id="advantech_amax_8580_test",
+            sku_name="AMAX-8580 Test",
             cpu_family="intel_core",
             cpu_model="core_test",
             cpu_clock_ghz=-1.0,
@@ -352,19 +352,19 @@ def test_decision_rejects_unknown_field() -> None:
 
 def test_recommended_amax_hardware_profile_matches_sprint45_profile_id() -> None:
     bridged = recommended_amax_hardware_profile()
-    sprint45 = amax_5580_cpu_profile()
+    sprint45 = amax_8580_cpu_profile()
     assert isinstance(bridged, EdgeHardwareProfile)
     assert bridged.profile_id == sprint45.profile_id
-    assert bridged.profile_id == AMAX_5580_PROFILE_ID
+    assert bridged.profile_id == AMAX_8580_PROFILE_ID
     assert bridged.architecture == sprint45.architecture
     assert bridged.os_family == sprint45.os_family
     assert bridged.runtime_class == sprint45.runtime_class
 
 
 def test_recommended_amax_hardware_profile_does_not_mutate_sprint45_helper() -> None:
-    sprint45_before = amax_5580_cpu_profile()
+    sprint45_before = amax_8580_cpu_profile()
     recommended_amax_hardware_profile()
-    sprint45_after = amax_5580_cpu_profile()
+    sprint45_after = amax_8580_cpu_profile()
     assert sprint45_before == sprint45_after
 
 

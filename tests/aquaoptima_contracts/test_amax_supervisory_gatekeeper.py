@@ -67,7 +67,7 @@ SUPERVISORY_DOC_PATH = (
     REPO_ROOT
     / "docs"
     / "hardware"
-    / "amax-5580-supervisory-dry-run-gatekeeper.md"
+    / "amax-8580-supervisory-dry-run-gatekeeper.md"
 )
 
 

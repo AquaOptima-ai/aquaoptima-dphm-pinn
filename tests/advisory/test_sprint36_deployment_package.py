@@ -12,7 +12,7 @@ What this suite proves (offline, advisory-only, no Docker daemon required):
   :func:`build_pillarA_deployment_package_manifest` builder constructs a
   valid :class:`DeploymentPackageManifest` (no ``ContractError``) AND that
   manifest passes :func:`validate_deployment_package_for_edge` against the
-  canonical AMAX-5580 declaration with zero errors.
+  canonical AMAX-8580 declaration with zero errors.
 
 * The model record inside the manifest carries the canonical all-True
   :class:`SafetyFlagSet`, the matching capability requirement, the

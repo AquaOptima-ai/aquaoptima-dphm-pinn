@@ -13,7 +13,7 @@ that wraps the Sprint-35 ONNX :class:`ModelArtifactRecord`. The manifest:
 * embeds the existing Sprint-35 :class:`ModelArtifactRecord` in the
   ``model_artifacts`` tuple verbatim;
 * MUST pass :func:`validate_deployment_package_for_edge` against the
-  canonical AMAX-5580 CPU profile -- the package is the input to the
+  canonical AMAX-8580 CPU profile -- the package is the input to the
   Edge package validator described in the contracts inventory.
 
 Boundary -- non-negotiable
@@ -58,7 +58,7 @@ PILLARA_DEPLOYMENT_PACKAGE_ID: str = "aopso-pillarA-linux-advisory-package"
 PILLARA_DEPLOYMENT_PACKAGE_VERSION: str = "sprint36-r0"
 
 # The validation capability bundle required to load and audit this
-# package on an AMAX-5580 Edge target. Mirrors the canonical AMAX
+# package on an AMAX-8580 Edge target. Mirrors the canonical AMAX
 # package-validation-only token set so the Edge validator's capability
 # gate accepts the manifest against
 # ``default_amax_edge_capability_declaration``.
@@ -302,7 +302,7 @@ def build_pillarA_deployment_package_manifest(
     )
     default_notes = (
         "AOPSO Sprint 36 Pillar-A Linux audit-evidence package for the "
-        "AMAX-5580 x86_64 CPU profile. Offline / shadow use only; the "
+        "AMAX-8580 x86_64 CPU profile. Offline / shadow use only; the "
         "container image runs read-only with no network and a non-root "
         "user. The site PLC retains direct VFD / pump / actuator authority."
     )
