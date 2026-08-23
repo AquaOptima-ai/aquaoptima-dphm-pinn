@@ -30,6 +30,8 @@ src/aquaoptima/
 
 Detailed map: see [`docs/architecture.md`](docs/architecture.md).
 
+Product owner orientation: see [`docs/product/po-orientation-brief.md`](docs/product/po-orientation-brief.md) for the 5-10 minute explanation of MVP v1, dPHM, dPHM-PINN, site fit, and the current Q&A ledger.
+
 ## Status
 
 - **Tests:** 183 tests, all passing (Sprint 4 had 154; Sprint 4.5
